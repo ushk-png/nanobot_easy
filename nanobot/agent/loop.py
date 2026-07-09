@@ -199,6 +199,8 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int | None = None,
         max_concurrent_subagents: int | None = None,
+        subagent_profiles: dict[str, Any] | None = None,
+        max_subagent_depth: int | None = None,
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
         max_tool_result_chars: int | None = None,
@@ -305,6 +307,8 @@ class AgentLoop:
             max_concurrent_subagents=max_concurrent_subagents,
             fail_on_tool_error=fail_on_tool_error,
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
+            profiles=subagent_profiles if subagent_profiles is not None else defaults.subagent_profiles,
+            max_depth=max_subagent_depth if max_subagent_depth is not None else defaults.max_subagent_depth,
         )
         self._unified_session = unified_session
         self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
@@ -402,6 +406,8 @@ class AgentLoop:
             model=model,
             max_iterations=defaults.max_tool_iterations,
             max_concurrent_subagents=defaults.max_concurrent_subagents,
+            subagent_profiles=defaults.subagent_profiles,
+            max_subagent_depth=defaults.max_subagent_depth,
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
             max_tool_result_chars=defaults.max_tool_result_chars,

@@ -1,8 +1,7 @@
-"""Spawn tool for creating background subagents."""
+"""Delegate tool for synchronous subagent execution."""
 
 from __future__ import annotations
 
-import inspect
 from contextvars import ContextVar
 from typing import TYPE_CHECKING, Any
 
@@ -17,73 +16,69 @@ if TYPE_CHECKING:
 
 @tool_parameters(
     tool_parameters_schema(
-        task=StringSchema("The task for the subagent to complete"),
         profile=StringSchema(
             "Subagent profile to use. MUST be one of the profiles listed in the "
             "tool description. Choose based on each profile's when_to_use / "
             "when_not_to_use criteria."
         ),
-        expected_output=StringSchema(
-            "What the subagent must return when done: required format, content, "
-            "and acceptance criteria. Be specific."
+        task=StringSchema(
+            "The self-contained task for the subagent to complete. Include paths, "
+            "constraints, and concrete references; do not rely on conversation context."
         ),
-        label=StringSchema("Optional short label for the task (for display)"),
+        expected_output=StringSchema(
+            "What the subagent must return: required format, content, and acceptance criteria."
+        ),
+        context=StringSchema(
+            "Optional explicit context needed for the task, such as prior findings, "
+            "requirements, file paths, or decisions.",
+            nullable=True,
+        ),
         temperature=NumberSchema(
             description=(
                 "Optional sampling temperature for the subagent "
                 "(0.0 = deterministic, higher = more creative). "
-                "Defaults to the provider's configured temperature."
+                "Defaults to the profile or provider configuration."
             ),
             minimum=0.0,
             maximum=2.0,
         ),
-        required=["task", "profile", "expected_output"],
+        required=["profile", "task", "expected_output"],
     )
 )
-class SpawnTool(Tool, ContextAware):
-    """Tool to spawn a specialized subagent for background task execution."""
+class DelegateTool(Tool, ContextAware):
+    """Tool to run a specialized subagent synchronously."""
 
-    _scopes = {"core", "subagent"}
-
-    def __init__(self, manager: "SubagentManager", depth: int = 0):
+    def __init__(self, manager: "SubagentManager"):
         self._manager = manager
-        self._depth = depth
-        self._origin_channel: ContextVar[str] = ContextVar("spawn_origin_channel", default="cli")
-        self._origin_chat_id: ContextVar[str] = ContextVar("spawn_origin_chat_id", default="direct")
-        self._session_key: ContextVar[str] = ContextVar("spawn_session_key", default="cli:direct")
-        self._origin_message_id: ContextVar[str | None] = ContextVar(
-            "spawn_origin_message_id",
-            default=None,
-        )
+        self._origin_channel: ContextVar[str] = ContextVar("delegate_origin_channel", default="cli")
+        self._origin_chat_id: ContextVar[str] = ContextVar("delegate_origin_chat_id", default="direct")
+        self._session_key: ContextVar[str] = ContextVar("delegate_session_key", default="cli:direct")
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        return cls(manager=ctx.subagent_manager, depth=getattr(ctx, "subagent_depth", 0))
+        return cls(manager=ctx.subagent_manager)
 
     def set_context(self, ctx: RequestContext) -> None:
-        """Set the origin context for subagent announcements."""
+        """Set the origin context for subagent execution."""
         self._origin_channel.set(ctx.channel)
         self._origin_chat_id.set(ctx.chat_id)
         self._session_key.set(ctx.session_key or f"{ctx.channel}:{ctx.chat_id}")
-        self._origin_message_id.set(ctx.message_id)
 
     @property
     def name(self) -> str:
-        return "spawn"
+        return "delegate"
 
     @property
     def description(self) -> str:
         lines = [
-            "Spawn a specialized subagent to handle a task in the background.",
-            "Use this for complex or time-consuming tasks that can run independently.",
-            "The subagent will complete the task and report back when done.",
-            "For deliverables or existing projects, inspect the workspace first "
-            "and use a dedicated subdirectory when helpful.",
+            "Run a specialized subagent synchronously and return its final result immediately.",
+            "Use this when the current task depends on the subagent result before continuing.",
+            "For long-running or parallel independent work, use spawn instead.",
             "Pick the profile whose when_to_use best matches the task. "
             "Never pick a profile whose when_not_to_use matches the task.",
             "The task must be self-contained: avoid pronouns and include relevant "
             "paths, URLs, constraints, and context because the subagent cannot see "
-            "the current conversation.",
+            "the current conversation unless you pass it in context.",
             "",
             "Available profiles:",
         ]
@@ -100,21 +95,21 @@ class SpawnTool(Tool, ContextAware):
 
     async def execute(
         self,
-        task: str,
         profile: str = "",
+        task: str = "",
         expected_output: str = "",
-        label: str | None = None,
+        context: str | None = None,
         temperature: float | None = None,
         **kwargs: Any,
     ) -> str:
-        """Spawn a subagent to execute the given task."""
+        """Delegate a task and wait for the result."""
         running = self._manager.get_running_count()
         limit = self._manager.max_concurrent_subagents
         if running >= limit:
             return (
-                f"Cannot spawn subagent: concurrency limit reached "
+                f"Cannot delegate subagent: concurrency limit reached "
                 f"({running}/{limit} running). Wait for a running subagent "
-                f"to complete before spawning a new one."
+                f"to complete before delegating a new one."
             )
         profiles = getattr(self._manager, "profiles", {})
         if profiles and profile not in profiles:
@@ -123,27 +118,14 @@ class SpawnTool(Tool, ContextAware):
                 f"Error: unknown profile '{profile}'. "
                 f"Choose one of: {valid}. Re-read the profile cards and retry."
             )
-        spawn_kwargs: dict[str, Any] = {
-            "task": task,
-            "label": label,
-            "origin_channel": self._origin_channel.get(),
-            "origin_chat_id": self._origin_chat_id.get(),
-            "session_key": self._session_key.get(),
-            "origin_message_id": self._origin_message_id.get(),
-            "temperature": temperature,
-            "workspace_scope": current_workspace_scope(),
-        }
-        try:
-            parameters = inspect.signature(self._manager.spawn).parameters
-            accepts_kwargs = any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values())
-        except (TypeError, ValueError):
-            parameters = {}
-            accepts_kwargs = True
-        for name, value in {
-            "profile": profile,
-            "expected_output": expected_output,
-            "depth": self._depth + 1,
-        }.items():
-            if accepts_kwargs or name in parameters:
-                spawn_kwargs[name] = value
-        return await self._manager.spawn(**spawn_kwargs)
+        return await self._manager.delegate(
+            task=task,
+            profile=profile,
+            expected_output=expected_output,
+            context=context or "",
+            origin_channel=self._origin_channel.get(),
+            origin_chat_id=self._origin_chat_id.get(),
+            session_key=self._session_key.get(),
+            temperature=temperature,
+            workspace_scope=current_workspace_scope(),
+        )

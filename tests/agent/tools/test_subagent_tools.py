@@ -179,6 +179,246 @@ async def test_spawn_tool_rejects_when_at_concurrency_limit(tmp_path):
     await asyncio.gather(*mgr._running_tasks.values(), return_exceptions=True)
 
 
+def test_subagent_profile_tool_allowlist_and_spawn_depth(tmp_path):
+    from nanobot.agent.subagent import SubagentManager
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    profile = SubagentProfile(tools=["read_file"], can_spawn=True)
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"coder": profile},
+        max_depth=2,
+    )
+
+    tools = mgr._build_tools(profile=profile, depth=1)
+    assert tools.has("read_file")
+    assert tools.has("spawn")
+    assert not tools.has("write_file")
+
+    at_limit = mgr._build_tools(profile=profile, depth=2)
+    assert not at_limit.has("spawn")
+
+
+@pytest.mark.asyncio
+async def test_subagent_profile_overrides_run_spec_and_prompt(tmp_path):
+    from nanobot.agent.subagent import SubagentManager, SubagentStatus
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    skill_dir = tmp_path / "skills" / "review"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\nname: review\ndescription: Review things\n---\n# Review Skill\nUse the review method.\n",
+        encoding="utf-8",
+    )
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "default-model"
+    profile = SubagentProfile(
+        description="Review specialist",
+        skills=["review"],
+        model="profile-model",
+        max_iterations=9,
+        temperature=0.3,
+    )
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"reviewer": profile},
+    )
+    mgr._announce_result = AsyncMock()
+
+    async def fake_run(spec):
+        assert spec.model == "profile-model"
+        assert spec.max_iterations == 9
+        assert spec.temperature == 0.3
+        prompt = spec.initial_messages[0]["content"]
+        assert "Your Role: reviewer" in prompt
+        assert "Review specialist" in prompt
+        assert "Expected Output" in prompt
+        assert "bullet list" in prompt
+        assert "Review Skill" in prompt
+        return SimpleNamespace(
+            stop_reason="done",
+            final_content="This is a sufficiently detailed result.",
+            error=None,
+            tool_events=[],
+        )
+
+    mgr.runner.run = AsyncMock(side_effect=fake_run)
+    status = SubagentStatus(
+        task_id="sub-1", label="label", task_description="do task", started_at=time.monotonic()
+    )
+    await mgr._run_subagent(
+        "sub-1",
+        "do task",
+        "label",
+        {"channel": "test", "chat_id": "c1"},
+        status,
+        profile_name="reviewer",
+        expected_output="bullet list",
+    )
+
+    mgr.runner.run.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_spawn_tool_rejects_unknown_profile(tmp_path):
+    from nanobot.agent.subagent import SubagentManager
+    from nanobot.agent.tools.context import RequestContext
+    from nanobot.agent.tools.spawn import SpawnTool
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"coder": SubagentProfile(description="Code tasks")},
+    )
+    tool = SpawnTool(mgr)
+    tool.set_context(RequestContext(channel="test", chat_id="c1", session_key="test:c1"))
+
+    result = await tool.execute(
+        task="do task",
+        profile="researcher",
+        expected_output="summary",
+    )
+
+    assert "unknown profile 'researcher'" in result
+    assert "coder" in result
+
+
+@pytest.mark.asyncio
+async def test_delegate_returns_result_without_bus_announce(tmp_path):
+    from nanobot.agent.subagent import SubagentManager
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"reviewer": SubagentProfile(description="Review tasks")},
+    )
+    mgr._announce_result = AsyncMock()
+
+    async def fake_run(spec):
+        return SimpleNamespace(
+            stop_reason="done",
+            final_content="This is the synchronous delegate result.",
+            error=None,
+            tool_events=[],
+        )
+
+    mgr.runner.run = AsyncMock(side_effect=fake_run)
+
+    result = await mgr.delegate(
+        task="review file",
+        profile="reviewer",
+        expected_output="detailed summary",
+    )
+
+    assert result == "This is the synchronous delegate result."
+    mgr.runner.run.assert_awaited_once()
+    mgr._announce_result.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_delegate_tool_passes_context_to_subagent_prompt(tmp_path):
+    from nanobot.agent.subagent import SubagentManager
+    from nanobot.agent.tools.context import RequestContext
+    from nanobot.agent.tools.delegate import DelegateTool
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"coder": SubagentProfile(description="Code tasks")},
+    )
+
+    async def fake_run(spec):
+        prompt = spec.initial_messages[0]["content"]
+        assert "Task Context" in prompt
+        assert "Prior finding: foo.py owns the behavior." in prompt
+        assert "Expected Output" in prompt
+        assert "patch summary" in prompt
+        return SimpleNamespace(
+            stop_reason="done",
+            final_content="Implemented change and summarized the patch.",
+            error=None,
+            tool_events=[],
+        )
+
+    mgr.runner.run = AsyncMock(side_effect=fake_run)
+    tool = DelegateTool(mgr)
+    tool.set_context(RequestContext(channel="test", chat_id="c1", session_key="test:c1"))
+
+    result = await tool.execute(
+        profile="coder",
+        task="update foo.py",
+        expected_output="patch summary",
+        context="Prior finding: foo.py owns the behavior.",
+    )
+
+    assert result == "Implemented change and summarized the patch."
+
+
+@pytest.mark.asyncio
+async def test_delegate_tool_rejects_unknown_profile(tmp_path):
+    from nanobot.agent.subagent import SubagentManager
+    from nanobot.agent.tools.context import RequestContext
+    from nanobot.agent.tools.delegate import DelegateTool
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    mgr = SubagentManager(
+        provider=provider,
+        workspace=tmp_path,
+        bus=bus,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        profiles={"coder": SubagentProfile(description="Code tasks")},
+    )
+    tool = DelegateTool(mgr)
+    tool.set_context(RequestContext(channel="test", chat_id="c1", session_key="test:c1"))
+
+    result = await tool.execute(
+        task="do task",
+        profile="researcher",
+        expected_output="summary",
+    )
+
+    assert "unknown profile 'researcher'" in result
+    assert "coder" in result
+
+
 def test_subagent_default_max_concurrent_matches_agent_defaults(tmp_path):
     """Direct SubagentManager construction should use the agent default concurrency limit."""
     from nanobot.agent.subagent import SubagentManager
@@ -235,6 +475,37 @@ def test_agent_loop_passes_max_iterations_to_subagents(tmp_path):
     )
 
     assert loop.subagents.max_iterations == 42
+
+
+def test_agent_loop_passes_subagent_profiles_to_manager(tmp_path):
+    """AgentLoop should wire configured subagent profiles into the manager."""
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.queue import MessageBus
+    from nanobot.config.schema import SubagentProfile
+
+    bus = MessageBus()
+    provider = MagicMock()
+    provider.get_default_model.return_value = "test-model"
+    profiles = {
+        "coder": SubagentProfile(
+            description="Code tasks",
+            tools=["read_file"],
+            max_iterations=7,
+            can_spawn=True,
+        )
+    }
+
+    loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=tmp_path,
+        model="test-model",
+        subagent_profiles=profiles,
+        max_subagent_depth=3,
+    )
+
+    assert loop.subagents.profiles == profiles
+    assert loop.subagents.max_depth == 3
 
 
 @pytest.mark.asyncio

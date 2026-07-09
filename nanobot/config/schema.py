@@ -116,6 +116,20 @@ class ModelPresetConfig(Base):
         )
 
 
+class SubagentProfile(Base):
+    """A specialized subagent role definition."""
+
+    description: str = ""
+    when_to_use: list[str] = Field(default_factory=list)
+    when_not_to_use: list[str] = Field(default_factory=list)
+    tools: list[str] | None = None
+    skills: list[str] = Field(default_factory=list)
+    model: str | None = None
+    max_iterations: int | None = None
+    temperature: float | None = None
+    can_spawn: bool = False
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -132,6 +146,8 @@ class AgentDefaults(Base):
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
     max_concurrent_subagents: int = Field(default=1, ge=1)
+    subagent_profiles: dict[str, SubagentProfile] = Field(default_factory=dict)
+    max_subagent_depth: int = Field(default=2, ge=1, le=3)
     fail_on_tool_error: bool = True
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"

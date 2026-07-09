@@ -2245,6 +2245,306 @@ def plugins_disable(
 
 
 # ============================================================================
+# Skill Registry Commands
+# ============================================================================
+
+skill_app = typer.Typer(help="Manage the skill registry")
+app.add_typer(skill_app, name="skill")
+
+
+def _skill_store_for_cli(config: str | None, workspace: str | None):
+    loaded = _load_runtime_config(config, workspace)
+    from nanobot.skill_store import SkillStore
+
+    return SkillStore(loaded.workspace_path)
+
+
+def _system_skills_dir() -> Path:
+    from nanobot.agent.skills import SYSTEM_SKILLS_DIR
+
+    return SYSTEM_SKILLS_DIR
+
+
+@skill_app.command("reindex")
+def skill_reindex(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Rebuild the SQLite skill registry for a workspace."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        result = store.reindex(system_dir=_system_skills_dir())
+    except ValueError as exc:
+        console.print(f"[red]Skill reindex failed: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Indexed {result.skills} skill(s) and {result.relations} relation(s)[/green]\n"
+        f"DB: {result.db_path}"
+    )
+
+
+@skill_app.command("list")
+def skill_list(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    all_statuses: bool = typer.Option(False, "--all", help="Include deprecated/rejected skills"),
+):
+    """List skills currently recorded in the registry."""
+    store = _skill_store_for_cli(config, workspace)
+    rows = store.list_skills(include_deprecated=all_statuses)
+    if not rows:
+        console.print("No skills indexed. Run `nanobot skill reindex` first.")
+        return
+    table = Table(title="Skill Registry")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Risk")
+    table.add_column("Exec")
+    table.add_column("Category")
+    table.add_column("Source")
+    for row in rows:
+        table.add_row(
+            row["name"],
+            row["status"],
+            row["risk_level"],
+            "yes" if row["requires_exec"] else "no",
+            row["category"],
+            row["source"],
+        )
+    console.print(table)
+
+
+@skill_app.command("stats")
+def skill_stats(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Show aggregate skill registry counts."""
+    store = _skill_store_for_cli(config, workspace)
+    rows = store.list_skills(include_deprecated=True)
+    by_status: dict[str, int] = {}
+    for row in rows:
+        by_status[row["status"]] = by_status.get(row["status"], 0) + 1
+    console.print(f"DB: {store.db_path}")
+    console.print(f"Skills: {len(rows)}")
+    for status, count in sorted(by_status.items()):
+        console.print(f"- {status}: {count}")
+
+
+def _success_rate(row) -> float | None:
+    attempts = int(row["success_count"]) + int(row["failure_count"])
+    if attempts == 0:
+        return None
+    return int(row["success_count"]) / attempts
+
+
+@skill_app.command("hot-path-report")
+def skill_hot_path_report(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    min_usage: int = typer.Option(5, "--min-usage", min=1, help="Minimum selected-skill usage"),
+    min_success_rate: float = typer.Option(0.80, "--min-success-rate", min=0.0, max=1.0),
+    limit: int = typer.Option(20, "--limit", min=1, max=100, help="Maximum rows to show"),
+):
+    """Suggest low-risk skills that may deserve Hot Path preloading."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    rows = [
+        row for row in store.list_skills(include_deprecated=False)
+        if row["status"] in {"candidate", "verified"}
+        and row["source"] != "system"
+        and row["risk_level"] == "low"
+        and not bool(row["requires_exec"])
+        and int(row["usage_count"]) >= min_usage
+        and (_success_rate(row) or 0.0) >= min_success_rate
+        and int(row["routing_failure_count"]) == 0
+    ]
+    rows.sort(
+        key=lambda row: (
+            int(row["usage_count"]),
+            _success_rate(row) or 0.0,
+            row["name"],
+        ),
+        reverse=True,
+    )
+    table = Table(title="Hot Path Promotion Candidates")
+    table.add_column("Name", style="cyan")
+    table.add_column("Usage")
+    table.add_column("Success")
+    table.add_column("Category")
+    table.add_column("Path", overflow="fold")
+    for row in rows[:limit]:
+        rate = _success_rate(row)
+        table.add_row(
+            row["name"],
+            str(row["usage_count"]),
+            "-" if rate is None else f"{rate:.0%}",
+            row["category"],
+            row["path"],
+        )
+    console.print(table)
+    if not rows:
+        console.print("No Hot Path candidates met the thresholds.")
+
+
+@skill_app.command("lifecycle-report")
+def skill_lifecycle_report(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    min_usage: int = typer.Option(5, "--min-usage", min=1, help="Minimum selected-skill usage"),
+    max_success_rate: float = typer.Option(0.50, "--max-success-rate", min=0.0, max=1.0),
+    min_routing_failures: int = typer.Option(3, "--min-routing-failures", min=1),
+    apply_deprecate: bool = typer.Option(False, "--apply-deprecate", help="Deprecate rows with action=deprecate"),
+):
+    """Report skills that should be revised or deprecated based on counters."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    findings: list[tuple[object, str, str]] = []
+    for row in store.list_skills(include_deprecated=False):
+        if row["status"] == "system":
+            continue
+        usage = int(row["usage_count"])
+        routing_failures = int(row["routing_failure_count"])
+        rate = _success_rate(row)
+        if usage < min_usage and routing_failures < min_routing_failures:
+            continue
+        if routing_failures >= min_routing_failures and (rate is None or rate <= max_success_rate):
+            findings.append((row, "deprecate", "routing failures plus low/unknown success rate"))
+        elif rate is not None and rate <= max_success_rate:
+            findings.append((row, "review", "low success rate"))
+        elif routing_failures >= min_routing_failures:
+            findings.append((row, "review", "routing failures"))
+
+    table = Table(title="Skill Lifecycle Report")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Usage")
+    table.add_column("Success")
+    table.add_column("Routing Fail")
+    table.add_column("Action")
+    table.add_column("Reason")
+    for row, action, reason in findings:
+        rate = _success_rate(row)
+        table.add_row(
+            row["name"],
+            row["status"],
+            str(row["usage_count"]),
+            "-" if rate is None else f"{rate:.0%}",
+            str(row["routing_failure_count"]),
+            action,
+            reason,
+        )
+        if apply_deprecate and action == "deprecate":
+            store.set_status(row["name"], "deprecated")
+    console.print(table)
+    if not findings:
+        console.print("No lifecycle findings met the thresholds.")
+
+
+@skill_app.command("approve")
+def skill_approve(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Promote a non-system skill to verified."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.set_status(name, "verified")
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Approved skill '{escape(name)}'[/green]")
+
+
+@skill_app.command("deprecate")
+def skill_deprecate(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Mark a non-system skill as deprecated."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.set_status(name, "deprecated")
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Deprecated skill '{escape(name)}'[/green]")
+
+
+def _load_routing_cases(path: Path) -> list[dict[str, object]]:
+    import json
+
+    import yaml
+
+    if not path.exists():
+        raise FileNotFoundError(path)
+    if path.suffix == ".jsonl":
+        cases: list[dict[str, object]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            if isinstance(item, dict):
+                cases.append(item)
+        return cases
+    raw = path.read_text(encoding="utf-8")
+    data = json.loads(raw) if path.suffix == ".json" else yaml.safe_load(raw)
+    if isinstance(data, dict):
+        data = data.get("cases", [])
+    if not isinstance(data, list):
+        raise ValueError("routing cases must be a list or {cases: [...]}")
+    return [item for item in data if isinstance(item, dict)]
+
+
+@skill_app.command("test-routing")
+def skill_test_routing(
+    cases: Path = typer.Argument(..., help="YAML, JSON, or JSONL routing cases"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Candidates to inspect per case"),
+    threshold: float = typer.Option(0.90, "--threshold", min=0.0, max=1.0, help="Required top-1 accuracy"),
+):
+    """Run deterministic skill routing tests against the registry."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    try:
+        routing_cases = _load_routing_cases(cases)
+    except Exception as exc:
+        console.print(f"[red]Could not load routing cases: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    if not routing_cases:
+        console.print("[red]No routing cases found.[/red]")
+        raise typer.Exit(1)
+
+    rows: list[tuple[str, str, str, bool]] = []
+    for item in routing_cases:
+        query = str(item.get("query") or "").strip()
+        expected = str(item.get("expected") or item.get("skill") or "").strip()
+        if not query or not expected:
+            rows.append((query, expected, "", False))
+            continue
+        matches = store.search(query, top_k=top_k, min_status=("candidate", "verified"))
+        actual = matches[0].name if matches else ""
+        rows.append((query, expected, actual, actual == expected))
+
+    passed = sum(1 for *_row, ok in rows if ok)
+    accuracy = passed / len(rows)
+    table = Table(title="Skill Routing Test")
+    table.add_column("Query", overflow="fold")
+    table.add_column("Expected")
+    table.add_column("Actual")
+    table.add_column("Result")
+    for query, expected, actual, ok in rows:
+        table.add_row(query, expected, actual or "-", "[green]ok[/green]" if ok else "[red]fail[/red]")
+    console.print(table)
+    console.print(f"Accuracy: {passed}/{len(rows)} ({accuracy:.1%})")
+    if accuracy < threshold:
+        raise typer.Exit(1)
+
+
+# ============================================================================
 # Status Commands
 # ============================================================================
 

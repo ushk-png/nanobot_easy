@@ -18,7 +18,7 @@ from nanobot.agent.tools.loader import ToolLoader
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
-from nanobot.config.schema import AgentDefaults, ToolsConfig
+from nanobot.config.schema import AgentDefaults, SubagentProfile, ToolsConfig
 from nanobot.providers.base import LLMProvider
 from nanobot.security.workspace_access import (
     WorkspaceScope,
@@ -43,6 +43,15 @@ class SubagentStatus:
     usage: dict = field(default_factory=dict)          # token usage
     stop_reason: str | None = None
     error: str | None = None
+
+
+@dataclass(slots=True)
+class SubagentRunOutcome:
+    """Final result of a subagent run before delivery."""
+
+    content: str
+    status: str
+    stop_reason: str | None = None
 
 
 class _SubagentHook(AgentHook):
@@ -88,6 +97,8 @@ class SubagentManager:
         max_concurrent_subagents: int | None = None,
         fail_on_tool_error: bool | None = None,
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
+        profiles: dict[str, SubagentProfile] | None = None,
+        max_depth: int = 2,
     ):
         defaults = AgentDefaults()
         self.provider = provider
@@ -113,6 +124,8 @@ class SubagentManager:
             if fail_on_tool_error is not None
             else defaults.fail_on_tool_error
         )
+        self.profiles = profiles or {}
+        self.max_depth = max_depth
         self.runner = AgentRunner(provider)
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -132,6 +145,8 @@ class SubagentManager:
         self,
         workspace: Path | None = None,
         tools_config: ToolsConfig | None = None,
+        profile: SubagentProfile | None = None,
+        depth: int = 1,
     ) -> ToolRegistry:
         """Build an isolated subagent tool registry via ToolLoader."""
         root = self.workspace if workspace is None else workspace
@@ -140,13 +155,26 @@ class SubagentManager:
         ctx = ToolContext(
             config=cfg,
             workspace=str(root.resolve()),
+            subagent_manager=self,
             file_state_store=FileStates(),
             workspace_sandbox=workspace_sandbox_status(
                 restrict_to_workspace=cfg.restrict_to_workspace,
                 workspace=root,
             ),
+            subagent_depth=depth,
         )
         ToolLoader().load(ctx, registry, scope="subagent")
+
+        if profile is not None and profile.tools is not None:
+            allowed = set(profile.tools) | {"spawn"}
+            for name in list(registry.tool_names):
+                if name not in allowed:
+                    registry.unregister(name)
+
+        allow_spawn = depth < self.max_depth and profile is not None and profile.can_spawn
+        if not allow_spawn:
+            registry.unregister("spawn")
+
         return registry
 
     def set_provider(self, provider: LLMProvider, model: str) -> None:
@@ -157,7 +185,10 @@ class SubagentManager:
     async def spawn(
         self,
         task: str,
+        profile: str = "",
+        expected_output: str = "",
         label: str | None = None,
+        depth: int = 1,
         origin_channel: str = "cli",
         origin_chat_id: str = "direct",
         session_key: str | None = None,
@@ -166,6 +197,15 @@ class SubagentManager:
         workspace_scope: WorkspaceScope | None = None,
     ) -> str:
         """Spawn a subagent to execute a task in the background."""
+        if depth > self.max_depth:
+            return (
+                f"Cannot spawn: max subagent depth ({self.max_depth}) reached. "
+                "Complete this task directly instead of delegating."
+            )
+        if self.profiles and profile not in self.profiles:
+            valid = ", ".join(self.profiles)
+            return f"Error: unknown profile '{profile}'. Choose one of: {valid}."
+
         task_id = str(uuid.uuid4())[:8]
         display_label = label or task[:30] + ("..." if len(task) > 30 else "")
         origin = {"channel": origin_channel, "chat_id": origin_chat_id, "session_key": session_key}
@@ -188,6 +228,9 @@ class SubagentManager:
                 origin_message_id,
                 temperature,
                 workspace_scope,
+                profile,
+                expected_output,
+                depth,
             )
         )
         self._running_tasks[task_id] = bg_task
@@ -207,6 +250,55 @@ class SubagentManager:
         logger.info("Spawned subagent [{}]: {}", task_id, display_label)
         return f"Subagent [{display_label}] started (id: {task_id}). I'll notify you when it completes."
 
+    async def delegate(
+        self,
+        task: str,
+        profile: str = "",
+        expected_output: str = "",
+        context: str = "",
+        label: str | None = None,
+        origin_channel: str = "cli",
+        origin_chat_id: str = "direct",
+        session_key: str | None = None,
+        temperature: float | None = None,
+        workspace_scope: WorkspaceScope | None = None,
+    ) -> str:
+        """Run a subagent synchronously and return its result directly."""
+        if self.profiles and profile not in self.profiles:
+            valid = ", ".join(self.profiles)
+            return f"Error: unknown profile '{profile}'. Choose one of: {valid}."
+
+        task_id = str(uuid.uuid4())[:8]
+        display_label = label or task[:30] + ("..." if len(task) > 30 else "")
+        origin = {"channel": origin_channel, "chat_id": origin_chat_id, "session_key": session_key}
+        status = SubagentStatus(
+            task_id=task_id,
+            label=display_label,
+            task_description=task,
+            started_at=time.monotonic(),
+        )
+        self._task_statuses[task_id] = status
+        logger.info("Delegated subagent [{}]: {}", task_id, display_label)
+        try:
+            outcome = await self._execute_subagent(
+                task_id=task_id,
+                task=task,
+                label=display_label,
+                origin=origin,
+                status=status,
+                temperature=temperature,
+                workspace_scope=workspace_scope,
+                profile_name=profile,
+                expected_output=expected_output,
+                depth=1,
+                task_context=context,
+            )
+            if outcome.status == "ok":
+                return outcome.content
+            return f"Subagent failed: {outcome.content}"
+        finally:
+            self._task_statuses.pop(task_id, None)
+
     async def _run_subagent(
         self,
         task_id: str,
@@ -217,9 +309,51 @@ class SubagentManager:
         origin_message_id: str | None = None,
         temperature: float | None = None,
         workspace_scope: WorkspaceScope | None = None,
+        profile_name: str = "",
+        expected_output: str = "",
+        depth: int = 1,
     ) -> None:
         """Execute the subagent task and announce the result."""
         logger.info("Subagent [{}] starting task: {}", task_id, label)
+        outcome = await self._execute_subagent(
+            task_id=task_id,
+            task=task,
+            label=label,
+            origin=origin,
+            status=status,
+            temperature=temperature,
+            workspace_scope=workspace_scope,
+            profile_name=profile_name,
+            expected_output=expected_output,
+            depth=depth,
+        )
+        await self._announce_result(
+            task_id,
+            label,
+            task,
+            outcome.content,
+            origin,
+            outcome.status,
+            origin_message_id,
+        )
+
+    async def _execute_subagent(
+        self,
+        *,
+        task_id: str,
+        task: str,
+        label: str,
+        origin: dict[str, str | None],
+        status: SubagentStatus,
+        temperature: float | None = None,
+        workspace_scope: WorkspaceScope | None = None,
+        profile_name: str = "",
+        expected_output: str = "",
+        depth: int = 1,
+        task_context: str = "",
+    ) -> SubagentRunOutcome:
+        """Execute the subagent task and return its raw outcome."""
+        prof = self.profiles.get(profile_name)
 
         async def _on_checkpoint(payload: dict) -> None:
             status.phase = payload.get("phase", status.phase)
@@ -231,8 +365,19 @@ class SubagentManager:
             if workspace_scope is not None:
                 cfg = self._subagent_tools_config()
                 cfg.restrict_to_workspace = workspace_scope.restrict_to_workspace
-            tools = self._build_tools(workspace=root, tools_config=cfg)
-            system_prompt = self._build_subagent_prompt(workspace=root)
+            tools = self._build_tools(
+                workspace=root,
+                tools_config=cfg,
+                profile=prof,
+                depth=depth,
+            )
+            system_prompt = self._build_subagent_prompt(
+                workspace=root,
+                profile_name=profile_name,
+                profile=prof,
+                expected_output=expected_output,
+                task_context=task_context,
+            )
             messages: list[dict[str, Any]] = [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": task},
@@ -249,9 +394,17 @@ class SubagentManager:
                 result = await self.runner.run(AgentRunSpec(
                     initial_messages=messages,
                     tools=tools,
-                    model=self.model,
-                    temperature=temperature,
-                    max_iterations=self.max_iterations,
+                    model=(prof.model if prof and prof.model else self.model),
+                    temperature=(
+                        temperature
+                        if temperature is not None
+                        else (prof.temperature if prof else None)
+                    ),
+                    max_iterations=(
+                        prof.max_iterations
+                        if prof and prof.max_iterations
+                        else self.max_iterations
+                    ),
                     max_tool_result_chars=self.max_tool_result_chars,
                     hook=_SubagentHook(task_id, status),
                     max_iterations_message="Task completed but no final response was generated.",
@@ -271,27 +424,41 @@ class SubagentManager:
 
             if result.stop_reason == "tool_error":
                 status.tool_events = list(result.tool_events)
-                await self._announce_result(
-                    task_id, label, task,
-                    self._format_partial_progress(result),
-                    origin, "error", origin_message_id,
+                return SubagentRunOutcome(
+                    content=self._format_partial_progress(result),
+                    status="error",
+                    stop_reason=result.stop_reason,
                 )
-            elif result.stop_reason == "error":
-                await self._announce_result(
-                    task_id, label, task,
-                    result.error or "Error: subagent execution failed.",
-                    origin, "error", origin_message_id,
+            if result.stop_reason == "error":
+                return SubagentRunOutcome(
+                    content=result.error or "Error: subagent execution failed.",
+                    status="error",
+                    stop_reason=result.stop_reason,
                 )
-            else:
-                final_result = result.final_content or "Task completed but no final response was generated."
-                logger.info("Subagent [{}] completed successfully", task_id)
-                await self._announce_result(task_id, label, task, final_result, origin, "ok", origin_message_id)
+            final_result = result.final_content or "Task completed but no final response was generated."
+            if expected_output and len(final_result.strip()) < 20:
+                logger.warning("Subagent [{}] result failed expected_output gate", task_id)
+                return SubagentRunOutcome(
+                    content=(
+                        "Result did not satisfy the expected output.\n"
+                        f"Expected: {expected_output}\n"
+                        f"Got: {final_result}"
+                    ),
+                    status="error",
+                    stop_reason=result.stop_reason,
+                )
+            logger.info("Subagent [{}] completed successfully", task_id)
+            return SubagentRunOutcome(
+                content=final_result,
+                status="ok",
+                stop_reason=result.stop_reason,
+            )
 
         except Exception as e:
             status.phase = "error"
             status.error = str(e)
             logger.exception("Subagent [{}] failed", task_id)
-            await self._announce_result(task_id, label, task, f"Error: {e}", origin, "error", origin_message_id)
+            return SubagentRunOutcome(content=f"Error: {e}", status="error", stop_reason="error")
 
     async def _announce_result(
         self,
@@ -359,22 +526,39 @@ class SubagentManager:
             lines.append(f"- {result.error}")
         return "\n".join(lines) or (result.error or "Error: subagent execution failed.")
 
-    def _build_subagent_prompt(self, workspace: Path | None = None) -> str:
+    def _build_subagent_prompt(
+        self,
+        workspace: Path | None = None,
+        profile_name: str = "",
+        profile: SubagentProfile | None = None,
+        expected_output: str = "",
+        task_context: str = "",
+    ) -> str:
         """Build a focused system prompt for the subagent."""
         from nanobot.agent.context import ContextBuilder
         from nanobot.agent.skills import SkillsLoader
 
         time_ctx = ContextBuilder._build_runtime_context(None, None)
         root = workspace or self.workspace
-        skills_summary = SkillsLoader(
+        loader = SkillsLoader(
             root,
             disabled_skills=self.disabled_skills,
-        ).build_skills_summary()
+            include_system=False,
+        )
+        skills_summary = loader.build_skills_summary()
+        preloaded_skills = ""
+        if profile and profile.skills:
+            preloaded_skills = loader.load_skills_for_context(profile.skills)
         return render_template(
             "agent/subagent_system.md",
             time_ctx=time_ctx,
             workspace=str(root),
             skills_summary=skills_summary or "",
+            profile_name=profile_name,
+            profile_description=(profile.description if profile else ""),
+            preloaded_skills=preloaded_skills or "",
+            expected_output=expected_output,
+            task_context=task_context,
         )
 
     async def cancel_by_session(self, session_key: str) -> int:

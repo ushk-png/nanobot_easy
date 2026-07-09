@@ -271,6 +271,36 @@ saved settings and turns the channel off.
 
 See [`providers.md`](./providers.md#oauth-providers) for when OAuth providers need explicit provider/model selection.
 
+## Skill Registry
+
+The skill registry indexes built-in, system, and workspace skills for
+`skill_search`, routing checks, and lifecycle reporting. The registry is
+workspace-scoped, so pass the same `--workspace` and `--config` paths that the
+agent or gateway uses.
+
+| Command | Description |
+|---|---|
+| `nanobot skill reindex` | Rebuild the SQLite skill registry for the active workspace |
+| `nanobot skill list` | List skills currently recorded in the registry |
+| `nanobot skill stats` | Show aggregate skill counts and usage counters |
+| `nanobot skill approve <skill_id>` | Promote a non-system skill to `verified` |
+| `nanobot skill deprecate <skill_id>` | Mark a non-system skill as `deprecated` |
+| `nanobot skill test-routing` | Run deterministic routing checks against indexed skills |
+| `nanobot skill hot-path-report` | Suggest frequently successful skills that may deserve preloading |
+| `nanobot skill lifecycle-report` | Report skills with usage/failure patterns that may need revision or deprecation |
+
+Examples:
+
+```bash
+nanobot skill reindex --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill list --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill hot-path-report --config ./bot-a/config.json --workspace ./bot-a/workspace
+```
+
+System skills are protected by the registry. They can be indexed and searched
+where appropriate, but `approve` and `deprecate` only operate on non-system
+skills.
+
 ## Useful First Checks
 
 ```bash

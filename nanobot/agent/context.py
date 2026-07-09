@@ -56,6 +56,7 @@ class ContextBuilder:
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_TOKENS = 8_000  # hard cap on recent history section size (tokens)
     _RUNTIME_CONTEXT_END = "[/Runtime Context]"
+    _SKILL_SUMMARY_LIMIT = 30
 
     def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
         self.workspace = workspace
@@ -93,8 +94,16 @@ class ContextBuilder:
             if always_content:
                 parts.append(f"# Active Skills\n\n{always_content}")
 
-        skills_summary = self.skills.build_skills_summary(exclude=set(always_skills))
-        if skills_summary:
+        skill_entries = self.skills.list_skills(filter_unavailable=False)
+        summary_skill_count = len([entry for entry in skill_entries if entry["name"] not in set(always_skills)])
+        if summary_skill_count > self._SKILL_SUMMARY_LIMIT:
+            parts.append(
+                "# Skills\n\n"
+                f"{summary_skill_count} skills are indexed for this workspace. "
+                "Use the `skill_search` tool for specialized tasks not covered by preloaded skills. "
+                "Do not guess a skill name from memory."
+            )
+        elif skills_summary := self.skills.build_skills_summary(exclude=set(always_skills)):
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
         if include_memory_recent_history:

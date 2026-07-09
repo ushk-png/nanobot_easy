@@ -176,6 +176,10 @@ nanobot gateway --verbose
 | Heartbeat never runs | Keep the gateway running, add tasks under `<workspace>/HEARTBEAT.md` -> `## Active Tasks`, and make sure `gateway.heartbeat.enabled` is true. |
 | Cron jobs disappeared after switching workspaces | Cron jobs are workspace-scoped at `<workspace>/cron/jobs.json`; check you are using the intended workspace. |
 
+If you run a project-specific wrapper script around `nanobot gateway`, check the
+script's PID file and log file first. Then stop the wrapper before starting
+`nanobot webui`, because WebUI also starts or reuses a gateway.
+
 ## WebUI Problems
 
 The packaged WebUI is served by the WebSocket channel.
@@ -207,6 +211,33 @@ http://127.0.0.1:8765
 If accessing from another device, bind the WebSocket channel to `0.0.0.0` and set `token` or `tokenIssueSecret`. The WebSocket channel refuses public binds without a token or token issue secret.
 
 See [`webui.md#lan-access`](./webui.md#lan-access) for LAN setup and [`../webui/README.md`](../webui/README.md) for frontend development.
+
+## Skill Problems
+
+Skills are loaded from built-in, system, and workspace directories, but the
+search registry is workspace-scoped. If a skill exists on disk but is not found
+at runtime, rebuild the registry with the same config/workspace used by the
+agent or gateway:
+
+```bash
+nanobot skill reindex --config ./config.json --workspace ./workspace
+```
+
+Useful checks:
+
+```bash
+nanobot skill list --config ./config.json --workspace ./workspace
+nanobot skill stats --config ./config.json --workspace ./workspace
+nanobot skill test-routing --config ./config.json --workspace ./workspace
+```
+
+| Symptom | Check |
+|---|---|
+| A skill appears in WebUI but is not selected | The request may not match its triggers; inspect `skill test-routing` and skill metadata. |
+| A skill is unavailable | Open the WebUI skill detail or check missing `requires` commands/env vars. |
+| New or edited skill is ignored | Run `nanobot skill reindex` for the active workspace. |
+| `approve` or `deprecate` refuses a skill | System skills are protected; only non-system skills can change lifecycle state from the CLI. |
+| Too many skills seem visible | The WebUI shows the catalog; most skills are selected on demand rather than injected into every prompt. |
 
 ## Chat App Problems
 

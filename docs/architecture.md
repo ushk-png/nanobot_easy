@@ -128,9 +128,37 @@ Important files:
 | MCP tools | `nanobot/agent/tools/mcp.py` |
 | Cron | `nanobot/agent/tools/cron.py`, `nanobot/cron/` |
 | Image generation | `nanobot/agent/tools/image_generation.py` |
+| Skill search | `nanobot/agent/tools/skill_search.py`, `nanobot/skill_store.py` |
+| Subagent delegation | `nanobot/agent/tools/spawn.py`, `nanobot/agent/tools/delegate.py`, `nanobot/agent/subagent.py` |
 | Runtime self-inspection | `nanobot/agent/tools/self.py` |
 
 Tool behavior is part of the model contract. Keep user-visible tool names, schemas, and error messages stable unless a change is intentional.
+
+## Skills
+
+Skills are loaded by `nanobot/agent/skills.py`. The loader merges three roots in
+priority order:
+
+1. system skills from `nanobot/skills-system/`;
+2. workspace skills from `<workspace>/skills/`;
+3. built-in skills from `nanobot/skills/`.
+
+System skills are repository-managed orchestration skills. Built-in skills are
+packaged task workflows. Workspace skills are instance-local custom workflows.
+The WebUI Skills API (`nanobot/webui/skills_api.py`) exposes safe summaries and
+detail payloads from the same loader.
+
+The workspace skill registry lives in `nanobot/skill_store.py`. It stores skill
+metadata, search rows, routing traces, outcome counters, and lifecycle status.
+The CLI commands under `nanobot skill ...` rebuild and inspect that registry.
+`skill_search` uses the registry at runtime to find focused instructions without
+injecting every skill into each prompt.
+
+Subagent orchestration reuses the normal agent loop with a narrower context.
+`spawn` runs asynchronously and announces completion through the bus.
+`delegate` runs synchronously and returns the result to the parent tool call.
+Subagent profiles are configured in `agents.defaults.subagentProfiles` and are
+enforced by `SubagentManager`.
 
 ## Config and Paths
 

@@ -125,9 +125,22 @@ to attach that capability to the next message.
 ## Skills
 
 The Skills view shows the skill instructions available to the agent, including
-built-in skills and workspace-provided skills. Check this view when you want to
-know whether nanobot already has a focused workflow for a task before you ask it
-to perform that task.
+built-in skills, system skills, and workspace-provided skills. It is a catalog
+of loadable instructions, not a list of instructions injected into every model
+request. Always-on skills may be preloaded, but most skills are selected only
+when the agent finds them relevant, including through `skill_search`.
+
+The `source` value tells you where a skill came from:
+
+- `builtin`: packaged task skills under `nanobot/skills`;
+- `system`: orchestration and skill-management skills under
+  `nanobot/skills-system`;
+- `workspace`: custom skills under `<workspace>/skills`.
+
+Check this view when you want to know whether nanobot already has a focused
+workflow for a task before you ask it to perform that task. If a skill appears
+as unavailable, open its detail sheet to see missing commands or environment
+variables.
 
 ## Automations
 

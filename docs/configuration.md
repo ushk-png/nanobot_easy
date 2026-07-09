@@ -2068,10 +2068,63 @@ Subagents also stop immediately when one of their tools returns an execution err
 }
 ```
 
+Subagent profiles let you define named roles for `spawn` and `delegate`. Each
+profile can restrict tools, preload skills, override the model, change
+temperature, and decide whether that subagent is allowed to spawn more
+subagents. The parent agent must pass a profile name and expected output when
+delegating work, so subagent runs stay explicit and auditable.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "maxSubagentDepth": 2,
+      "subagentProfiles": {
+        "researcher": {
+          "description": "Find and summarize source material.",
+          "whenToUse": ["Background research", "Source collection"],
+          "whenNotToUse": ["Final policy decisions"],
+          "tools": ["web", "file"],
+          "skills": ["research-brief"],
+          "temperature": 0.2,
+          "canSpawn": false
+        },
+        "reviewer": {
+          "description": "Review outputs for gaps, risks, and contradictions.",
+          "tools": ["file"],
+          "skills": ["document-review"],
+          "canSpawn": false
+        }
+      }
+    }
+  }
+}
+```
+
+If no profiles are configured, nanobot still exposes a general-purpose
+subagent profile. `maxSubagentDepth` prevents recursive delegation from growing
+without bound.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.maxConcurrentSubagents` | `1` | Maximum number of spawned subagents that may run at the same time. Attempts to spawn beyond this limit return an error. |
+| `agents.defaults.subagentProfiles` | `{}` | Named subagent role definitions used by `spawn` and `delegate`. |
+| `agents.defaults.maxSubagentDepth` | `2` | Maximum nested subagent depth. Allowed range is `1` to `3`. |
 | `agents.defaults.failOnToolError` | `true` | Stop a spawned subagent when a tool execution fails. Set to `false` to return tool errors to the subagent model so it can recover within the same run. |
+
+Subagent profile fields:
+
+| Field | Default | Description |
+|---|---|---|
+| `description` | `""` | Short role description shown to the parent agent and subagent prompt. |
+| `whenToUse` | `[]` | Routing hints for when this profile is appropriate. |
+| `whenNotToUse` | `[]` | Routing hints for when this profile should be avoided. |
+| `tools` | `null` | Optional allow-list of tool names or tool groups for the subagent. |
+| `skills` | `[]` | Skill names to preload into the subagent prompt. |
+| `model` | `null` | Optional model override for this profile. |
+| `maxIterations` | `null` | Optional tool-iteration limit override. |
+| `temperature` | `null` | Optional temperature override. |
+| `canSpawn` | `false` | Whether subagents with this profile may spawn/delegate to nested subagents. |
 
 
 ## Auto Compact
@@ -2157,7 +2210,7 @@ When enabled, all incoming messages — regardless of which channel they arrive 
 
 ## Disabled Skills
 
-nanobot ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
+nanobot ships with built-in skills, system skills, and your workspace can also define custom skills under `skills/`. Built-in and workspace skills are task workflows. System skills support orchestration, skill creation, and review flows. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
 
 ```json
 {
@@ -2173,7 +2226,19 @@ Disabled skills are excluded from the main agent's skill summary, from always-on
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `agents.defaults.disabledSkills` | `[]` | List of skill directory names to exclude from loading. Applies to both built-in skills and workspace skills. |
+| `agents.defaults.disabledSkills` | `[]` | List of skill directory names to exclude from loading. Applies to built-in, system, and workspace skills. |
+
+When many skills are available, nanobot may avoid injecting the entire skill
+summary into every prompt and instead instruct the model to call
+`skill_search`. The skill registry is workspace-scoped and can be rebuilt with:
+
+```bash
+nanobot skill reindex --config ./config.json --workspace ./workspace
+```
+
+Use `nanobot skill list`, `nanobot skill stats`, `nanobot skill
+hot-path-report`, and `nanobot skill lifecycle-report` to inspect indexed
+skills and routing outcomes.
 
 ## Tool Hint Max Length
 
