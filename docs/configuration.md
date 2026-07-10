@@ -2318,6 +2318,52 @@ For the browser workflow, see [`webui.md#skills`](./webui.md#skills). For a
 project-local Korean runbook, see
 [`nanobot-skill-usage-ko.md#webui에서-스킬-관리하기`](./nanobot-skill-usage-ko.md#webui에서-스킬-관리하기).
 
+## External Tool Skills
+
+Executable external-tool skills are disabled by default. This capability covers
+skill pairs such as `<tool>-setup` and `<tool>-usage`, where setup installs an
+external program into the workspace and usage documents how to call it safely.
+The install-source allowlist is separate from `tools.ssrfWhitelist`: SSRF
+whitelisting controls private-network access, while this setting governs public
+download origins that setup skills are allowed to declare.
+
+```json
+{
+  "tools": {
+    "externalToolSkills": {
+      "enabled": false,
+      "allowedInstallDomains": [
+        "github.com",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry.npmjs.org"
+      ],
+      "installRoot": "tools",
+      "denyGlobalInstall": true
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.externalToolSkills.enabled` | `false` | Enable executable external-tool skill governance for setup/usage skill pairs. |
+| `tools.externalToolSkills.allowedInstallDomains` | GitHub, PyPI, Python files, npm registry | Domains that setup skills may declare in `metadata.nanobot.install_sources`. |
+| `tools.externalToolSkills.installRoot` | `"tools"` | Workspace subdirectory convention for external tools, normally `<workspace>/tools/<name>/`. |
+| `tools.externalToolSkills.denyGlobalInstall` | `true` | Keep setup skills from requiring sudo, global package installs, or writes outside the workspace tool root. |
+
+The registry rejects malformed setup/usage skills during indexing. A
+`<tool>-setup` skill must declare `risk_level=high`, `requires_exec=true`,
+concrete `install_sources`, and `Install`, `Verify`, and `Uninstall` sections.
+A `<tool>-usage` skill must start its Method by checking whether the tool is
+installed and should point users to the setup skill instead of starting
+installation automatically.
+
+The initial pilot pair is `yq-setup` and `yq-usage`. It installs yq into
+`<workspace>/tools/yq/` via an isolated Python virtual environment, records the
+tool in `<workspace>/tools/installed.md`, and keeps normal usage separate from
+installation.
+
 ## Tool Hint Max Length
 
 Tool hints are the short progress messages shown when the agent calls tools (e.g. `$ cd …/project && npm test`). By default, these are truncated at 40 characters, which can make long commands hard to read.

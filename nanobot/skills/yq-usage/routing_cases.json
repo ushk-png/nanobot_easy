@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Use yq to extract metadata.name from this YAML file.", "expected": "yq-usage"},
+    {"query": "Query this yaml with yq and list all item names.", "expected": "yq-usage"},
+    {"query": "Convert this YAML file to JSON with yq.", "expected": "yq-usage"},
+    {"query": "Extract a YAML field using yq.", "expected": "yq-usage"},
+    {"query": "Run yq on this config and show the image tag.", "expected": "yq-usage"},
+    {"query": "Install yq in the workspace first.", "expected": "yq-setup"},
+    {"query": "Explain the difference between YAML and JSON.", "expected": "answer-comparison"},
+    {"query": "Review this YAML config for deployment risks.", "expected": "document-review"},
+    {"query": "Summarize this YAML document.", "expected": "summarize-document"},
+    {"query": "Diagnose why this YAML parser failed.", "expected": "answer-diagnosis"}
+  ]
+}

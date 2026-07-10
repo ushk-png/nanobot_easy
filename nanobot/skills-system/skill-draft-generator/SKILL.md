@@ -24,5 +24,16 @@ Generate a `SKILL.md` with:
 7. Failure rules.
 8. Short prohibitions only when they prevent common mistakes.
 
+For executable external tools, generate two skills instead of one:
+
+- `<tool>-setup`: one-time install/config/healthcheck. It must declare
+  `risk_level: high`, `requires_exec: true`, concrete
+  `metadata.nanobot.install_sources`, and sections `Install`, `Verify`, and
+  `Uninstall`.
+- `<tool>-usage`: command patterns and error handling for an already-installed
+  tool. The first Method step must check installation with `which`,
+  `--version`, or a healthcheck; if missing, instruct the user that
+  `<tool>-setup` is required. Add `fallback_to: [<tool>-setup]`.
+
 Use ASCII unless the skill is explicitly for non-English user phrasing.
 Do not mark a draft as candidate, verified, or system.

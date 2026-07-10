@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "What does ENOENT mean?", "expected": "error-message-explain"},
+    {"query": "Explain this stack trace in plain language.", "expected": "error-message-explain"},
+    {"query": "HTTP 403 meaning and common causes?", "expected": "error-message-explain"},
+    {"query": "What does this command failure mean: no such file or directory?", "expected": "error-message-explain"},
+    {"query": "Explain this Python ImportError.", "expected": "error-message-explain"},
+    {"query": "Diagnose why my service is intermittently failing.", "expected": "answer-diagnosis"},
+    {"query": "Fix this ImportError in the repo.", "expected": "code-debugging"},
+    {"query": "Give me a debugging plan for this stack trace.", "expected": "debug-procedure"},
+    {"query": "How do I configure the missing environment variable?", "expected": "answer-howto"},
+    {"query": "Review this code for the source of the bug.", "expected": "code-review"}
+  ]
+}

@@ -27,3 +27,27 @@ def test_webui_skill_management_config_aliases() -> None:
     dumped = config.model_dump(mode="json", by_alias=True)
     assert dumped["tools"]["webuiSkillManagement"]["draftExpireDays"] == 14
     assert dumped["tools"]["webuiSkillManagement"]["redFlags"]["securityBlockAtLeast"] == "high"
+
+
+def test_external_tool_skills_config_aliases() -> None:
+    config = Config(
+        tools={
+            "externalToolSkills": {
+                "enabled": True,
+                "allowedInstallDomains": ["github.com"],
+                "installRoot": "tools",
+                "denyGlobalInstall": True,
+            }
+        }
+    )
+
+    external = config.tools.external_tool_skills
+
+    assert external.enabled is True
+    assert external.allowed_install_domains == ["github.com"]
+    assert external.install_root == "tools"
+    assert external.deny_global_install is True
+
+    dumped = config.model_dump(mode="json", by_alias=True)
+    assert dumped["tools"]["externalToolSkills"]["allowedInstallDomains"] == ["github.com"]
+    assert dumped["tools"]["externalToolSkills"]["installRoot"] == "tools"

@@ -286,7 +286,7 @@ agent or gateway uses.
 | `nanobot skill approve <skill_id>` | Register a human-approved draft as `candidate` |
 | `nanobot skill promote <skill_id>` | Promote a proven `candidate` skill to `verified` |
 | `nanobot skill deprecate <skill_id>` | Mark a non-system skill as `deprecated` |
-| `nanobot skill test-routing` | Run deterministic routing checks against indexed skills |
+| `nanobot skill test-routing` | Run deterministic routing checks against indexed skills; omit the cases path to run all discovered `routing_cases.json` files |
 | `nanobot skill hot-path-report` | Suggest frequently successful skills that may deserve preloading |
 | `nanobot skill lifecycle-report` | Report skills with usage/failure patterns that may need revision or deprecation |
 
@@ -297,6 +297,7 @@ nanobot skill reindex --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill list --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill approve skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill promote skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill test-routing --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill hot-path-report --config ./bot-a/config.json --workspace ./bot-a/workspace
 ```
 

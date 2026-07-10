@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Draft an email asking for a project update.", "expected": "email-draft"},
+    {"query": "Write a reply that politely declines this request.", "expected": "email-draft"},
+    {"query": "Polish this message so it sounds professional.", "expected": "email-draft"},
+    {"query": "Make this customer response clearer and warmer.", "expected": "email-draft"},
+    {"query": "Create an email response about the delayed release.", "expected": "email-draft"},
+    {"query": "Translate this email into Korean.", "expected": "translation-technical"},
+    {"query": "Extract action items from this meeting transcript.", "expected": "meeting-notes"},
+    {"query": "Summarize this long memo.", "expected": "summarize-document"},
+    {"query": "Compare these two response options.", "expected": "compare-options"},
+    {"query": "Review this policy document.", "expected": "document-review"}
+  ]
+}

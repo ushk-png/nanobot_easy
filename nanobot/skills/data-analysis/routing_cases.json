@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Analyze this CSV and calculate summary metrics.", "expected": "data-analysis"},
+    {"query": "Load this dataset and find anomalies.", "expected": "data-analysis"},
+    {"query": "Compute weekly retention from this table file.", "expected": "data-analysis"},
+    {"query": "Inspect this spreadsheet and calculate totals.", "expected": "data-analysis"},
+    {"query": "Run a quick data quality check on this JSON export.", "expected": "data-analysis"},
+    {"query": "Interpret these already-computed metrics.", "expected": "data-interpretation"},
+    {"query": "Summarize this report text.", "expected": "summarize-document"},
+    {"query": "Synthesize these research notes.", "expected": "research-synthesis"},
+    {"query": "Compare two analysis approaches.", "expected": "answer-comparison"},
+    {"query": "Diagnose why the dashboard stopped refreshing.", "expected": "answer-diagnosis"}
+  ]
+}

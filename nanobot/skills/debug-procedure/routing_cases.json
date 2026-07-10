@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Give me a debugging plan for this flaky integration test.", "expected": "debug-procedure"},
+    {"query": "How should I debug an intermittent timeout?", "expected": "debug-procedure"},
+    {"query": "List investigation steps to narrow down this bug.", "expected": "debug-procedure"},
+    {"query": "Triage this failure before we edit code.", "expected": "debug-procedure"},
+    {"query": "Help me narrow down this regression systematically.", "expected": "debug-procedure"},
+    {"query": "Actually fix the failing test in the repository.", "expected": "code-debugging"},
+    {"query": "Review this diff for bugs.", "expected": "code-review"},
+    {"query": "Why is this HTTP request returning 403?", "expected": "answer-diagnosis"},
+    {"query": "Explain this stack trace in simple terms.", "expected": "error-message-explain"},
+    {"query": "How do I configure logging?", "expected": "answer-howto"}
+  ]
+}

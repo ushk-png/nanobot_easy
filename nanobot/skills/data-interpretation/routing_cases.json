@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Interpret these conversion-rate numbers for me.", "expected": "data-interpretation"},
+    {"query": "What does this retention chart mean?", "expected": "data-interpretation"},
+    {"query": "Explain these metrics and what I should conclude.", "expected": "data-interpretation"},
+    {"query": "Read this table and tell me the main pattern.", "expected": "data-interpretation"},
+    {"query": "What should I conclude from these A/B test results?", "expected": "data-interpretation"},
+    {"query": "Analyze this CSV and calculate weekly metrics.", "expected": "data-analysis"},
+    {"query": "Summarize this document.", "expected": "summarize-document"},
+    {"query": "Compare these two options.", "expected": "compare-options"},
+    {"query": "Synthesize these research notes.", "expected": "research-synthesis"},
+    {"query": "Diagnose why the dashboard stopped updating.", "expected": "answer-diagnosis"}
+  ]
+}

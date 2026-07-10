@@ -380,6 +380,29 @@ class WebUISkillManagementConfig(Base):
     )
 
 
+class ExternalToolSkillsConfig(Base):
+    """Governance for executable external-tool setup/usage skills."""
+
+    enabled: bool = False
+    allowed_install_domains: list[str] = Field(
+        default_factory=lambda: [
+            "github.com",
+            "pypi.org",
+            "files.pythonhosted.org",
+            "registry.npmjs.org",
+        ],
+        validation_alias=AliasChoices("allowedInstallDomains", "allowed_install_domains"),
+    )
+    install_root: str = Field(
+        default="tools",
+        validation_alias=AliasChoices("installRoot", "install_root"),
+    )
+    deny_global_install: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("denyGlobalInstall", "deny_global_install"),
+    )
+
+
 def _lazy_default(module_path: str, class_name: str) -> Any:
     """Deferred import helper for ToolsConfig default factories."""
     import importlib
@@ -423,6 +446,10 @@ class ToolsConfig(Base):
     webui_skill_management: WebUISkillManagementConfig = Field(
         default_factory=WebUISkillManagementConfig,
         validation_alias=AliasChoices("webuiSkillManagement", "webui_skill_management"),
+    )
+    external_tool_skills: ExternalToolSkillsConfig = Field(
+        default_factory=ExternalToolSkillsConfig,
+        validation_alias=AliasChoices("externalToolSkills", "external_tool_skills"),
     )
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)

@@ -158,6 +158,13 @@ registry service as the CLI. Drafts are reviewed before they become searchable
 candidate skills, candidates can later be promoted to verified, and system
 skills remain repository-managed and read-only from runtime management paths.
 
+The packaged starter catalog focuses on workflows where procedure changes answer
+quality: comparison, how-to guidance, diagnosis, document work, research
+synthesis, coding review/debug planning, data interpretation, translation,
+email drafting, and decision notes. Starter catalog skills include
+`routing_cases.json` files so routing behavior can be measured as the catalog
+evolves.
+
 For complex tasks, nanobot can use subagents. `spawn` starts background work and
 returns later through the message bus; `delegate` waits for the subagent result
 and returns it directly as a tool result. Subagent profiles define role-specific

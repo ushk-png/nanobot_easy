@@ -20,6 +20,8 @@ def _write_skill(
     supersedes: list[str] | None = None,
     conflicts_with: list[str] | None = None,
     fallback_to: list[str] | None = None,
+    install_sources: list[str] | None = None,
+    body: str | None = None,
 ) -> None:
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
@@ -46,7 +48,10 @@ def _write_skill(
     if fallback_to:
         meta_lines.append("    fallback_to:")
         meta_lines.extend(f"      - {item}" for item in fallback_to)
-    meta_lines.extend(["---", "", f"# {name}", "Use this skill."])
+    if install_sources:
+        meta_lines.append("    install_sources:")
+        meta_lines.extend(f"      - {item}" for item in install_sources)
+    meta_lines.extend(["---", "", body or f"# {name}\nUse this skill."])
     (skill_dir / "SKILL.md").write_text("\n".join(meta_lines), encoding="utf-8")
 
 
@@ -88,6 +93,78 @@ def test_skill_store_rejects_supersedes_cycles(tmp_path: Path) -> None:
     store = SkillStore(tmp_path)
 
     with pytest.raises(ValueError, match="supersedes cycle"):
+        store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+
+def test_skill_store_validates_external_tool_setup_skills(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    setup_body = """# Demo Setup
+
+## Install
+
+Clone into `workspace/tools/demo` and create a local venv.
+
+## Verify
+
+Run `workspace/tools/demo/bin/demo --version`.
+
+## Uninstall
+
+Delete `workspace/tools/demo` and remove its row from `workspace/tools/installed.md`.
+"""
+    _write_skill(
+        skills,
+        "demo-setup",
+        risk_level="high",
+        category="external.tool",
+        requires_exec=True,
+        install_sources=["https://github.com/example/demo"],
+        body=setup_body,
+    )
+    _write_skill(
+        skills,
+        "demo-usage",
+        risk_level="medium",
+        category="external.tool",
+        requires_exec=True,
+        fallback_to=["demo-setup"],
+        body="""# Demo Usage
+
+## Method
+
+1. Check installation with `which demo` or `demo --version`; if missing, tell the user `demo-setup` is required.
+2. Run `demo input.txt --json`.
+""",
+    )
+
+    store = SkillStore(tmp_path)
+    result = store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    assert result.skills == 2
+    assert store.get_skill("demo-setup")["install_sources_json"] == '["https://github.com/example/demo"]'
+
+
+def test_skill_store_rejects_invalid_external_tool_setup_skills(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(
+        skills,
+        "bad-setup",
+        category="external.tool",
+        risk_level="medium",
+        requires_exec=True,
+        body="""# Bad Setup
+
+## Install
+Do something.
+
+## Verify
+Check it.
+""",
+    )
+
+    store = SkillStore(tmp_path)
+
+    with pytest.raises(ValueError, match="risk_level=high"):
         store.reindex(builtin_dir=tmp_path / "empty_builtin")
 
 
@@ -223,6 +300,22 @@ def test_skill_cli_test_routing(tmp_path: Path) -> None:
 
     assert result.exit_code == 0
     assert "Accuracy: 2/2" in result.stdout
+
+
+def test_skill_cli_test_routing_discovers_catalog_cases(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    runner = CliRunner()
+
+    result = runner.invoke(
+        app,
+        ["skill", "test-routing", "--workspace", str(workspace), "--threshold", "0.0"],
+    )
+
+    assert result.exit_code == 0
+    assert "Skill Routing Test" in result.stdout
+    assert "file(s)" in result.stdout
+    assert "case(s)" in result.stdout
+    assert "Accuracy:" in result.stdout
 
 
 def test_skill_cli_reindex_includes_system_skills(tmp_path: Path) -> None:

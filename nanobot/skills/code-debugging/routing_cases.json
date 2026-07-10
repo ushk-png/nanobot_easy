@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Fix this bug in the repository.", "expected": "code-debugging"},
+    {"query": "The tests are failing; inspect and patch the code.", "expected": "code-debugging"},
+    {"query": "Debug this stack trace and make the fix.", "expected": "code-debugging"},
+    {"query": "Find the regression and update the test.", "expected": "code-debugging"},
+    {"query": "Run the failing command and repair the implementation.", "expected": "code-debugging"},
+    {"query": "Review this diff without editing it.", "expected": "code-review"},
+    {"query": "Give me a debugging plan before touching code.", "expected": "debug-procedure"},
+    {"query": "Explain this error message.", "expected": "error-message-explain"},
+    {"query": "How should I configure the test runner?", "expected": "answer-howto"},
+    {"query": "Interpret these benchmark numbers.", "expected": "data-interpretation"}
+  ]
+}

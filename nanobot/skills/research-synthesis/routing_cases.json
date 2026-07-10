@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Synthesize these three reports into common themes.", "expected": "research-synthesis"},
+    {"query": "Combine these findings and tell me what they imply.", "expected": "research-synthesis"},
+    {"query": "What do these papers say together about retrieval quality?", "expected": "research-synthesis"},
+    {"query": "Make a research synthesis from the notes below.", "expected": "research-synthesis"},
+    {"query": "Summarize the evidence across these sources.", "expected": "research-synthesis"},
+    {"query": "Find the latest information about this market.", "expected": "research-brief"},
+    {"query": "Summarize this single PDF.", "expected": "summarize-document"},
+    {"query": "Turn this transcript into action items.", "expected": "meeting-notes"},
+    {"query": "Compare these two implementation options.", "expected": "compare-options"},
+    {"query": "Review this document for risks.", "expected": "document-review"}
+  ]
+}

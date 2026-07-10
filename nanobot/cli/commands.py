@@ -2487,9 +2487,38 @@ def _load_routing_cases(path: Path) -> list[dict[str, object]]:
     return [item for item in data if isinstance(item, dict)]
 
 
+def _discover_routing_case_files(workspace: Path) -> list[Path]:
+    from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+
+    roots = [BUILTIN_SKILLS_DIR, workspace / "skills"]
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*/routing_cases.json")):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            files.append(path)
+    return files
+
+
+def _load_discovered_routing_cases(workspace: Path) -> tuple[list[dict[str, object]], list[Path]]:
+    files = _discover_routing_case_files(workspace)
+    cases: list[dict[str, object]] = []
+    for path in files:
+        cases.extend(_load_routing_cases(path))
+    return cases, files
+
+
 @skill_app.command("test-routing")
 def skill_test_routing(
-    cases: Path = typer.Argument(..., help="YAML, JSON, or JSONL routing cases"),
+    cases: Path | None = typer.Argument(
+        None,
+        help="YAML, JSON, or JSONL routing cases. Omit to run all discovered routing_cases.json files.",
+    ),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Candidates to inspect per case"),
@@ -2498,8 +2527,13 @@ def skill_test_routing(
     """Run deterministic skill routing tests against the registry."""
     store = _skill_store_for_cli(config, workspace)
     store.ensure_index(system_dir=_system_skills_dir())
+    workspace_path = store.workspace
     try:
-        routing_cases = _load_routing_cases(cases)
+        if cases is None:
+            routing_cases, discovered_files = _load_discovered_routing_cases(workspace_path)
+        else:
+            routing_cases = _load_routing_cases(cases)
+            discovered_files = [cases]
     except Exception as exc:
         console.print(f"[red]Could not load routing cases: {escape(str(exc))}[/red]")
         raise typer.Exit(1) from exc
@@ -2508,7 +2542,7 @@ def skill_test_routing(
         raise typer.Exit(1)
 
     result = store.run_routing_test(routing_cases, top_k=top_k)
-    table = Table(title="Skill Routing Test")
+    table = Table(title=f"Skill Routing Test ({len(discovered_files)} file(s), {len(routing_cases)} case(s))")
     table.add_column("Query", overflow="fold")
     table.add_column("Expected")
     table.add_column("Actual")

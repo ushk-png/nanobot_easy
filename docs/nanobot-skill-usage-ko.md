@@ -77,13 +77,25 @@ PYTHONPATH=. .venv/bin/nanobot channels status \
 
 현재 주요 일반 스킬:
 
+- `answer-comparison`: 개념/도구/방식 차이 설명
+- `answer-howto`: 절차형 사용 안내
+- `answer-diagnosis`: 증상 기반 원인 후보 진단
 - `topic-recall`: 주제 기반 기억 회상
+- `summarize-document`: 단일 문서 요약
 - `document-review`: 문서 검토
+- `research-synthesis`: 여러 자료 종합
+- `code-review`: 코드/PR 리뷰
+- `debug-procedure`: 디버깅 절차 수립
 - `compare-options`: 선택지 비교
 - `code-debugging`: 코드 디버깅
 - `meeting-notes`: 회의록 정리
 - `research-brief`: 리서치 브리프 작성
 - `data-analysis`: 데이터 분석
+- `data-interpretation`: 이미 계산된 지표/차트 해석
+- `translation-technical`: 기술 문서 번역
+- `email-draft`: 이메일/업무 메시지 초안
+- `pros-cons-decision`: 장단점 기반 의사결정 노트
+- `error-message-explain`: 에러 메시지 설명
 
 현재 주요 시스템 스킬:
 
@@ -130,6 +142,49 @@ PYTHONPATH=. .venv/bin/nanobot skill test-routing \
   --config .local/config.json \
   --workspace .local/workspace
 ```
+
+경로를 생략하면 packaged skills와 workspace skills 아래의 모든 `routing_cases.json`을 찾아 한 번에 실행한다. 특정 파일만 테스트할 때는 경로를 첫 번째 인자로 넘긴다.
+
+```bash
+PYTHONPATH=. .venv/bin/nanobot skill test-routing \
+  nanobot/skills/document-review/routing_cases.json \
+  --config .local/config.json \
+  --workspace .local/workspace
+```
+
+초기 기본 카탈로그의 주요 스킬에는 각 10개씩 `routing_cases.json`이 포함되어 있다. 현재 기준은 19개 routing 파일, 총 190문항이며, 전체 테스트 기준 정확도는 90% 이상이어야 한다.
+
+## 실행형 외부 도구 스킬 준비
+
+외부 프로그램을 설치해 사용하는 스킬은 일반 답변형 스킬과 다르게 다룬다. 이 기능은 기본적으로 꺼져 있으며, 파일럿 전에는 스키마와 검증만 준비된 상태다.
+
+설정 위치:
+
+```json
+{
+  "tools": {
+    "externalToolSkills": {
+      "enabled": false,
+      "allowedInstallDomains": ["github.com", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
+      "installRoot": "tools",
+      "denyGlobalInstall": true
+    }
+  }
+}
+```
+
+규칙:
+
+- `<tool>-setup`: 설치, 설정, 헬스체크, 제거를 담당한다. `risk_level=high`, `requires_exec=true`, `install_sources` 필수다.
+- `<tool>-usage`: 이미 설치된 도구를 사용하는 절차만 담는다. Method 첫 단계에서 `which`, `--version`, healthcheck 등으로 존재를 확인해야 한다.
+- setup 스킬에는 `Install`, `Verify`, `Uninstall` 섹션이 모두 있어야 한다.
+- `curl | bash`, `sudo`, global install, workspace 밖 설치는 등록 검증에서 거부된다.
+- 설치 기록은 파일럿 단계에서 `workspace/tools/installed.md` 규약으로 관리한다.
+
+현재 파일럿 스킬:
+
+- `yq-setup`: `workspace/tools/yq/` 아래 isolated venv로 yq를 설치하고 검증한다.
+- `yq-usage`: 설치된 yq로 YAML/XML/TOML/JSON을 조회하거나 변환한다. yq가 없으면 직접 설치하지 않고 `yq-setup` 필요를 안내한다.
 
 ## 스킬 사용 방식
 

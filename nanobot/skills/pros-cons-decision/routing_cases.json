@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Give me pros and cons for moving to a managed database.", "expected": "pros-cons-decision"},
+    {"query": "Write a decision note for choosing between these vendors.", "expected": "pros-cons-decision"},
+    {"query": "Help me decide whether to build or buy this tool.", "expected": "pros-cons-decision"},
+    {"query": "Recommend between these options with assumptions and risks.", "expected": "pros-cons-decision"},
+    {"query": "Should we choose option A or option B for launch?", "expected": "pros-cons-decision"},
+    {"query": "What is the conceptual difference between SQL and NoSQL?", "expected": "answer-comparison"},
+    {"query": "Compare these options using weighted criteria.", "expected": "compare-options"},
+    {"query": "Draft an email explaining the decision.", "expected": "email-draft"},
+    {"query": "Review this decision memo for gaps.", "expected": "document-review"},
+    {"query": "Summarize these meeting decisions.", "expected": "meeting-notes"}
+  ]
+}

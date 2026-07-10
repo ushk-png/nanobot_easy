@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Compare these two deployment strategies and recommend one.", "expected": "compare-options"},
+    {"query": "Which should I choose, Postgres or MongoDB, for this product?", "expected": "compare-options"},
+    {"query": "Evaluate option A and B using cost, risk, and speed.", "expected": "compare-options"},
+    {"query": "Compare these vendors and tell me which fits best.", "expected": "compare-options"},
+    {"query": "Help me choose between a monolith and microservices.", "expected": "compare-options"},
+    {"query": "What is the conceptual difference between monolith and microservices?", "expected": "answer-comparison"},
+    {"query": "Give me a pros and cons decision note.", "expected": "pros-cons-decision"},
+    {"query": "How do I configure a deployment pipeline?", "expected": "answer-howto"},
+    {"query": "Review this architecture proposal.", "expected": "document-review"},
+    {"query": "Summarize this decision meeting.", "expected": "meeting-notes"}
+  ]
+}

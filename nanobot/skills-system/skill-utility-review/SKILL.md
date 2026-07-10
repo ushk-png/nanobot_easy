@@ -26,4 +26,10 @@ Reject or merge when:
 - The skill is just domain facts without procedure.
 - It overlaps heavily with an existing skill and has no clear routing boundary.
 
+For executable external-tool proposals, decide whether a direct CLI skill is
+enough or whether a long-running service is actually required. Transformation,
+analysis, and conversion tools usually fit direct execution. RAG servers,
+databases, and sessionful tools should be modeled as setup-managed services with
+a separate usage skill that calls the service/API.
+
 Return: keep, merge, or reject, with one paragraph of reasoning.
