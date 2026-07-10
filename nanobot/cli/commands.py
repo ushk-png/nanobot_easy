@@ -2321,21 +2321,17 @@ def skill_stats(
 ):
     """Show aggregate skill registry counts."""
     store = _skill_store_for_cli(config, workspace)
-    rows = store.list_skills(include_deprecated=True)
-    by_status: dict[str, int] = {}
-    for row in rows:
-        by_status[row["status"]] = by_status.get(row["status"], 0) + 1
+    by_status = store.status_counts()
     console.print(f"DB: {store.db_path}")
-    console.print(f"Skills: {len(rows)}")
+    console.print(f"Skills: {sum(by_status.values())}")
     for status, count in sorted(by_status.items()):
         console.print(f"- {status}: {count}")
 
 
 def _success_rate(row) -> float | None:
-    attempts = int(row["success_count"]) + int(row["failure_count"])
-    if attempts == 0:
-        return None
-    return int(row["success_count"]) / attempts
+    from nanobot.skill_store import success_rate_for_row
+
+    return success_rate_for_row(row)
 
 
 @skill_app.command("hot-path-report")
@@ -2349,23 +2345,10 @@ def skill_hot_path_report(
     """Suggest low-risk skills that may deserve Hot Path preloading."""
     store = _skill_store_for_cli(config, workspace)
     store.ensure_index(system_dir=_system_skills_dir())
-    rows = [
-        row for row in store.list_skills(include_deprecated=False)
-        if row["status"] in {"candidate", "verified"}
-        and row["source"] != "system"
-        and row["risk_level"] == "low"
-        and not bool(row["requires_exec"])
-        and int(row["usage_count"]) >= min_usage
-        and (_success_rate(row) or 0.0) >= min_success_rate
-        and int(row["routing_failure_count"]) == 0
-    ]
-    rows.sort(
-        key=lambda row: (
-            int(row["usage_count"]),
-            _success_rate(row) or 0.0,
-            row["name"],
-        ),
-        reverse=True,
+    rows = store.hot_path_report(
+        min_usage=min_usage,
+        min_success_rate=min_success_rate,
+        limit=limit,
     )
     table = Table(title="Hot Path Promotion Candidates")
     table.add_column("Name", style="cyan")
@@ -2373,7 +2356,7 @@ def skill_hot_path_report(
     table.add_column("Success")
     table.add_column("Category")
     table.add_column("Path", overflow="fold")
-    for row in rows[:limit]:
+    for row in rows:
         rate = _success_rate(row)
         table.add_row(
             row["name"],
@@ -2399,21 +2382,12 @@ def skill_lifecycle_report(
     """Report skills that should be revised or deprecated based on counters."""
     store = _skill_store_for_cli(config, workspace)
     store.ensure_index(system_dir=_system_skills_dir())
-    findings: list[tuple[object, str, str]] = []
-    for row in store.list_skills(include_deprecated=False):
-        if row["status"] == "system":
-            continue
-        usage = int(row["usage_count"])
-        routing_failures = int(row["routing_failure_count"])
-        rate = _success_rate(row)
-        if usage < min_usage and routing_failures < min_routing_failures:
-            continue
-        if routing_failures >= min_routing_failures and (rate is None or rate <= max_success_rate):
-            findings.append((row, "deprecate", "routing failures plus low/unknown success rate"))
-        elif rate is not None and rate <= max_success_rate:
-            findings.append((row, "review", "low success rate"))
-        elif routing_failures >= min_routing_failures:
-            findings.append((row, "review", "routing failures"))
+    findings = store.lifecycle_report(
+        min_usage=min_usage,
+        max_success_rate=max_success_rate,
+        min_routing_failures=min_routing_failures,
+        apply_deprecate=apply_deprecate,
+    )
 
     table = Table(title="Skill Lifecycle Report")
     table.add_column("Name", style="cyan")
@@ -2423,7 +2397,8 @@ def skill_lifecycle_report(
     table.add_column("Routing Fail")
     table.add_column("Action")
     table.add_column("Reason")
-    for row, action, reason in findings:
+    for finding in findings:
+        row = finding.row
         rate = _success_rate(row)
         table.add_row(
             row["name"],
@@ -2431,11 +2406,9 @@ def skill_lifecycle_report(
             str(row["usage_count"]),
             "-" if rate is None else f"{rate:.0%}",
             str(row["routing_failure_count"]),
-            action,
-            reason,
+            finding.action,
+            finding.reason,
         )
-        if apply_deprecate and action == "deprecate":
-            store.set_status(row["name"], "deprecated")
     console.print(table)
     if not findings:
         console.print("No lifecycle findings met the thresholds.")
@@ -2447,14 +2420,30 @@ def skill_approve(
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
 ):
-    """Promote a non-system skill to verified."""
+    """Register a human-approved draft as candidate."""
     store = _skill_store_for_cli(config, workspace)
     try:
-        store.set_status(name, "verified")
+        store.approve_draft(name)
     except (KeyError, ValueError) as exc:
         console.print(f"[red]{escape(str(exc))}[/red]")
         raise typer.Exit(1) from exc
     console.print(f"[green]Approved skill '{escape(name)}'[/green]")
+
+
+@skill_app.command("promote")
+def skill_promote(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Promote a candidate skill to verified."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.promote(name)
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Promoted skill '{escape(name)}'[/green]")
 
 
 @skill_app.command("deprecate")
@@ -2466,7 +2455,7 @@ def skill_deprecate(
     """Mark a non-system skill as deprecated."""
     store = _skill_store_for_cli(config, workspace)
     try:
-        store.set_status(name, "deprecated")
+        store.deprecate_skill(name)
     except (KeyError, ValueError) as exc:
         console.print(f"[red]{escape(str(exc))}[/red]")
         raise typer.Exit(1) from exc
@@ -2518,29 +2507,22 @@ def skill_test_routing(
         console.print("[red]No routing cases found.[/red]")
         raise typer.Exit(1)
 
-    rows: list[tuple[str, str, str, bool]] = []
-    for item in routing_cases:
-        query = str(item.get("query") or "").strip()
-        expected = str(item.get("expected") or item.get("skill") or "").strip()
-        if not query or not expected:
-            rows.append((query, expected, "", False))
-            continue
-        matches = store.search(query, top_k=top_k, min_status=("candidate", "verified"))
-        actual = matches[0].name if matches else ""
-        rows.append((query, expected, actual, actual == expected))
-
-    passed = sum(1 for *_row, ok in rows if ok)
-    accuracy = passed / len(rows)
+    result = store.run_routing_test(routing_cases, top_k=top_k)
     table = Table(title="Skill Routing Test")
     table.add_column("Query", overflow="fold")
     table.add_column("Expected")
     table.add_column("Actual")
     table.add_column("Result")
-    for query, expected, actual, ok in rows:
-        table.add_row(query, expected, actual or "-", "[green]ok[/green]" if ok else "[red]fail[/red]")
+    for row in result.rows:
+        table.add_row(
+            row.query,
+            row.expected,
+            row.actual or "-",
+            "[green]ok[/green]" if row.ok else "[red]fail[/red]",
+        )
     console.print(table)
-    console.print(f"Accuracy: {passed}/{len(rows)} ({accuracy:.1%})")
-    if accuracy < threshold:
+    console.print(f"Accuracy: {result.passed}/{result.total} ({result.accuracy:.1%})")
+    if result.accuracy < threshold:
         raise typer.Exit(1)
 
 

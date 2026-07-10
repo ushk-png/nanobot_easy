@@ -158,6 +158,20 @@ class ChannelManager:
                     parsed = WebSocketConfig.model_validate(section)
                     static_path = _default_webui_dist() if self._webui_static_dist else None
                     workspace = Path(self.config.workspace_path)
+
+                    async def _compose_skill_draft(values: dict[str, Any]) -> Any:
+                        from nanobot.providers.factory import make_provider
+                        from nanobot.skill_composer import compose_skill_draft_with_llm
+
+                        resolved = self.config.resolve_preset()
+                        provider = make_provider(self.config)
+                        return await compose_skill_draft_with_llm(
+                            provider,
+                            model=resolved.model,
+                            values=values,
+                            workspace=workspace,
+                        )
+
                     gateway = build_gateway_services(
                         config=parsed,
                         bus=self.bus,
@@ -169,6 +183,9 @@ class ChannelManager:
                         runtime_model_name=self._webui_runtime_model_name,
                         runtime_surface=self._webui_runtime_surface,
                         runtime_capabilities_overrides=self._webui_runtime_capabilities,
+                        skill_management_enabled=self.config.tools.webui_skill_management.enabled,
+                        skill_management_red_flags=self.config.tools.webui_skill_management.red_flags,
+                        skill_draft_composer=_compose_skill_draft,
                         cron_service=self._cron_service,
                         local_trigger_store=self._local_trigger_store,
                         cron_pending_job_ids=self._webui_cron_pending_job_ids,

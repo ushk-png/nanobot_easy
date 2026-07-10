@@ -2240,6 +2240,84 @@ Use `nanobot skill list`, `nanobot skill stats`, `nanobot skill
 hot-path-report`, and `nanobot skill lifecycle-report` to inspect indexed
 skills and routing outcomes.
 
+## WebUI Skill Management
+
+WebUI skill management is disabled by default. Enabling it allows authenticated
+WebUI clients to call management endpoints that register drafts, transition
+skill status, and run registry-backed checks. Keep it disabled unless you are
+actively using the local WebUI as a skill management console.
+
+```json
+{
+  "tools": {
+    "webuiSkillManagement": {
+      "enabled": false,
+      "draftExpireDays": 30,
+      "redFlags": {
+        "minRoutingPasses": 7,
+        "securityRiskAtLeast": "medium",
+        "securityBlockAtLeast": "high",
+        "duplicateScoreAtLeast": 0.8
+      }
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.webuiSkillManagement.enabled` | `false` | Enable skill-management API capability for authenticated WebUI clients. |
+| `tools.webuiSkillManagement.draftExpireDays` | `30` | Days before unmanaged draft rows should expire. |
+| `tools.webuiSkillManagement.redFlags.minRoutingPasses` | `7` | Minimum passing routing-test count out of 10 before registration can stay collapsed into the one-click path. |
+| `tools.webuiSkillManagement.redFlags.securityRiskAtLeast` | `"medium"` | Risk level at or above which registration must expand into explicit review. |
+| `tools.webuiSkillManagement.redFlags.securityBlockAtLeast` | `"high"` | Risk level at or above which override registration is blocked. |
+| `tools.webuiSkillManagement.redFlags.duplicateScoreAtLeast` | `0.8` | Duplicate score at or above which registration must expand into explicit review. |
+
+The WebUI uses these thresholds to decide whether draft registration can remain
+collapsed into one **Register** action or must expand into explicit review with
+an override reason. `securityBlockAtLeast` is the non-overridable boundary.
+When a draft reaches this risk level, registration is blocked.
+
+Current embedded WebUI management routes are registry-backed and token-protected:
+`GET /api/skills/manage`, `GET /api/skills/manage/search?q=...`,
+`GET /api/skills/manage/{name}`, and
+`GET /api/skills/manage/{name}/status?action=approve|promote|deprecate|reject`.
+Skill edits use `GET /api/skills/manage/{name}/update?dry_run=true` for
+Minor/Major assessment and `GET /api/skills/manage/{name}/update` to apply the
+change. Because the embedded WebSocket HTTP gateway currently accepts GET
+requests only, the update markdown is sent as a URL-encoded JSON object in the
+`X-Nanobot-Skill-Update` header:
+
+```http
+X-Nanobot-Skill-Update: %7B%22markdown%22%3A%22---%5Cnname%3A...%22%7D
+```
+
+The update route rejects system skills, path traversal names, and registry rows
+outside the workspace skill repository. Method/tool/risk changes are classified
+as Major; if a verified skill receives a Major edit, the service writes the file,
+reindexes, and returns the skill to candidate for revalidation.
+
+Routing tests use `GET /api/skills/manage/{name}/test`. The server reads
+`<workspace>/skills/{name}/routing_cases.json`, accepts either a JSON list or
+`{"cases": [...]}`, and returns `available=false` when the file is not present.
+
+Draft registration uses the same GET-only gateway convention:
+`GET /api/skills/manage/drafts/compose` with a URL-encoded JSON object in the
+`X-Nanobot-Skill-Draft` header, `GET /api/skills/manage/drafts/{id}` to poll the
+draft, and `GET /api/skills/manage/drafts/{id}/approve` to write
+`<workspace>/skills/{name}/SKILL.md`, move routing cases into
+`routing_cases.json`, reindex, and expose the skill as candidate. This is the
+Composer-backed path: compose starts an asynchronous draft job using the active
+provider/model, the draft remains DB-only until approval, and approval performs
+file creation, registry transition, and reindexing as one service operation with
+best-effort rollback if file creation succeeds but registry transition fails.
+Drafts older than `draftExpireDays` are eligible for expiry instead of remaining
+in the inbox forever.
+
+For the browser workflow, see [`webui.md#skills`](./webui.md#skills). For a
+project-local Korean runbook, see
+[`nanobot-skill-usage-ko.md#webui에서-스킬-관리하기`](./nanobot-skill-usage-ko.md#webui에서-스킬-관리하기).
+
 ## Tool Hint Max Length
 
 Tool hints are the short progress messages shown when the agent calls tools (e.g. `$ cd …/project && npm test`). By default, these are truncated at 40 characters, which can make long commands hard to read.

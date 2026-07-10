@@ -154,6 +154,13 @@ The CLI commands under `nanobot skill ...` rebuild and inspect that registry.
 `skill_search` uses the registry at runtime to find focused instructions without
 injecting every skill into each prompt.
 
+Skill management writes are centralized in the same skill store service. The CLI
+and WebUI management API (`nanobot/webui/skill_manage_api.py`) both call that
+service for draft approval, candidate promotion, deprecation, rejection,
+Minor/Major edit assessment, routing tests, and system-skill write protection.
+The older read-only catalog API (`nanobot/webui/skills_api.py`) remains separate
+so the management routes can stay capability-gated under `/api/skills/manage`.
+
 Subagent orchestration reuses the normal agent loop with a narrower context.
 `spawn` runs asynchronously and announces completion through the bus.
 `delegate` runs synchronously and returns the result to the parent tool call.

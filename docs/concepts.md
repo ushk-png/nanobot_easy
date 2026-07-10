@@ -153,6 +153,11 @@ checks. Rebuild it after adding or editing skills:
 nanobot skill reindex --config ./config.json --workspace ./workspace
 ```
 
+When WebUI skill management is enabled, the browser Skills view uses the same
+registry service as the CLI. Drafts are reviewed before they become searchable
+candidate skills, candidates can later be promoted to verified, and system
+skills remain repository-managed and read-only from runtime management paths.
+
 For complex tasks, nanobot can use subagents. `spawn` starts background work and
 returns later through the message bus; `delegate` waits for the subagent result
 and returns it directly as a tool result. Subagent profiles define role-specific

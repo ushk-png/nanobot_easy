@@ -385,6 +385,320 @@ describe("App layout", () => {
     expect(screen.getByText(/Use GitHub CLI/)).toBeInTheDocument();
   });
 
+  it("opens the registry-backed skill management view when enabled", async () => {
+    const managedSkill = {
+      id: "skill-1",
+      name: "review-helper",
+      version: "1.0.0",
+      status: "candidate",
+      risk_level: "low",
+      category: "review",
+      requires_exec: false,
+      path: "/workspace/skills/review-helper/SKILL.md",
+      source: "workspace",
+      description: "Review code changes.",
+      when_to_use: "",
+      when_not_to_use: "",
+      required_tools: [],
+      usage_count: 4,
+      success_count: 3,
+      failure_count: 1,
+      routing_failure_count: 0,
+      success_rate: 0.75,
+      content_hash: "abc",
+      created_at: "2026-07-10T00:00:00Z",
+      updated_at: "2026-07-10T00:00:00Z",
+    };
+    const draftSkill = {
+      ...managedSkill,
+      id: "skill-2",
+      name: "draft-helper",
+      status: "draft",
+      description: "Waiting for registration.",
+      usage_count: 0,
+      success_count: 0,
+      failure_count: 0,
+      success_rate: null,
+    };
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/settings/cli-apps": { apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" },
+      "/api/settings/mcp-presets": { presets: [], installed_count: 0 },
+      "/api/webui/skills": { skills: [] },
+      "/api/skills/manage": {
+        skills: [draftSkill, managedSkill],
+        drafts: [{
+          draft_id: "draft-ready-card",
+          name: "ready-web-draft",
+          status: "ready",
+          markdown: "---\nname: ready-web-draft\n---\n# Ready Web Draft",
+          review: { status: "ready", summary: "Ready for registration." },
+          routing_cases: [{ query: "ready web draft", expected: "ready-web-draft" }],
+          governance: {
+            can_register: true,
+            requires_confirmation: false,
+            blocked: false,
+            blocking: [],
+            confirmations: [],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        }],
+        status_counts: { draft: 2, candidate: 1 },
+      },
+      "/api/skills/manage/review-helper": {
+        skill: managedSkill,
+        raw_markdown: "---\nname: review-helper\n---\n# Review Helper",
+        relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+        traces: [{
+          trace_id: "trace-1",
+          ts: "2026-07-10T00:00:00Z",
+          session_key: "websocket:test",
+          query_digest: "review this diff",
+          candidates: [],
+          selected_skill: "review-helper",
+          selection_reason: "cold",
+          executed_by: "main",
+          wave_no: null,
+          gate_result: "ok",
+          user_feedback: null,
+          notes: null,
+        }],
+      },
+      "/api/skills/manage/review-helper/test": {
+        available: true,
+        cases_path: "/tmp/workspace/skills/review-helper/routing_cases.json",
+        passed: 1,
+        total: 1,
+        accuracy: 1,
+        rows: [{
+          query: "review this diff",
+          expected: "review-helper",
+          actual: "review-helper",
+          ok: true,
+        }],
+      },
+      "/api/skills/manage/draft-helper": {
+        skill: draftSkill,
+        raw_markdown: "---\nname: draft-helper\n---",
+        relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+        traces: [],
+      },
+      "/api/skills/manage/drafts/compose": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "composing",
+          markdown: "",
+          review: { status: "composing", summary: "Composer is generating the draft." },
+          routing_cases: [],
+          governance: {
+            can_register: false,
+            requires_confirmation: false,
+            blocked: false,
+            blocking: [],
+            confirmations: [],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+      },
+      "/api/skills/manage/drafts/draft-web-created": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "ready",
+          markdown: "---\nname: web-created\n---\n# Web Created\n\n## Method\nUse it.",
+          review: {
+            status: "ready",
+            summary: "placeholder",
+            routing_test: { passed: 6, total: 10 },
+          },
+          routing_cases: [{ query: "web created", expected: "web-created" }],
+          governance: {
+            can_register: false,
+            requires_confirmation: true,
+            blocked: false,
+            blocking: [],
+            confirmations: [{ kind: "routing", passed: 6, total: 10 }],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+      },
+      "/api/skills/manage/drafts/draft-web-created/approve": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "approved",
+          markdown: "---\nname: web-created\n---\n# Web Created",
+          review: { status: "ready" },
+          routing_cases: [{ query: "web created", expected: "web-created" }],
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+        skill: {
+          ...managedSkill,
+          id: "skill-3",
+          name: "web-created",
+          status: "candidate",
+          description: "Web created skill.",
+        },
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+
+    expect(await screen.findByText(/Registry-backed skill management/)).toBeInTheDocument();
+    expect(screen.getByText("Inbox")).toBeInTheDocument();
+    expect(screen.getByText("draft-helper")).toBeInTheDocument();
+    expect(screen.getByText("ready-web-draft")).toBeInTheDocument();
+    expect(screen.getByText("Ready for review and registration.")).toBeInTheDocument();
+    expect(screen.getAllByText("review-helper").length).toBeGreaterThan(0);
+    expect(await screen.findByText("review this diff")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /verified로 승격/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run test" }));
+    expect(await screen.findByText("1/1 passed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+    fireEvent.change(await screen.findByPlaceholderText("review-renewal-notes"), {
+      target: { value: "web-created" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Review renewal notes and surface customer risk."), {
+      target: { value: "Web created skill." },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/review this renewal/), {
+      target: { value: "web created" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Compose draft" }));
+    expect(await screen.findByText("Draft ready")).toBeInTheDocument();
+    expect(screen.getByText("expected web-created")).toBeInTheDocument();
+    expect(screen.getByText("Confirmation required")).toBeInTheDocument();
+    expect(screen.getByText("Routing test passed 6/10.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Register" })).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/Internal-only skill/), {
+      target: { value: "Known narrow trigger set; acceptable for local use." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    expect(await screen.findByText("Registered web-created.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("draft-helper"));
+    expect(await screen.findByRole("button", { name: /등록/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /반려/ })).toBeInTheDocument();
+  });
+
+  it("opens the managed skill editor and confirms major updates", async () => {
+    const managedSkill = {
+      id: "skill-1",
+      name: "review-helper",
+      version: "1.0.0",
+      status: "verified",
+      risk_level: "low",
+      category: "review",
+      requires_exec: false,
+      path: "/tmp/workspace/skills/review-helper/SKILL.md",
+      source: "workspace",
+      description: "Review helper.",
+      when_to_use: "",
+      when_not_to_use: "",
+      required_tools: [],
+      usage_count: 4,
+      success_count: 3,
+      failure_count: 1,
+      routing_failure_count: 0,
+      success_rate: 0.75,
+      content_hash: "abc",
+      created_at: "2026-07-10T00:00:00Z",
+      updated_at: "2026-07-10T00:00:00Z",
+    };
+    const rawMarkdown = "---\nname: review-helper\n---\n# Review Helper\n\n## Method\nOld method.";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(baseSettingsPayload());
+      if (url === "/api/settings/cli-apps") {
+        return jsonResponse({ apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" });
+      }
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      if (url === "/api/webui/skills") return jsonResponse({ skills: [] });
+      if (url === "/api/skills/manage") {
+        return jsonResponse({
+          skills: [managedSkill],
+          status_counts: { verified: 1 },
+        });
+      }
+      if (url === "/api/skills/manage/review-helper") {
+        return jsonResponse({
+          skill: managedSkill,
+          raw_markdown: rawMarkdown,
+          relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+          traces: [],
+        });
+      }
+      if (url === "/api/skills/manage/review-helper/update?dry_run=true") {
+        return jsonResponse({
+          assessment: {
+            kind: "major",
+            reasons: ["Method changed."],
+            changed_fields: ["method"],
+            current_status: "verified",
+            next_status: "candidate",
+            requires_revalidation: true,
+          },
+          skill: managedSkill,
+          dry_run: true,
+        });
+      }
+      if (url === "/api/skills/manage/review-helper/update") {
+        return jsonResponse({
+          assessment: {
+            kind: "major",
+            reasons: ["Method changed."],
+            changed_fields: ["method"],
+            current_status: "verified",
+            next_status: "candidate",
+            requires_revalidation: true,
+          },
+          skill: { ...managedSkill, status: "candidate" },
+          dry_run: false,
+        });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+
+    expect(await screen.findByText(/Registry-backed skill management/)).toBeInTheDocument();
+    expect(await screen.findByText("Old method.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Skill instructions editor" });
+    fireEvent.change(editor, { target: { value: rawMarkdown.replace("Old method.", "New method.") } });
+    fireEvent.click(screen.getByRole("button", { name: "Save instructions" }));
+
+    expect(await screen.findByText("Method changed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save anyway" }));
+    expect(await screen.findByText("Skill instructions saved.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/skills/manage/review-helper/update?dry_run=true",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Nanobot-Skill-Update": expect.any(String),
+        }),
+      }),
+    );
+  });
+
   it("opens Automations from the main sidebar", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),

@@ -1,6 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  approveManagedSkillDraft,
+  composeManagedSkillDraft,
   createModelConfiguration,
   deleteSession,
   fetchFilePreview,
@@ -13,6 +15,9 @@ import {
   fetchSessionAutomations,
   fetchSettingsUsage,
   fetchSidebarState,
+  fetchManagedSkillDetail,
+  fetchManagedSkillDraft,
+  fetchManagedSkills,
   fetchSkillDetail,
   fetchSkills,
   fetchWebuiThread,
@@ -26,7 +31,11 @@ import {
   enableNanobotFeature,
   runAutomationAction,
   runCliAppAction,
+  runManagedSkillRoutingTest,
+  runManagedSkillStatusAction,
   runMcpPresetAction,
+  searchManagedSkills,
+  updateManagedSkillMarkdown,
   saveCustomMcpServer,
   updateAutomation,
   updateSidebarState,
@@ -166,6 +175,123 @@ describe("webui API helpers", () => {
       "/api/webui/skills/current%20web",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("fetches managed skills from the registry-backed API", async () => {
+    await fetchManagedSkills("tok");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes managed skill search queries", async () => {
+    await searchManagedSkills("tok", "draft review");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/search?q=draft+review",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("percent-encodes managed skill names when fetching details", async () => {
+    await fetchManagedSkillDetail("tok", "current web");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/current%20web",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes managed skill status actions", async () => {
+    await runManagedSkillStatusAction("tok", "draft skill", "approve");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/draft%20skill/status?action=approve",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes managed skill markdown updates", async () => {
+    await updateManagedSkillMarkdown("tok", "draft skill", "# Skill", { dryRun: true });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/draft%20skill/update?dry_run=true",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Skill-Update": encodeURIComponent(JSON.stringify({ markdown: "# Skill" })),
+        },
+      }),
+    );
+  });
+
+  it("serializes managed skill routing tests", async () => {
+    await runManagedSkillRoutingTest("tok", "draft skill");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/draft%20skill/test",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("serializes managed skill draft compose and approval", async () => {
+    await composeManagedSkillDraft("tok", {
+      name: "draft-skill",
+      description: "Draft skill.",
+      trigger: "draft trigger",
+    });
+    await fetchManagedSkillDraft("tok", "draft-1");
+    await approveManagedSkillDraft("tok", "draft-1");
+    await approveManagedSkillDraft("tok", "draft-2", { reason: "Local-only overlap is acceptable." });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/drafts/compose",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Skill-Draft": encodeURIComponent(JSON.stringify({
+            name: "draft-skill",
+            description: "Draft skill.",
+            trigger: "draft trigger",
+          })),
+        },
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/drafts/draft-1",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/drafts/draft-1/approve",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/drafts/draft-2/approve",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Skill-Approval": encodeURIComponent(JSON.stringify({
+            reason: "Local-only overlap is acceptable.",
+          })),
+        },
       }),
     );
   });

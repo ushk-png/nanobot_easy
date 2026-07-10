@@ -59,7 +59,7 @@ gateway health endpoint, `18790` by default, is not the browser UI.
 | Access | Choose the access mode for local capabilities allowed by your gateway configuration |
 | Composer | Send text, images, voice input, slash commands, and `@` mentions for Apps or MCP presets |
 | Apps | Install, test, update, and use local CLI App adapters and MCP presets |
-| Skills | Inspect available built-in and workspace skills before relying on them |
+| Skills | Inspect, create, test, register, and lifecycle-manage skills when management is enabled |
 | Automations | Review, search, run, pause, edit, and delete scheduled and local-trigger agent turns |
 | Settings | Adjust models, providers, image generation, voice, web tools, runtime, and safety options |
 
@@ -141,6 +141,44 @@ Check this view when you want to know whether nanobot already has a focused
 workflow for a task before you ask it to perform that task. If a skill appears
 as unavailable, open its detail sheet to see missing commands or environment
 variables.
+
+When `tools.webuiSkillManagement.enabled` is true, the Skills view becomes a
+registry-backed management console. It uses the same skill store service as the
+`nanobot skill ...` CLI, so system skills remain write-protected and lifecycle
+rules are enforced server-side instead of only by the UI.
+
+The management layout is a master-detail view:
+
+- the top draft inbox shows drafts that are composing, ready, failed, or waiting
+  for a decision;
+- the left list filters registry skills by status and search text;
+- the right detail panel shows markdown, metadata, recent routing traces,
+  routing-test results, edit controls, and the next valid lifecycle actions.
+
+Allowed lifecycle actions are shown as concrete buttons for the current status:
+drafts can be registered or rejected, candidates can be promoted to verified,
+and verified skills can be deprecated. The service rejects invalid transitions
+and all writes to system skills.
+
+Use **New skill** to open the creation wizard. The wizard collects the proposed
+name, triggers, category, risk level, execution requirement, and method draft,
+then starts Composer in the background. The server returns a draft id, the UI
+polls for progress, and the draft stays visible in the inbox if you leave the
+screen. When Composer finishes, review the generated `SKILL.md`, review report,
+and routing cases before selecting **Register**. Registration writes the skill
+under `<workspace>/skills/<name>/`, moves routing cases into
+`routing_cases.json`, reindexes, and exposes the skill as `candidate`.
+
+Red flags expand the one-click registration flow into explicit review. By
+default this happens when fewer than 7 of 10 routing cases pass, security risk
+is at least `medium`, or duplicate score is at least `0.8`. Overrides require a
+reason. Security risk at `high` or above is blocked and cannot be overridden.
+
+Skill edits are assessed as Minor or Major before saving. Minor edits keep the
+current lifecycle status. Major edits, such as method or tool-use changes,
+require confirmation and return verified skills to `candidate` for revalidation.
+See [`configuration.md#webui-skill-management`](./configuration.md#webui-skill-management)
+for the management capability flag and red-flag thresholds.
 
 ## Automations
 

@@ -1,0 +1,360 @@
+"""Registry-backed skill management payloads for the WebUI."""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+from typing import Any
+
+from nanobot.agent.skills import SYSTEM_SKILLS_DIR
+from nanobot.skill_store import (
+    SkillDraftContent,
+    SkillDraftResult,
+    SkillStore,
+    SkillUpdateAssessment,
+    row_to_skill_payload,
+)
+
+_RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
+
+
+def _risk_at_least(value: str, threshold: str) -> bool:
+    return _RISK_ORDER.get(str(value).lower(), 0) >= _RISK_ORDER.get(str(threshold).lower(), 0)
+
+
+def _assessment_payload(assessment: SkillUpdateAssessment) -> dict[str, Any]:
+    return {
+        "kind": assessment.kind,
+        "reasons": assessment.reasons,
+        "changed_fields": assessment.changed_fields,
+        "current_status": assessment.current_status,
+        "next_status": assessment.next_status,
+        "requires_revalidation": assessment.requires_revalidation,
+    }
+
+
+def _policy_payload(policy: Any | None) -> dict[str, Any] | None:
+    if policy is None:
+        return None
+    return {
+        "min_routing_passes": int(getattr(policy, "min_routing_passes", 7)),
+        "security_risk_at_least": str(getattr(policy, "security_risk_at_least", "medium")),
+        "security_block_at_least": str(getattr(policy, "security_block_at_least", "high")),
+        "duplicate_score_at_least": float(getattr(policy, "duplicate_score_at_least", 0.8)),
+    }
+
+
+def _draft_governance(draft: SkillDraftResult, policy: Any | None) -> dict[str, Any]:
+    resolved = _policy_payload(policy) or {
+        "min_routing_passes": 7,
+        "security_risk_at_least": "medium",
+        "security_block_at_least": "high",
+        "duplicate_score_at_least": 0.8,
+    }
+    review = draft.review_json
+    red_flags = [item for item in review.get("red_flags", []) if isinstance(item, dict)]
+    blocking: list[dict[str, Any]] = []
+    requires_confirmation: list[dict[str, Any]] = []
+
+    security_level = str(review.get("security_risk_level") or "").lower()
+    for flag in red_flags:
+        if str(flag.get("kind") or "").lower() == "security":
+            security_level = str(flag.get("severity") or flag.get("level") or security_level).lower()
+            break
+    if security_level:
+        flag = {
+            "kind": "security",
+            "severity": security_level,
+            "message": "Security review requires attention.",
+        }
+        if _risk_at_least(security_level, str(resolved["security_block_at_least"])):
+            blocking.append(flag)
+        elif _risk_at_least(security_level, str(resolved["security_risk_at_least"])):
+            requires_confirmation.append(flag)
+
+    routing = review.get("routing_test") if isinstance(review.get("routing_test"), dict) else {}
+    passed = routing.get("passed")
+    total = routing.get("total")
+    if isinstance(passed, int) and isinstance(total, int) and total > 0 and passed < int(resolved["min_routing_passes"]):
+        requires_confirmation.append(
+            {
+                "kind": "routing",
+                "passed": passed,
+                "total": total,
+                "message": f"Routing test passed {passed}/{total}.",
+            }
+        )
+
+    duplicate = review.get("duplicate") if isinstance(review.get("duplicate"), dict) else {}
+    score = duplicate.get("score")
+    if isinstance(score, int | float) and float(score) >= float(resolved["duplicate_score_at_least"]):
+        requires_confirmation.append(
+            {
+                "kind": "duplicate",
+                "score": float(score),
+                "message": "Duplicate check found a close neighboring skill.",
+            }
+        )
+
+    return {
+        "can_register": not blocking and not requires_confirmation,
+        "requires_confirmation": bool(requires_confirmation),
+        "blocked": bool(blocking),
+        "blocking": blocking,
+        "confirmations": requires_confirmation,
+    }
+
+
+def _draft_payload(draft: SkillDraftResult, *, policy: Any | None = None) -> dict[str, Any]:
+    payload = {
+        "draft_id": draft.draft_id,
+        "name": draft.name,
+        "status": draft.status,
+        "markdown": draft.markdown,
+        "review": draft.review_json,
+        "routing_cases": draft.routing_cases_json,
+        "created_at": draft.created_at,
+        "updated_at": draft.updated_at,
+    }
+    resolved_policy = _policy_payload(policy)
+    if resolved_policy is not None:
+        payload["policy"] = resolved_policy
+    payload["governance"] = _draft_governance(draft, policy)
+    return payload
+
+
+def skill_manage_list_payload(workspace_path: Path) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    drafts = store.list_skill_drafts()
+    status_counts = store.status_counts()
+    if drafts:
+        status_counts["draft"] = status_counts.get("draft", 0) + len(drafts)
+    return {
+        "skills": store.managed_list(include_deprecated=True),
+        "drafts": [_draft_payload(draft) for draft in drafts],
+        "status_counts": status_counts,
+    }
+
+
+def skill_manage_search_payload(
+    workspace_path: Path,
+    query: str,
+    *,
+    top_k: int = 10,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    query = query.strip()
+    return {
+        "query": query,
+        "matches": store.managed_search(query, top_k=top_k) if query else [],
+    }
+
+
+def skill_manage_detail_payload(
+    workspace_path: Path,
+    name: str,
+    *,
+    trace_limit: int = 10,
+) -> dict[str, Any] | None:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    return store.managed_detail(name, trace_limit=trace_limit)
+
+
+def skill_manage_status_payload(
+    workspace_path: Path,
+    name: str,
+    action: str,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    normalized = action.strip().lower()
+    if normalized in {"approve", "register", "candidate"}:
+        row = store.approve_draft(name)
+    elif normalized in {"promote", "verify", "verified"}:
+        row = store.promote(name)
+    elif normalized in {"deprecate", "deprecated"}:
+        row = store.deprecate_skill(name)
+    elif normalized in {"reject", "rejected"}:
+        row = store.reject_skill(name)
+    else:
+        raise ValueError(f"invalid status action {action!r}")
+    return {"skill": row_to_skill_payload(row), "action": normalized}
+
+
+def skill_manage_update_payload(
+    workspace_path: Path,
+    name: str,
+    markdown: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    if dry_run:
+        row = store.get_skill(name)
+        return {
+            "assessment": _assessment_payload(store.classify_skill_update(name, markdown)),
+            "skill": row_to_skill_payload(row) if row is not None else None,
+            "dry_run": True,
+        }
+    result = store.update_skill_markdown(name, markdown, system_dir=SYSTEM_SKILLS_DIR)
+    return {
+        "assessment": _assessment_payload(result.assessment),
+        "skill": row_to_skill_payload(result.row) if result.row is not None else None,
+        "dry_run": False,
+    }
+
+
+def skill_manage_compose_draft_payload(
+    workspace_path: Path,
+    values: dict[str, Any],
+    *,
+    policy: Any | None = None,
+    content: SkillDraftContent | None = None,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    draft = store.create_skill_draft(
+        name=str(values.get("name") or ""),
+        description=str(values.get("description") or ""),
+        trigger=str(values.get("trigger") or values.get("triggers") or ""),
+        method=str(values.get("method") or ""),
+        category=str(values.get("category") or "general"),
+        risk_level=str(values.get("risk_level") or values.get("riskLevel") or "low"),
+        requires_exec=bool(values.get("requires_exec") or values.get("requiresExec") or False),
+        content=content,
+    )
+    return {"draft": _draft_payload(draft, policy=policy)}
+
+
+def skill_manage_start_draft_payload(
+    workspace_path: Path,
+    values: dict[str, Any],
+    *,
+    policy: Any | None = None,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    draft = store.start_skill_draft(
+        name=str(values.get("name") or ""),
+        description=str(values.get("description") or ""),
+        trigger=str(values.get("trigger") or values.get("triggers") or ""),
+        method=str(values.get("method") or ""),
+        category=str(values.get("category") or "general"),
+        risk_level=str(values.get("risk_level") or values.get("riskLevel") or "low"),
+        requires_exec=bool(values.get("requires_exec") or values.get("requiresExec") or False),
+    )
+    return {"draft": _draft_payload(draft, policy=policy)}
+
+
+def skill_manage_complete_draft(
+    workspace_path: Path,
+    draft_id: str,
+    *,
+    content: SkillDraftContent | None = None,
+    error: str | None = None,
+) -> SkillDraftResult:
+    store = SkillStore(workspace_path)
+    return store.complete_skill_draft(draft_id, content=content, error=error)
+
+
+def skill_manage_draft_payload(
+    workspace_path: Path,
+    draft_id: str,
+    *,
+    policy: Any | None = None,
+) -> dict[str, Any] | None:
+    store = SkillStore(workspace_path)
+    draft = store.get_skill_draft(draft_id)
+    if draft is None:
+        return None
+    return {"draft": _draft_payload(draft, policy=policy)}
+
+
+def skill_manage_approve_draft_payload(
+    workspace_path: Path,
+    draft_id: str,
+    *,
+    policy: Any | None = None,
+    approval: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    draft = store.get_skill_draft(draft_id)
+    if draft is None:
+        raise KeyError(f"draft not found: {draft_id}")
+    governance = _draft_governance(draft, policy)
+    if governance["blocked"]:
+        raise PermissionError("draft has non-overridable red flags")
+    if governance["requires_confirmation"] and not str((approval or {}).get("reason") or "").strip():
+        raise ValueError("override reason is required for red-flagged draft")
+    draft, row = store.approve_composed_draft(draft_id, system_dir=SYSTEM_SKILLS_DIR)
+    return {
+        "draft": _draft_payload(draft, policy=policy),
+        "skill": row_to_skill_payload(row) if row is not None else None,
+    }
+
+
+def _routing_test_payload(result: Any) -> dict[str, Any]:
+    return {
+        "passed": result.passed,
+        "total": result.total,
+        "accuracy": result.accuracy,
+        "rows": [
+            {
+                "query": row.query,
+                "expected": row.expected,
+                "actual": row.actual,
+                "ok": row.ok,
+            }
+            for row in result.rows
+        ],
+    }
+
+
+def _load_routing_cases(path: Path) -> list[dict[str, object]]:
+    raw = path.read_text(encoding="utf-8")
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        data = data.get("cases", [])
+    if not isinstance(data, list):
+        raise ValueError("routing cases must be a list or {cases: [...]}")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def skill_manage_routing_test_payload(
+    workspace_path: Path,
+    name: str,
+    *,
+    top_k: int = 3,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    row = store.get_skill(name)
+    if row is None:
+        raise KeyError(f"skill not found: {name}")
+    if row["status"] == "system":
+        raise ValueError(f"system skill '{name}' cannot run managed routing tests")
+    skill_path = Path(row["path"]).resolve(strict=False)
+    workspace_skills = (workspace_path / "skills").resolve(strict=False)
+    try:
+        skill_path.relative_to(workspace_skills)
+    except ValueError as exc:
+        raise ValueError(f"skill '{name}' is not a workspace skill") from exc
+    cases_path = skill_path.parent / "routing_cases.json"
+    if not cases_path.is_file():
+        return {
+            "available": False,
+            "cases_path": str(cases_path),
+            "passed": 0,
+            "total": 0,
+            "accuracy": 0.0,
+            "rows": [],
+        }
+    cases = _load_routing_cases(cases_path)
+    result = store.run_routing_test(cases, top_k=top_k)
+    payload = _routing_test_payload(result)
+    payload.update({"available": True, "cases_path": str(cases_path)})
+    return payload

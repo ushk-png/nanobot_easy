@@ -361,6 +361,25 @@ class MCPServerConfig(Base):
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
 
 
+class WebUISkillManagementRedFlagsConfig(Base):
+    """Thresholds that decide whether skill registration needs expanded review."""
+
+    min_routing_passes: int = Field(default=7, ge=0, le=10)
+    security_risk_at_least: Literal["low", "medium", "high"] = "medium"
+    security_block_at_least: Literal["low", "medium", "high"] = "high"
+    duplicate_score_at_least: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class WebUISkillManagementConfig(Base):
+    """WebUI skill-management capability switch and governance thresholds."""
+
+    enabled: bool = False
+    draft_expire_days: int = Field(default=30, ge=1, le=365)
+    red_flags: WebUISkillManagementRedFlagsConfig = Field(
+        default_factory=WebUISkillManagementRedFlagsConfig
+    )
+
+
 def _lazy_default(module_path: str, class_name: str) -> Any:
     """Deferred import helper for ToolsConfig default factories."""
     import importlib
@@ -401,6 +420,10 @@ class ToolsConfig(Base):
             "webui_allow_remote_package_install",
         ),
     )  # allow non-local WebUI clients to install optional Python packages
+    webui_skill_management: WebUISkillManagementConfig = Field(
+        default_factory=WebUISkillManagementConfig,
+        validation_alias=AliasChoices("webuiSkillManagement", "webui_skill_management"),
+    )
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 

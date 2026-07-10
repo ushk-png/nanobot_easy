@@ -5,6 +5,15 @@ import type {
   CliAppsPayload,
   FilePreviewPayload,
   ImageGenerationSettingsUpdate,
+  ManagedSkillDetail,
+  ManagedSkillDraftApprovePayload,
+  ManagedSkillDraftComposeValues,
+  ManagedSkillDraftPayload,
+  ManagedSkillRoutingTestPayload,
+  ManagedSkillSearchPayload,
+  ManagedSkillsPayload,
+  ManagedSkillStatusPayload,
+  ManagedSkillUpdatePayload,
   McpPresetsPayload,
   NanobotFeaturesPayload,
   ModelConfigurationCreate,
@@ -273,6 +282,148 @@ export async function fetchSkillDetail(
     `${base}/api/webui/skills/${encodeURIComponent(name)}`,
     token,
     undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchManagedSkills(
+  token: string,
+  base: string = "",
+): Promise<ManagedSkillsPayload> {
+  return request<ManagedSkillsPayload>(
+    `${base}/api/skills/manage`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function searchManagedSkills(
+  token: string,
+  query: string,
+  base: string = "",
+): Promise<ManagedSkillSearchPayload> {
+  const params = new URLSearchParams();
+  params.set("q", query);
+  return request<ManagedSkillSearchPayload>(
+    `${base}/api/skills/manage/search?${params}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchManagedSkillDetail(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<ManagedSkillDetail> {
+  return request<ManagedSkillDetail>(
+    `${base}/api/skills/manage/${encodeURIComponent(name)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function runManagedSkillStatusAction(
+  token: string,
+  name: string,
+  action: "approve" | "promote" | "deprecate" | "reject",
+  base: string = "",
+): Promise<ManagedSkillStatusPayload> {
+  const query = new URLSearchParams();
+  query.set("action", action);
+  return request<ManagedSkillStatusPayload>(
+    `${base}/api/skills/manage/${encodeURIComponent(name)}/status?${query}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function updateManagedSkillMarkdown(
+  token: string,
+  name: string,
+  markdown: string,
+  options: { dryRun?: boolean } = {},
+  base: string = "",
+): Promise<ManagedSkillUpdatePayload> {
+  const query = new URLSearchParams();
+  if (options.dryRun) query.set("dry_run", "true");
+  const suffix = query.toString() ? `?${query}` : "";
+  return request<ManagedSkillUpdatePayload>(
+    `${base}/api/skills/manage/${encodeURIComponent(name)}/update${suffix}`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Update": encodeURIComponent(JSON.stringify({ markdown })),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function runManagedSkillRoutingTest(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<ManagedSkillRoutingTestPayload> {
+  return request<ManagedSkillRoutingTestPayload>(
+    `${base}/api/skills/manage/${encodeURIComponent(name)}/test`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function composeManagedSkillDraft(
+  token: string,
+  values: ManagedSkillDraftComposeValues,
+  base: string = "",
+): Promise<ManagedSkillDraftPayload> {
+  return request<ManagedSkillDraftPayload>(
+    `${base}/api/skills/manage/drafts/compose`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Draft": encodeURIComponent(JSON.stringify(values)),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function fetchManagedSkillDraft(
+  token: string,
+  draftId: string,
+  base: string = "",
+): Promise<ManagedSkillDraftPayload> {
+  return request<ManagedSkillDraftPayload>(
+    `${base}/api/skills/manage/drafts/${encodeURIComponent(draftId)}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function approveManagedSkillDraft(
+  token: string,
+  draftId: string,
+  options: { reason?: string } = {},
+  base: string = "",
+): Promise<ManagedSkillDraftApprovePayload> {
+  const reason = options.reason?.trim();
+  return request<ManagedSkillDraftApprovePayload>(
+    `${base}/api/skills/manage/drafts/${encodeURIComponent(draftId)}/approve`,
+    token,
+    reason
+      ? {
+          headers: {
+            "X-Nanobot-Skill-Approval": encodeURIComponent(JSON.stringify({ reason })),
+          },
+        }
+      : undefined,
     API_READ_TIMEOUT_MS,
   );
 }

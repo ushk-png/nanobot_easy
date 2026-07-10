@@ -1,15 +1,127 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { Brain, Check, CircleAlert, KeyRound, Loader2, Terminal } from "lucide-react";
+import {
+  Archive,
+  Brain,
+  Check,
+  CircleAlert,
+  Edit3,
+  Eye,
+  FileText,
+  KeyRound,
+  Loader2,
+  PlayCircle,
+  Plus,
+  Search,
+  Save,
+  ShieldCheck,
+  Terminal,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { MarkdownText } from "@/components/MarkdownText";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { fetchSkillDetail } from "@/lib/api";
-import type { SkillDetail, SkillSummary } from "@/lib/types";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ApiError,
+  approveManagedSkillDraft,
+  composeManagedSkillDraft,
+  fetchManagedSkillDetail,
+  fetchManagedSkillDraft,
+  fetchManagedSkills,
+  fetchSkillDetail,
+  runManagedSkillRoutingTest,
+  runManagedSkillStatusAction,
+  updateManagedSkillMarkdown,
+} from "@/lib/api";
+import type {
+  ManagedSkill,
+  ManagedSkillDetail,
+  ManagedSkillDraft,
+  ManagedSkillDraftGovernanceFlag,
+  ManagedSkillRoutingTestPayload,
+  ManagedSkillStatus,
+  ManagedSkillUpdateAssessment,
+  SkillDetail,
+  SkillSummary,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
+const DRAFT_POLL_INTERVAL_MS = 1_000;
+const DRAFT_POLL_ATTEMPTS = 90;
+
 export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
+  const { token } = useClient();
+  const [managedPayload, setManagedPayload] = useState<{
+    skills: ManagedSkill[];
+    drafts: ManagedSkillDraft[];
+    statusCounts: Partial<Record<ManagedSkillStatus, number>>;
+  } | null>(null);
+  const [manageUnavailable, setManageUnavailable] = useState(false);
+  const [manageLoading, setManageLoading] = useState(true);
+
+  const reloadManagedSkills = () => {
+    setManageLoading(true);
+    fetchManagedSkills(token)
+      .then((payload) => {
+        setManagedPayload({
+          skills: payload.skills,
+          drafts: payload.drafts ?? [],
+          statusCounts: payload.status_counts,
+        });
+        setManageUnavailable(false);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+          setManageUnavailable(true);
+          return;
+        }
+        setManageUnavailable(true);
+      })
+      .finally(() => setManageLoading(false));
+  };
+
+  useEffect(() => {
+    reloadManagedSkills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  if (!manageUnavailable && managedPayload) {
+    return (
+      <ManagedSkillsSettings
+        skills={managedPayload.skills}
+        drafts={managedPayload.drafts}
+        statusCounts={managedPayload.statusCounts}
+        onReload={reloadManagedSkills}
+      />
+    );
+  }
+
+  if (manageLoading && !manageUnavailable) {
+    return (
+      <div className="flex min-h-[20rem] items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        Loading skill registry...
+      </div>
+    );
+  }
+
+  return <ReadOnlySkillsCatalog skills={skills} />;
+}
+
+function ReadOnlySkillsCatalog({ skills }: { skills: SkillSummary[] }) {
   const { t } = useTranslation();
   const availableCount = skills.filter((skill) => skill.available).length;
   const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
@@ -66,6 +178,1356 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
       />
     </div>
   );
+}
+
+const MANAGED_STATUS_ORDER: ManagedSkillStatus[] = [
+  "candidate",
+  "verified",
+  "deprecated",
+  "rejected",
+  "system",
+];
+
+function ManagedSkillsSettings({
+  skills,
+  drafts,
+  statusCounts,
+  onReload,
+}: {
+  skills: ManagedSkill[];
+  drafts: ManagedSkillDraft[];
+  statusCounts: Partial<Record<ManagedSkillStatus, number>>;
+  onReload: () => void;
+}) {
+  const { token } = useClient();
+  const [query, setQuery] = useState("");
+  const [selectedName, setSelectedName] = useState<string | null>(
+    () => skills.find((skill) => skill.status !== "draft")?.name ?? skills[0]?.name ?? null,
+  );
+  const [statusFilter, setStatusFilter] = useState<ManagedSkillStatus | "all">("all");
+  const [detail, setDetail] = useState<ManagedSkillDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [initialCreateDraft, setInitialCreateDraft] = useState<ManagedSkillDraft | null>(null);
+
+  const registryDrafts = useMemo(
+    () => skills.filter((skill) => skill.status === "draft"),
+    [skills],
+  );
+  const operationalSkills = useMemo(
+    () => skills.filter((skill) => skill.status !== "draft"),
+    [skills],
+  );
+  const filteredSkills = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return operationalSkills.filter((skill) => {
+      if (statusFilter !== "all" && skill.status !== statusFilter) return false;
+      if (!normalized) return true;
+      return [skill.name, skill.description, skill.category]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized);
+    });
+  }, [operationalSkills, query, statusFilter]);
+  const selectedSkill = skills.find((skill) => skill.name === selectedName) ?? filteredSkills[0] ?? registryDrafts[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setSelectedName(null);
+      return;
+    }
+    if (!skills.some((skill) => skill.name === selectedName)) {
+      setSelectedName(selectedSkill.name);
+    }
+  }, [selectedName, selectedSkill, skills]);
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetail(null);
+    fetchManagedSkillDetail(token, selectedSkill.name)
+      .then((payload) => {
+        if (!cancelled) setDetail(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSkill, token]);
+
+  const runAction = async (
+    skill: ManagedSkill,
+    action: "approve" | "promote" | "deprecate" | "reject",
+  ) => {
+    setActionBusy(`${skill.name}:${action}`);
+    setMessage(null);
+    try {
+      const payload = await runManagedSkillStatusAction(token, skill.name, action);
+      setSelectedName(payload.skill.name);
+      setMessage(statusActionMessage(action, payload.skill.status));
+      onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill status update failed.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const moveSelection = (delta: number) => {
+    const currentIndex = filteredSkills.findIndex((skill) => skill.name === selectedName);
+    const next = filteredSkills[Math.max(0, Math.min(filteredSkills.length - 1, currentIndex + delta))];
+    if (next) setSelectedName(next.name);
+  };
+
+  return (
+    <div className="flex min-h-[min(72vh,48rem)] flex-col gap-4">
+      <section className="flex flex-col gap-3 border-b border-border/45 pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="max-w-[760px] text-[13px] leading-5 text-muted-foreground">
+            Registry-backed skill management. Drafts are separated from operational skills so registration decisions stay visually distinct.
+          </p>
+          {message ? (
+            <p className="mt-2 text-[12px] font-medium text-muted-foreground">{message}</p>
+          ) : null}
+        </div>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => {
+              setInitialCreateDraft(null);
+              setCreateOpen(true);
+            }}
+            className="h-9 rounded-[10px]"
+          >
+            <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+            New skill
+          </Button>
+          <div className="grid grid-cols-3 gap-2 text-right sm:flex">
+            <MetricPill label="draft" value={statusCounts.draft ?? 0} />
+            <MetricPill label="candidate" value={statusCounts.candidate ?? 0} />
+            <MetricPill label="verified" value={statusCounts.verified ?? 0} />
+          </div>
+        </div>
+      </section>
+
+      {drafts.length || registryDrafts.length ? (
+        <section className="rounded-[18px] border border-amber-500/20 bg-amber-500/[0.055] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+              Inbox
+            </h2>
+            <span className="text-[12px] text-muted-foreground">{drafts.length + registryDrafts.length}</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {drafts.map((draft) => (
+              <button
+                key={draft.draft_id}
+                type="button"
+                onClick={() => {
+                  setInitialCreateDraft(draft);
+                  setCreateOpen(true);
+                }}
+                className="min-w-[15rem] rounded-[12px] border border-amber-500/20 bg-background/55 px-3 py-2 text-left transition-colors hover:bg-background/80"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-semibold">{draft.name}</span>
+                  <DraftStatusBadge status={draft.status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                  {draftInboxSummary(draft)}
+                </p>
+              </button>
+            ))}
+            {registryDrafts.map((skill) => (
+              <button
+                key={skill.name}
+                type="button"
+                onClick={() => setSelectedName(skill.name)}
+                className={cn(
+                  "min-w-[15rem] rounded-[12px] border px-3 py-2 text-left transition-colors",
+                  selectedName === skill.name
+                    ? "border-amber-500/60 bg-background"
+                    : "border-amber-500/20 bg-background/55 hover:bg-background/80",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-semibold">{skill.name}</span>
+                  <StatusBadge status={skill.status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                  {skill.description || "Waiting for registration review."}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(20rem,24rem)_minmax(0,1fr)]">
+        <section className="min-h-0 rounded-[18px] border border-border/50 bg-background/45">
+          <div className="border-b border-border/45 p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search skills"
+                className="h-9 rounded-[10px] pl-9 text-[13px]"
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <StatusFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>
+                All
+              </StatusFilterButton>
+              {MANAGED_STATUS_ORDER.map((status) => (
+                <StatusFilterButton
+                  key={status}
+                  active={statusFilter === status}
+                  onClick={() => setStatusFilter(status)}
+                >
+                  {status}
+                </StatusFilterButton>
+              ))}
+            </div>
+          </div>
+          <div
+            className="max-h-[min(60vh,38rem)] overflow-y-auto p-2"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                moveSelection(1);
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                moveSelection(-1);
+              }
+            }}
+          >
+            {filteredSkills.length ? (
+              filteredSkills.map((skill) => (
+                <ManagedSkillRow
+                  key={skill.name}
+                  skill={skill}
+                  selected={selectedName === skill.name}
+                  onSelect={() => setSelectedName(skill.name)}
+                />
+              ))
+            ) : (
+              <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                No skills match this view.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <ManagedSkillDetailPanel
+          detail={detail}
+          fallbackSkill={selectedSkill}
+          loading={detailLoading}
+          actionBusy={actionBusy}
+          onAction={runAction}
+          onUpdated={(name) => {
+            setSelectedName(name);
+            setMessage("Skill instructions saved.");
+            onReload();
+          }}
+        />
+      </div>
+      <SkillCreateWizard
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        initialDraft={initialCreateDraft}
+        onRegistered={(name) => {
+          setSelectedName(name);
+          setMessage(`Registered ${name}.`);
+          onReload();
+        }}
+      />
+    </div>
+  );
+}
+
+function ManagedSkillRow({
+  skill,
+  selected,
+  onSelect,
+}: {
+  skill: ManagedSkill;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const successTone = successRateTone(skill.success_rate);
+  const usageWidth = Math.min(100, Math.max(8, skill.usage_count * 8));
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "mb-1 flex w-full min-w-0 items-center gap-3 rounded-[12px] px-2.5 py-2.5 text-left transition-colors",
+        selected ? "bg-muted shadow-sm" : "hover:bg-muted/55",
+      )}
+    >
+      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", successTone)} title={successRateTitle(skill.success_rate)} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13px] font-semibold leading-5 text-foreground">{skill.name}</span>
+          <StatusBadge status={skill.status} />
+        </div>
+        <p className="line-clamp-1 text-[12px] leading-4 text-muted-foreground">
+          {skill.category || skill.description || "Uncategorized"}
+        </p>
+        <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-foreground/35" style={{ width: `${usageWidth}%` }} />
+        </div>
+      </div>
+      {skill.requires_exec ? (
+        <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Requires execution" />
+      ) : null}
+    </button>
+  );
+}
+
+function SkillCreateWizard({
+  open,
+  onOpenChange,
+  initialDraft,
+  onRegistered,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialDraft: ManagedSkillDraft | null;
+  onRegistered: (name: string) => void;
+}) {
+  const { token } = useClient();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [trigger, setTrigger] = useState("");
+  const [method, setMethod] = useState("");
+  const [category, setCategory] = useState("general");
+  const [riskLevel, setRiskLevel] = useState("low");
+  const [requiresExec, setRequiresExec] = useState(false);
+  const [draft, setDraft] = useState<ManagedSkillDraft | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    setName(initialDraft.name);
+    setDescription("");
+    setTrigger("");
+    setMethod("");
+    setCategory("general");
+    setRiskLevel("low");
+    setRequiresExec(false);
+    setDraft(initialDraft);
+    setOverrideReason("");
+    setError(null);
+  }, [initialDraft, open]);
+
+  const reset = () => {
+    setName("");
+    setDescription("");
+    setTrigger("");
+    setMethod("");
+    setCategory("general");
+    setRiskLevel("low");
+    setRequiresExec(false);
+    setDraft(null);
+    setOverrideReason("");
+    setBusy(false);
+    setError(null);
+  };
+
+  const close = () => {
+    if (busy) return;
+    onOpenChange(false);
+    reset();
+  };
+
+  const finishAndClose = () => {
+    onOpenChange(false);
+    reset();
+  };
+
+  const pollDraft = async (startingDraft: ManagedSkillDraft): Promise<ManagedSkillDraft> => {
+    let nextDraft = startingDraft;
+    for (let attempt = 0; attempt < DRAFT_POLL_ATTEMPTS && nextDraft.status === "composing"; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(DRAFT_POLL_INTERVAL_MS);
+      }
+      nextDraft = (await fetchManagedSkillDraft(token, nextDraft.draft_id)).draft;
+      setDraft(nextDraft);
+    }
+    return nextDraft;
+  };
+
+  useEffect(() => {
+    if (!open || busy || draft?.status !== "composing") return;
+    let cancelled = false;
+    setBusy(true);
+    pollDraft(draft)
+      .then((nextDraft) => {
+        if (cancelled) return;
+        if (nextDraft.status === "composing") {
+          setError("Composer is still running. Close this dialog and return to the draft later.");
+        } else if (nextDraft.status === "failed") {
+          setError("Composer failed. Adjust the request and compose again.");
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not refresh skill draft.");
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, draft?.draft_id, draft?.status, open, token]);
+
+  const composeDraft = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = await composeManagedSkillDraft(token, {
+        name,
+        description,
+        trigger,
+        method,
+        category,
+        risk_level: riskLevel,
+        requires_exec: requiresExec,
+      });
+      let nextDraft = payload.draft;
+      setDraft(nextDraft);
+      setOverrideReason("");
+      nextDraft = await pollDraft(nextDraft);
+      if (nextDraft.status === "composing") {
+        setError("Composer is still running. Close this dialog and return to the draft later.");
+      } else if (nextDraft.status === "failed") {
+        setError("Composer failed. Adjust the request and compose again.");
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not compose skill draft.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveDraft = async () => {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = await approveManagedSkillDraft(token, draft.draft_id, { reason: overrideReason });
+      onRegistered(payload.skill?.name ?? draft.name);
+      finishAndClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not register skill draft.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const canCompose = name.trim().length > 0 && description.trim().length > 0;
+  const draftReady = draft?.status === "ready";
+  const draftRunning = draft?.status === "composing";
+  const draftFailed = draft?.status === "failed";
+  const governance = draft?.governance;
+  const blockingFlags = governance?.blocking ?? [];
+  const confirmationFlags = governance?.confirmations ?? [];
+  const needsOverrideReason = Boolean(governance?.requires_confirmation);
+  const canRegisterDraft = Boolean(
+    draft
+      && draftReady
+      && !governance?.blocked
+      && (!needsOverrideReason || overrideReason.trim().length > 0),
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (!next ? close() : onOpenChange(true))}>
+      <DialogContent className="max-h-[min(88vh,54rem)] max-w-3xl overflow-hidden rounded-[22px] border-border/70 bg-popover p-0 shadow-2xl">
+        <div className="border-b border-border/45 px-5 py-4">
+          <DialogHeader>
+            <DialogTitle>New skill</DialogTitle>
+            <DialogDescription>
+              Compose a draft, review the generated instructions, then register it as candidate.
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="max-h-[calc(min(88vh,54rem)-8rem)] overflow-y-auto px-5 py-4">
+          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+            <div className="space-y-3">
+              <LabeledField label="Name">
+                <Input
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  placeholder="review-renewal-notes"
+                  disabled={busy || draft !== null}
+                  className="h-9 rounded-[10px]"
+                />
+              </LabeledField>
+              <LabeledField label="Description">
+                <Textarea
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  placeholder="Review renewal notes and surface customer risk."
+                  disabled={busy || draft !== null}
+                  className="min-h-[5rem] resize-y rounded-[10px]"
+                />
+              </LabeledField>
+              <LabeledField label="Trigger utterances">
+                <Textarea
+                  value={trigger}
+                  onChange={(event) => setTrigger(event.target.value)}
+                  placeholder={"review this renewal\ncustomer renewal risk"}
+                  disabled={busy || draft !== null}
+                  className="min-h-[5rem] resize-y rounded-[10px]"
+                />
+              </LabeledField>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <LabeledField label="Category">
+                  <Input
+                    value={category}
+                    onChange={(event) => setCategory(event.target.value)}
+                    disabled={busy || draft !== null}
+                    className="h-9 rounded-[10px]"
+                  />
+                </LabeledField>
+                <LabeledField label="Risk">
+                  <select
+                    value={riskLevel}
+                    onChange={(event) => setRiskLevel(event.target.value)}
+                    disabled={busy || draft !== null}
+                    className="h-9 w-full rounded-[10px] border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="low">low</option>
+                    <option value="medium">medium</option>
+                    <option value="high">high</option>
+                  </select>
+                </LabeledField>
+              </div>
+              <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
+                <input
+                  type="checkbox"
+                  checked={requiresExec}
+                  onChange={(event) => setRequiresExec(event.target.checked)}
+                  disabled={busy || draft !== null}
+                  className="h-4 w-4"
+                />
+                Requires execution tools
+              </label>
+              <LabeledField label="Method draft">
+                <Textarea
+                  value={method}
+                  onChange={(event) => setMethod(event.target.value)}
+                  placeholder={"# Method\n1. Read the input.\n2. Identify risks.\n3. Return concise findings."}
+                  disabled={busy || draft !== null}
+                  className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
+                />
+              </LabeledField>
+            </div>
+            <div className="space-y-3">
+              {draft ? (
+                <>
+                  <div
+                    className={cn(
+                      "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                      draftFailed
+                        ? "border-destructive/30 bg-destructive/10"
+                        : draftRunning
+                          ? "border-sky-500/25 bg-sky-500/10"
+                          : "border-emerald-500/25 bg-emerald-500/10",
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "flex items-center gap-2 font-semibold",
+                        draftFailed
+                          ? "text-destructive"
+                          : draftRunning
+                            ? "text-sky-700 dark:text-sky-300"
+                            : "text-emerald-700 dark:text-emerald-300",
+                      )}
+                    >
+                      {draftRunning ? (
+                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                      ) : draftFailed ? (
+                        <CircleAlert className="h-4 w-4" aria-hidden />
+                      ) : (
+                        <Check className="h-4 w-4" aria-hidden />
+                      )}
+                      {draftRunning ? "Composer running" : draftFailed ? "Composer failed" : "Draft ready"}
+                    </div>
+                    <p className="mt-1 text-muted-foreground">
+                      {draftRunning
+                        ? "Generating the method, review, and routing cases. You can return after the draft is ready."
+                        : draftFailed
+                          ? typeof draft.review.summary === "string"
+                            ? draft.review.summary
+                            : "The draft could not be composed."
+                          : "Review the generated method, routing cases, and governance checks before registration."}
+                    </p>
+                  </div>
+                  {draftReady && (blockingFlags.length || confirmationFlags.length) ? (
+                    <div
+                      className={cn(
+                        "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                        blockingFlags.length
+                          ? "border-destructive/30 bg-destructive/10"
+                          : "border-amber-500/30 bg-amber-500/10",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex items-center gap-2 font-semibold",
+                          blockingFlags.length
+                            ? "text-destructive"
+                            : "text-amber-700 dark:text-amber-300",
+                        )}
+                      >
+                        <CircleAlert className="h-4 w-4" aria-hidden />
+                        {blockingFlags.length ? "Registration blocked" : "Confirmation required"}
+                      </div>
+                      <div className="mt-2 space-y-1.5">
+                        {[...blockingFlags, ...confirmationFlags].map((flag, index) => (
+                          <p key={`${flag.kind}:${index}`} className="text-muted-foreground">
+                            {draftGovernanceFlagLabel(flag)}
+                          </p>
+                        ))}
+                      </div>
+                      {needsOverrideReason && !blockingFlags.length ? (
+                        <Textarea
+                          value={overrideReason}
+                          onChange={(event) => setOverrideReason(event.target.value)}
+                          placeholder="Example: Internal-only skill; neighboring trigger overlap is intentional."
+                          disabled={busy}
+                          className="mt-3 min-h-[4.5rem] resize-y rounded-[10px] bg-background"
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                  {draftReady ? (
+                    <>
+                      <DetailSection title="Review">
+                        <pre className="max-h-28 overflow-auto rounded-[12px] bg-muted/35 p-3 text-[12px] leading-5">
+                          {JSON.stringify(draft.review, null, 2)}
+                        </pre>
+                      </DetailSection>
+                      <DetailSection title="Routing cases">
+                        <div className="space-y-1.5">
+                          {draft.routing_cases.map((row) => (
+                            <div key={`${row.query}:${row.expected}`} className="rounded-[10px] bg-muted/30 px-3 py-2 text-[12px]">
+                              <div className="truncate font-medium">{row.query}</div>
+                              <div className="text-muted-foreground">expected {row.expected}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </DetailSection>
+                      <DetailSection title="Draft">
+                        <div className="max-h-72 overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                          <MarkdownText className="max-w-none text-[13px] leading-6">
+                            {draft.markdown}
+                          </MarkdownText>
+                        </div>
+                      </DetailSection>
+                    </>
+                  ) : null}
+                </>
+              ) : (
+                <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
+                  The draft preview will appear here after compose.
+                </div>
+              )}
+            </div>
+          </div>
+          {error ? (
+            <p className="mt-4 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter className="border-t border-border/45 px-5 py-4 sm:space-x-0">
+          <Button type="button" variant="outline" onClick={close} disabled={busy}>
+            Cancel
+          </Button>
+          {draft ? (
+            <Button type="button" onClick={approveDraft} disabled={busy || !canRegisterDraft}>
+              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+              Register
+            </Button>
+          ) : (
+            <Button type="button" onClick={composeDraft} disabled={busy || !canCompose}>
+              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+              Compose draft
+            </Button>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LabeledField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[12px] font-semibold text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function ManagedSkillDetailPanel({
+  detail,
+  fallbackSkill,
+  loading,
+  actionBusy,
+  onAction,
+  onUpdated,
+}: {
+  detail: ManagedSkillDetail | null;
+  fallbackSkill: ManagedSkill | null;
+  loading: boolean;
+  actionBusy: string | null;
+  onAction: (
+    skill: ManagedSkill,
+    action: "approve" | "promote" | "deprecate" | "reject",
+  ) => void;
+  onUpdated: (name: string) => void;
+}) {
+  const { token } = useClient();
+  const skill = detail?.skill ?? fallbackSkill;
+  const [editing, setEditing] = useState(false);
+  const [editorTab, setEditorTab] = useState<"edit" | "preview">("edit");
+  const [draftMarkdown, setDraftMarkdown] = useState("");
+  const [assessment, setAssessment] = useState<ManagedSkillUpdateAssessment | null>(null);
+  const [confirmMajorOpen, setConfirmMajorOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [routingBusy, setRoutingBusy] = useState(false);
+  const [routingResult, setRoutingResult] = useState<ManagedSkillRoutingTestPayload | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftMarkdown(detail?.raw_markdown ?? "");
+      setAssessment(null);
+      setEditorError(null);
+      setConfirmMajorOpen(false);
+      setRoutingResult(null);
+      setRoutingError(null);
+    }
+  }, [detail?.raw_markdown, detail?.skill.name, editing]);
+
+  if (!skill) {
+    return (
+      <section className="rounded-[18px] border border-border/50 p-8 text-center text-sm text-muted-foreground">
+        Select a skill to inspect it.
+      </section>
+    );
+  }
+  const actions = allowedStatusActions(skill.status);
+  const canEdit = skill.status !== "system" && Boolean(detail?.raw_markdown);
+
+  const startEditing = () => {
+    setDraftMarkdown(detail?.raw_markdown ?? "");
+    setAssessment(null);
+    setEditorError(null);
+    setEditorTab("edit");
+    setEditing(true);
+  };
+
+  const closeEditor = () => {
+    if (saving) return;
+    setEditing(false);
+    setDraftMarkdown(detail?.raw_markdown ?? "");
+    setAssessment(null);
+    setEditorError(null);
+    setConfirmMajorOpen(false);
+  };
+
+  const applyUpdate = async () => {
+    setSaving(true);
+    setEditorError(null);
+    try {
+      const payload = await updateManagedSkillMarkdown(token, skill.name, draftMarkdown);
+      setAssessment(payload.assessment);
+      setEditing(false);
+      setConfirmMajorOpen(false);
+      onUpdated(payload.skill?.name ?? skill.name);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Skill update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const assessAndSave = async () => {
+    if (!detail || draftMarkdown === detail.raw_markdown) {
+      setAssessment({
+        kind: "noop",
+        reasons: ["No instruction changes detected."],
+        changed_fields: [],
+        current_status: skill.status,
+        next_status: skill.status,
+        requires_revalidation: false,
+      });
+      return;
+    }
+    setSaving(true);
+    setEditorError(null);
+    try {
+      const payload = await updateManagedSkillMarkdown(token, skill.name, draftMarkdown, { dryRun: true });
+      setAssessment(payload.assessment);
+      if (payload.assessment.kind === "major") {
+        setConfirmMajorOpen(true);
+        return;
+      }
+      await applyUpdate();
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Skill update assessment failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runRoutingTest = async () => {
+    setRoutingBusy(true);
+    setRoutingError(null);
+    try {
+      const payload = await runManagedSkillRoutingTest(token, skill.name);
+      setRoutingResult(payload);
+    } catch (error) {
+      setRoutingError(error instanceof Error ? error.message : "Routing test failed.");
+    } finally {
+      setRoutingBusy(false);
+    }
+  };
+
+  return (
+    <section className="min-h-0 overflow-hidden rounded-[18px] border border-border/50 bg-background/45">
+      <div className="flex items-start justify-between gap-4 border-b border-border/45 px-4 py-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-[18px] font-semibold tracking-[-0.01em]">{skill.name}</h2>
+            <StatusBadge status={skill.status} />
+          </div>
+          <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+            {skill.description || "No description."}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {canEdit ? (
+            <Button
+              size="sm"
+              variant={editing ? "outline" : "secondary"}
+              onClick={editing ? closeEditor : startEditing}
+              disabled={saving}
+              className="h-8 rounded-[9px]"
+            >
+              {editing ? <X className="mr-1.5 h-3.5 w-3.5" aria-hidden /> : <Edit3 className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+              {editing ? "Cancel" : "Edit"}
+            </Button>
+          ) : null}
+          {actions.map((action) => (
+            <Button
+              key={action}
+              size="sm"
+              variant={action === "reject" || action === "deprecate" ? "outline" : "default"}
+              onClick={() => onAction(skill, action)}
+              disabled={actionBusy === `${skill.name}:${action}`}
+              className="h-8 rounded-[9px]"
+            >
+              {actionBusy === `${skill.name}:${action}` ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : statusActionIcon(action)}
+              {statusActionLabel(action)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading details...
+        </div>
+      ) : (
+        <div className="max-h-[min(62vh,40rem)] overflow-y-auto p-4">
+          <div className="grid gap-2 sm:grid-cols-4">
+            <MetaItem label="Risk" value={skill.risk_level} />
+            <MetaItem label="Version" value={skill.version || "n/a"} />
+            <MetaItem label="Usage" value={String(skill.usage_count)} />
+            <MetaItem label="Success" value={successRateTitle(skill.success_rate)} />
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+            <div className="space-y-5">
+              <DetailSection title="Instructions">
+                {editing ? (
+                  <SkillInstructionEditor
+                    markdown={draftMarkdown}
+                    onChange={setDraftMarkdown}
+                    tab={editorTab}
+                    onTabChange={setEditorTab}
+                    assessment={assessment}
+                    error={editorError}
+                    saving={saving}
+                    onSave={assessAndSave}
+                  />
+                ) : (
+                  <div className="rounded-[14px] border border-border/40 bg-muted/15 px-3.5 py-3">
+                    <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
+                      {detail?.raw_markdown || "No SKILL.md content."}
+                    </MarkdownText>
+                  </div>
+                )}
+              </DetailSection>
+              <DetailSection title="Recent trace">
+                {detail?.traces.length ? (
+                  <div className="space-y-2">
+                    {detail.traces.slice(0, 5).map((trace) => (
+                      <div key={trace.trace_id} className="rounded-[12px] bg-muted/30 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 text-[12px]">
+                          <span className="truncate font-medium">{trace.selection_reason || "trace"}</span>
+                          <span className="shrink-0 text-muted-foreground">{trace.gate_result ?? "none"}</span>
+                        </div>
+                        <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                          {trace.query_digest || trace.session_key || trace.trace_id}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-muted-foreground">No recent traces.</p>
+                )}
+              </DetailSection>
+            </div>
+            <div className="space-y-3">
+              <DetailSection title="Routing test">
+                <RoutingTestPanel
+                  result={routingResult}
+                  error={routingError}
+                  busy={routingBusy}
+                  onRun={runRoutingTest}
+                />
+              </DetailSection>
+              <RelationList title="Conflicts" values={detail?.relations.conflicts_with ?? []} />
+              <RelationList title="Supersedes" values={detail?.relations.supersedes ?? []} />
+              <RelationList title="Fallback" values={detail?.relations.fallback_to ?? []} />
+              <DetailSection title="Tools">
+                <div className="flex flex-wrap gap-1.5">
+                  {skill.required_tools.length ? (
+                    skill.required_tools.map((tool) => <Pill key={tool}>{tool}</Pill>)
+                  ) : (
+                    <p className="text-[13px] text-muted-foreground">No explicit tools.</p>
+                  )}
+                </div>
+              </DetailSection>
+            </div>
+          </div>
+        </div>
+      )}
+      <MajorUpdateDialog
+        open={confirmMajorOpen}
+        assessment={assessment}
+        saving={saving}
+        error={editorError}
+        onCancel={() => {
+          if (!saving) setConfirmMajorOpen(false);
+        }}
+        onConfirm={applyUpdate}
+      />
+    </section>
+  );
+}
+
+function RoutingTestPanel({
+  result,
+  error,
+  busy,
+  onRun,
+}: {
+  result: ManagedSkillRoutingTestPayload | null;
+  error: string | null;
+  busy: boolean;
+  onRun: () => void;
+}) {
+  const accuracy = result && result.total > 0 ? `${Math.round(result.accuracy * 100)}%` : "n/a";
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onRun}
+        disabled={busy}
+        className="h-8 rounded-[9px]"
+      >
+        {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <PlayCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+        Run test
+      </Button>
+      {result ? (
+        result.available ? (
+          <div className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">
+                {result.passed}/{result.total} passed
+              </span>
+              <span className={cn("font-semibold", result.accuracy >= 0.9 ? "text-emerald-600" : result.accuracy >= 0.7 ? "text-amber-600" : "text-destructive")}>
+                {accuracy}
+              </span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {result.rows.slice(0, 5).map((row) => (
+                <div key={`${row.query}:${row.expected}`} className="min-w-0 rounded-[9px] bg-background/65 px-2 py-1.5">
+                  <div className="flex items-center gap-1.5">
+                    {row.ok ? (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                    ) : (
+                      <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+                    )}
+                    <span className="truncate font-medium">{row.query}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-muted-foreground">
+                    {row.actual || "-"} / expected {row.expected || "-"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5 text-muted-foreground">
+            No routing_cases.json found for this skill.
+          </p>
+        )
+      ) : null}
+      {error ? (
+        <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SkillInstructionEditor({
+  markdown,
+  onChange,
+  tab,
+  onTabChange,
+  assessment,
+  error,
+  saving,
+  onSave,
+}: {
+  markdown: string;
+  onChange: (value: string) => void;
+  tab: "edit" | "preview";
+  onTabChange: (tab: "edit" | "preview") => void;
+  assessment: ManagedSkillUpdateAssessment | null;
+  error: string | null;
+  saving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="rounded-[14px] border border-border/45 bg-background">
+      <details className="border-b border-border/45 px-3.5 py-3">
+        <summary className="cursor-pointer text-[12px] font-semibold text-muted-foreground">
+          Metadata form
+        </summary>
+        <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+          Structured frontmatter editing will sit here. For now this editor preserves the full SKILL.md document and lets the server classify changes before writing.
+        </p>
+      </details>
+      <div className="flex items-center justify-between gap-2 border-b border-border/45 px-3 py-2">
+        <div className="flex rounded-[10px] bg-muted p-1">
+          <EditorTabButton active={tab === "edit"} onClick={() => onTabChange("edit")}>
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Edit
+          </EditorTabButton>
+          <EditorTabButton active={tab === "preview"} onClick={() => onTabChange("preview")}>
+            <Eye className="h-3.5 w-3.5" aria-hidden />
+            Preview
+          </EditorTabButton>
+        </div>
+        <Button
+          size="sm"
+          onClick={onSave}
+          disabled={saving}
+          className="h-8 rounded-[9px]"
+        >
+          {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+          Save instructions
+        </Button>
+      </div>
+      <div className="p-3">
+        {tab === "edit" ? (
+          <Textarea
+            aria-label="Skill instructions editor"
+            value={markdown}
+            onChange={(event) => onChange(event.target.value)}
+            spellCheck={false}
+            className="min-h-[24rem] resize-y rounded-[12px] border-border/50 font-mono text-[12px] leading-5"
+          />
+        ) : (
+          <div className="min-h-[24rem] rounded-[12px] border border-border/45 bg-muted/15 px-3.5 py-3">
+            <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
+              {markdown || "No SKILL.md content."}
+            </MarkdownText>
+          </div>
+        )}
+        {assessment ? <AssessmentNotice assessment={assessment} /> : null}
+        {error ? (
+          <p className="mt-3 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EditorTabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2 text-[12px] font-medium transition-colors",
+        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AssessmentNotice({ assessment }: { assessment: ManagedSkillUpdateAssessment }) {
+  const major = assessment.kind === "major";
+  return (
+    <div
+      className={cn(
+        "mt-3 rounded-[12px] border px-3 py-2 text-[12px] leading-5",
+        major
+          ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+          : "border-border/45 bg-muted/25 text-muted-foreground",
+      )}
+    >
+      <div className="flex items-center gap-2 font-semibold">
+        {major ? <CircleAlert className="h-3.5 w-3.5" aria-hidden /> : <Check className="h-3.5 w-3.5" aria-hidden />}
+        {assessment.kind === "noop" ? "No changes" : `${assessment.kind} update`}
+      </div>
+      {assessment.reasons.length ? (
+        <p className="mt-1">{assessment.reasons.join(" ")}</p>
+      ) : null}
+      {assessment.changed_fields.length ? (
+        <p className="mt-1">Changed: {assessment.changed_fields.join(", ")}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function MajorUpdateDialog({
+  open,
+  assessment,
+  saving,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  assessment: ManagedSkillUpdateAssessment | null;
+  saving: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => (!next ? onCancel() : undefined)}>
+      <DialogContent className="max-w-xl rounded-[22px] border-border/70 bg-popover p-5 shadow-2xl">
+        <DialogHeader>
+          <DialogTitle>Method changed</DialogTitle>
+          <DialogDescription>
+            This skill will move from {assessment?.current_status ?? "current"} to {assessment?.next_status ?? "candidate"} and needs routing validation before it should be treated as stable again.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-[14px] border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-[13px] leading-5 text-amber-900 dark:text-amber-100">
+          <div className="mb-1 flex items-center gap-2 font-semibold">
+            <CircleAlert className="h-4 w-4" aria-hidden />
+            Major patch
+          </div>
+          <p>
+            Method, tools, execution requirements, or risk changed. The edit can be saved, but the skill is no longer considered verified until it is promoted again.
+          </p>
+          {assessment?.changed_fields.length ? (
+            <p className="mt-2 text-[12px]">Changed: {assessment.changed_fields.join(", ")}</p>
+          ) : null}
+        </div>
+        {error ? (
+          <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <DialogFooter className="gap-2 sm:space-x-0">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={saving}>
+            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+            Save anyway
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatusBadge({ status }: { status: ManagedSkillStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+        status === "draft" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+        status === "candidate" && "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+        status === "verified" && "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+        status === "deprecated" && "bg-muted text-muted-foreground",
+        status === "rejected" && "bg-destructive/10 text-destructive",
+        status === "system" && "bg-violet-500/12 text-violet-700 dark:text-violet-300",
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
+function StatusFilterButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors",
+        active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DraftStatusBadge({ status }: { status: string }) {
+  const tone = status === "ready"
+    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+    : status === "failed"
+      ? "bg-destructive/10 text-destructive"
+      : "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  return (
+    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", tone)}>
+      {status}
+    </span>
+  );
+}
+
+function draftInboxSummary(draft: ManagedSkillDraft): string {
+  if (draft.status === "composing") return "Composer is running.";
+  if (draft.status === "ready") return "Ready for review and registration.";
+  if (draft.status === "failed") {
+    return typeof draft.review.summary === "string" ? draft.review.summary : "Composer failed.";
+  }
+  return "Waiting for review.";
+}
+
+function MetricPill({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-[12px] bg-muted/55 px-3 py-2">
+      <span className="block text-[11px] text-muted-foreground">{label}</span>
+      <span className="block text-[15px] font-semibold leading-5">{value}</span>
+    </span>
+  );
+}
+
+function RelationList({ title, values }: { title: string; values: string[] }) {
+  return (
+    <DetailSection title={title}>
+      <div className="flex flex-wrap gap-1.5">
+        {values.length ? (
+          values.map((value) => <Pill key={value}>{value}</Pill>)
+        ) : (
+          <p className="text-[13px] text-muted-foreground">None</p>
+        )}
+      </div>
+    </DetailSection>
+  );
+}
+
+function successRateTone(rate: number | null): string {
+  if (rate === null) return "bg-muted-foreground/35";
+  if (rate >= 0.85) return "bg-emerald-500";
+  if (rate >= 0.7) return "bg-amber-500";
+  return "bg-destructive";
+}
+
+function successRateTitle(rate: number | null): string {
+  return rate === null ? "No attempts" : `${Math.round(rate * 100)}%`;
+}
+
+function allowedStatusActions(status: ManagedSkillStatus): Array<"approve" | "promote" | "deprecate" | "reject"> {
+  if (status === "draft") return ["approve", "reject"];
+  if (status === "candidate") return ["promote"];
+  if (status === "verified") return ["deprecate"];
+  return [];
+}
+
+function statusActionLabel(action: "approve" | "promote" | "deprecate" | "reject"): string {
+  if (action === "approve") return "등록";
+  if (action === "promote") return "verified로 승격";
+  if (action === "deprecate") return "사용 중지";
+  return "반려";
+}
+
+function statusActionMessage(action: "approve" | "promote" | "deprecate" | "reject", status: ManagedSkillStatus): string {
+  if (action === "approve") return `등록되었습니다. 현재 상태: ${status}`;
+  if (action === "promote") return `승격되었습니다. 현재 상태: ${status}`;
+  if (action === "deprecate") return `사용 중지되었습니다. 현재 상태: ${status}`;
+  return `반려되었습니다. 현재 상태: ${status}`;
+}
+
+function statusActionIcon(action: "approve" | "promote" | "deprecate" | "reject") {
+  if (action === "approve") return <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  if (action === "promote") return <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  if (action === "deprecate") return <Archive className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  return <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
 }
 
 function SkillCatalogRow({
@@ -352,6 +1814,24 @@ function DetailSection({ title, children }: { title: string; children: ReactNode
       {children}
     </section>
   );
+}
+
+function draftGovernanceFlagLabel(flag: ManagedSkillDraftGovernanceFlag): string {
+  if (flag.kind === "security") {
+    return `Security review is ${flag.severity ?? "flagged"} risk.`;
+  }
+  if (flag.kind === "routing") {
+    return `Routing test passed ${flag.passed ?? 0}/${flag.total ?? 10}.`;
+  }
+  if (flag.kind === "duplicate") {
+    const score = typeof flag.score === "number" ? ` (${Math.round(flag.score * 100)}%)` : "";
+    return `Duplicate check found a close neighbor${score}.`;
+  }
+  return flag.message ?? `${flag.kind} needs review.`;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function RequirementLine({

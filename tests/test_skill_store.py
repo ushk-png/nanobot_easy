@@ -107,6 +107,67 @@ def test_skill_store_protects_system_status(tmp_path: Path) -> None:
         store.set_status("composite-task", "verified")
 
 
+def test_skill_store_governance_transitions(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(skills, "draft-skill", status="draft")
+    _write_skill(skills, "candidate-skill", status="candidate")
+    system_dir = tmp_path / "skills-system"
+    _write_skill(system_dir, "system-skill", status="system")
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin", system_dir=system_dir)
+
+    store.approve_draft("draft-skill")
+    assert store.get_skill("draft-skill")["status"] == "candidate"
+
+    _write_skill(skills, "another-draft", status="draft")
+    store.reindex(builtin_dir=tmp_path / "empty_builtin", system_dir=system_dir)
+    with pytest.raises(ValueError, match="cannot transition"):
+        store.promote("another-draft")
+
+    store.promote("candidate-skill")
+    assert store.get_skill("candidate-skill")["status"] == "verified"
+
+    for action in (
+        store.approve_draft,
+        store.promote,
+        store.deprecate_skill,
+        store.reject_skill,
+    ):
+        with pytest.raises(ValueError, match="system skill"):
+            action("system-skill")
+
+
+def test_skill_store_classifies_and_applies_skill_updates(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(skills, "editable", status="verified", description="Old description")
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    skill_path = skills / "editable" / "SKILL.md"
+    old_markdown = skill_path.read_text(encoding="utf-8")
+    minor_markdown = old_markdown.replace("Old description", "New description")
+    minor = store.classify_skill_update("editable", minor_markdown)
+    assert minor.kind == "minor"
+    assert minor.next_status == "verified"
+    assert "description" in minor.changed_fields
+
+    major_markdown = minor_markdown.replace("Use this skill.", "Use this skill.\n\n## Method\nRun tests.")
+    major = store.classify_skill_update("editable", major_markdown)
+    assert major.kind == "major"
+    assert major.requires_revalidation is True
+    assert major.next_status == "candidate"
+    assert "method" in major.changed_fields
+
+    result = store.update_skill_markdown("editable", major_markdown)
+    assert result.assessment.kind == "major"
+    row = store.get_skill("editable")
+    assert row is not None
+    assert row["status"] == "candidate"
+    assert "Run tests." in skill_path.read_text(encoding="utf-8")
+
+
 def test_skill_cli_reindex_list_and_system_protection(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     skills = workspace / "skills"
@@ -128,6 +189,12 @@ def test_skill_cli_reindex_list_and_system_protection(tmp_path: Path) -> None:
     result = runner.invoke(app, ["skill", "approve", "alpha", "--workspace", str(workspace)])
     assert result.exit_code == 0
     assert "Approved skill" in result.stdout
+    assert SkillStore(workspace).get_skill("alpha")["status"] == "candidate"
+
+    result = runner.invoke(app, ["skill", "promote", "alpha", "--workspace", str(workspace)])
+    assert result.exit_code == 0
+    assert "Promoted skill" in result.stdout
+    assert SkillStore(workspace).get_skill("alpha")["status"] == "verified"
 
     result = runner.invoke(app, ["skill", "deprecate", "systemish", "--workspace", str(workspace)])
     assert result.exit_code == 1
@@ -194,9 +261,53 @@ def test_skill_draft_hidden_until_approved(tmp_path: Path) -> None:
 
     result = runner.invoke(app, ["skill", "approve", "zxq-calibration", "--workspace", str(workspace)])
     assert result.exit_code == 0
+    assert store.get_skill("zxq-calibration")["status"] == "candidate"
 
     matches = store.search("zxq calibration audit", top_k=5)
     assert [match.name for match in matches] == ["zxq-calibration"]
+
+
+def test_skill_store_composed_draft_approve_creates_candidate(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    store = SkillStore(workspace)
+
+    draft = store.create_skill_draft(
+        name="web-draft",
+        description="Review customer renewal notes",
+        trigger="renewal review",
+        method="# Web Draft\n\n## Method\nReview renewal notes.",
+        category="customer.review",
+    )
+
+    assert draft.status == "ready"
+    assert [item.name for item in store.list_skill_drafts()] == ["web-draft"]
+    assert store.get_skill("web-draft") is None
+    assert not (workspace / "skills" / "web-draft" / "SKILL.md").exists()
+
+    loaded = store.get_skill_draft(draft.draft_id)
+    assert loaded is not None
+    assert loaded.name == "web-draft"
+
+    approved, row = store.approve_composed_draft(
+        draft.draft_id,
+        system_dir=tmp_path / "empty-system",
+    )
+
+    assert approved.status == "approved"
+    assert row is not None
+    assert row["name"] == "web-draft"
+    assert row["status"] == "candidate"
+    assert store.list_skill_drafts() == []
+    assert (workspace / "skills" / "web-draft" / "SKILL.md").is_file()
+    cases = workspace / "skills" / "web-draft" / "routing_cases.json"
+    assert "renewal review" in cases.read_text(encoding="utf-8")
+
+    composing = store.start_skill_draft(
+        name="async-web-draft",
+        description="Async draft",
+    )
+    assert composing.status == "composing"
+    assert [item.name for item in store.list_skill_drafts()] == ["async-web-draft"]
 
 
 def test_skill_trace_updates_usage_counters(tmp_path: Path) -> None:

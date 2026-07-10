@@ -14,7 +14,7 @@ import json
 import mimetypes
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote
@@ -78,6 +78,18 @@ from nanobot.webui.sidebar_state import (
     read_webui_sidebar_state,
     write_webui_sidebar_state,
 )
+from nanobot.webui.skill_manage_api import (
+    skill_manage_approve_draft_payload,
+    skill_manage_complete_draft,
+    skill_manage_detail_payload,
+    skill_manage_draft_payload,
+    skill_manage_list_payload,
+    skill_manage_routing_test_payload,
+    skill_manage_search_payload,
+    skill_manage_start_draft_payload,
+    skill_manage_status_payload,
+    skill_manage_update_payload,
+)
 from nanobot.webui.skills_api import webui_skill_detail_payload, webui_skills_payload
 from nanobot.webui.thread_disk import delete_webui_thread
 from nanobot.webui.transcript import build_webui_thread_response
@@ -85,6 +97,9 @@ from nanobot.webui.workspaces import WebUIWorkspaceController
 
 _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanobot-Automation-Values"
+_SKILL_UPDATE_HEADER = "X-Nanobot-Skill-Update"
+_SKILL_DRAFT_HEADER = "X-Nanobot-Skill-Draft"
+_SKILL_APPROVAL_HEADER = "X-Nanobot-Skill-Approval"
 
 if TYPE_CHECKING:
     from nanobot.bus.queue import MessageBus
@@ -153,6 +168,9 @@ class GatewayHTTPHandler:
         media: WebUIMediaGateway,
         workspaces: WebUIWorkspaceController,
         skills_workspace_path: Path,
+        skill_management_enabled: bool = False,
+        skill_management_red_flags: Any | None = None,
+        skill_draft_composer: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
         disabled_skills: set[str] | None = None,
         cron_service: CronService | None = None,
         local_trigger_store: LocalTriggerStore | None = None,
@@ -169,6 +187,9 @@ class GatewayHTTPHandler:
         self.media = media
         self.workspaces = workspaces
         self.skills_workspace_path = skills_workspace_path
+        self.skill_management_enabled = skill_management_enabled
+        self.skill_management_red_flags = skill_management_red_flags
+        self.skill_draft_composer = skill_draft_composer
         self.disabled_skills = disabled_skills or set()
         self.cron_service = cron_service
         self.local_trigger_store = local_trigger_store
@@ -737,6 +758,30 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/webui/skills/([^/]+)$", got)
         if m:
             return self._handle_webui_skill_detail(request, m.group(1))
+        if got == "/api/skills/manage":
+            return self._handle_skill_manage_list(request)
+        if got == "/api/skills/manage/search":
+            return self._handle_skill_manage_search(request)
+        if got == "/api/skills/manage/drafts/compose":
+            return await self._handle_skill_manage_draft_compose(request)
+        m = re.match(r"^/api/skills/manage/drafts/([^/]+)/approve$", got)
+        if m:
+            return self._handle_skill_manage_draft_approve(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/drafts/([^/]+)$", got)
+        if m:
+            return self._handle_skill_manage_draft_detail(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/([^/]+)/status$", got)
+        if m:
+            return self._handle_skill_manage_status(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/([^/]+)/update$", got)
+        if m:
+            return self._handle_skill_manage_update(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/([^/]+)/test$", got)
+        if m:
+            return self._handle_skill_manage_test(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/([^/]+)$", got)
+        if m:
+            return self._handle_skill_manage_detail(request, m.group(1))
         if got == "/api/webui/sidebar-state":
             return self._handle_webui_sidebar_state(request)
         if got == "/api/webui/sidebar-state/update":
@@ -770,7 +815,6 @@ class GatewayHTTPHandler:
     def _handle_webui_skill_detail(self, request: WsRequest, raw_name: str) -> Response:
         if not self.check_api_token(request):
             return _http_error(401, "Unauthorized")
-        from urllib.parse import unquote
 
         name = unquote(raw_name)
         if not name or "/" in name or "\\" in name:
@@ -782,6 +826,253 @@ class GatewayHTTPHandler:
         )
         if payload is None:
             return _http_error(404, "skill not found")
+        return _http_json_response(payload)
+
+    def _check_skill_manage_access(self, request: WsRequest) -> Response | None:
+        if not self.check_api_token(request):
+            return _http_error(401, "Unauthorized")
+        if not self.skill_management_enabled:
+            return _http_error(403, "skill management is disabled")
+        return None
+
+    @staticmethod
+    def _decode_skill_name(raw_name: str) -> str | None:
+        name = unquote(raw_name)
+        if not name or "/" in name or "\\" in name:
+            return None
+        return name
+
+    def _handle_skill_manage_list(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        return _http_json_response(skill_manage_list_payload(self.skills_workspace_path))
+
+    def _handle_skill_manage_search(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        query = _parse_query(request.path)
+        q = (_query_first(query, "q") or "").strip()
+        raw_top_k = _query_first(query, "top_k") or _query_first(query, "topK")
+        top_k = 10
+        if raw_top_k:
+            try:
+                top_k = max(1, min(int(raw_top_k), 50))
+            except ValueError:
+                return _http_error(400, "invalid top_k")
+        return _http_json_response(
+            skill_manage_search_payload(self.skills_workspace_path, q, top_k=top_k)
+        )
+
+    def _handle_skill_manage_detail(self, request: WsRequest, raw_name: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        name = self._decode_skill_name(raw_name)
+        if name is None:
+            return _http_error(400, "invalid skill name")
+        query = _parse_query(request.path)
+        raw_trace_limit = _query_first(query, "trace_limit") or _query_first(query, "traceLimit")
+        trace_limit = 10
+        if raw_trace_limit:
+            try:
+                trace_limit = max(1, min(int(raw_trace_limit), 100))
+            except ValueError:
+                return _http_error(400, "invalid trace_limit")
+        payload = skill_manage_detail_payload(
+            self.skills_workspace_path,
+            name,
+            trace_limit=trace_limit,
+        )
+        if payload is None:
+            return _http_error(404, "skill not found")
+        return _http_json_response(payload)
+
+    def _handle_skill_manage_status(self, request: WsRequest, raw_name: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        name = self._decode_skill_name(raw_name)
+        if name is None:
+            return _http_error(400, "invalid skill name")
+        query = _parse_query(request.path)
+        action = (_query_first(query, "action") or _query_first(query, "status") or "").strip()
+        if not action:
+            return _http_error(400, "missing status action")
+        try:
+            payload = skill_manage_status_payload(self.skills_workspace_path, name, action)
+        except KeyError:
+            return _http_error(404, "skill not found")
+        except ValueError as e:
+            message = str(e)
+            if "system skill" in message:
+                return _http_error(403, message)
+            if "cannot transition" in message:
+                return _http_error(409, message)
+            return _http_error(400, message)
+        return _http_json_response(payload)
+
+    async def _handle_skill_manage_draft_compose(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        raw = _case_insensitive_header(request.headers, _SKILL_DRAFT_HEADER)
+        if not raw:
+            return _http_error(400, "missing skill draft")
+        try:
+            values = json.loads(raw)
+        except Exception:
+            try:
+                values = json.loads(unquote(raw))
+            except Exception:
+                return _http_error(400, "skill draft must be JSON")
+        if not isinstance(values, dict):
+            return _http_error(400, "skill draft must be an object")
+        try:
+            payload = skill_manage_start_draft_payload(
+                self.skills_workspace_path,
+                values,
+                policy=self.skill_management_red_flags,
+            )
+        except ValueError as e:
+            return _http_error(400, str(e))
+        draft_id = str(payload["draft"]["draft_id"])
+        asyncio.create_task(self._complete_skill_draft(draft_id, values))
+        return _http_json_response(payload, status=202)
+
+    async def _complete_skill_draft(self, draft_id: str, values: dict[str, Any]) -> None:
+        try:
+            content = None
+            if self.skill_draft_composer is not None:
+                content = await self.skill_draft_composer(values)
+            skill_manage_complete_draft(
+                self.skills_workspace_path,
+                draft_id,
+                content=content,
+            )
+        except Exception as e:
+            logger.warning("Skill draft composer failed for {}: {}", draft_id, e)
+            try:
+                skill_manage_complete_draft(
+                    self.skills_workspace_path,
+                    draft_id,
+                    error=str(e) or "Composer failed.",
+                )
+            except Exception as update_error:
+                logger.warning("Could not mark skill draft {} failed: {}", draft_id, update_error)
+
+    def _handle_skill_manage_draft_detail(self, request: WsRequest, raw_id: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        draft_id = unquote(raw_id)
+        if not draft_id or "/" in draft_id or "\\" in draft_id:
+            return _http_error(400, "invalid draft id")
+        payload = skill_manage_draft_payload(
+            self.skills_workspace_path,
+            draft_id,
+            policy=self.skill_management_red_flags,
+        )
+        if payload is None:
+            return _http_error(404, "draft not found")
+        return _http_json_response(payload)
+
+    def _handle_skill_manage_draft_approve(self, request: WsRequest, raw_id: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        draft_id = unquote(raw_id)
+        if not draft_id or "/" in draft_id or "\\" in draft_id:
+            return _http_error(400, "invalid draft id")
+        approval: dict[str, Any] | None = None
+        raw_approval = _case_insensitive_header(request.headers, _SKILL_APPROVAL_HEADER)
+        if raw_approval:
+            try:
+                decoded = json.loads(raw_approval)
+            except Exception:
+                try:
+                    decoded = json.loads(unquote(raw_approval))
+                except Exception:
+                    return _http_error(400, "skill approval must be JSON")
+            if not isinstance(decoded, dict):
+                return _http_error(400, "skill approval must be an object")
+            approval = decoded
+        try:
+            payload = skill_manage_approve_draft_payload(
+                self.skills_workspace_path,
+                draft_id,
+                policy=self.skill_management_red_flags,
+                approval=approval,
+            )
+        except KeyError:
+            return _http_error(404, "draft not found")
+        except PermissionError as e:
+            return _http_error(403, str(e))
+        except ValueError as e:
+            return _http_error(409, str(e))
+        return _http_json_response(payload)
+
+    def _handle_skill_manage_update(self, request: WsRequest, raw_name: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        name = self._decode_skill_name(raw_name)
+        if name is None:
+            return _http_error(400, "invalid skill name")
+        raw = _case_insensitive_header(request.headers, _SKILL_UPDATE_HEADER)
+        if not raw:
+            return _http_error(400, "missing skill update")
+        try:
+            values = json.loads(raw)
+        except Exception:
+            try:
+                values = json.loads(unquote(raw))
+            except Exception:
+                return _http_error(400, "skill update must be JSON")
+        if not isinstance(values, dict):
+            return _http_error(400, "skill update must be an object")
+        markdown = values.get("markdown")
+        if not isinstance(markdown, str):
+            return _http_error(400, "markdown must be a string")
+        query = _parse_query(request.path)
+        dry_raw = (_query_first(query, "dry_run") or _query_first(query, "dryRun") or "").lower()
+        dry_run = dry_raw in {"1", "true", "yes"}
+        try:
+            payload = skill_manage_update_payload(
+                self.skills_workspace_path,
+                name,
+                markdown,
+                dry_run=dry_run,
+            )
+        except KeyError:
+            return _http_error(404, "skill not found")
+        except ValueError as e:
+            message = str(e)
+            if "system skill" in message:
+                return _http_error(403, message)
+            return _http_error(400, message)
+        return _http_json_response(payload)
+
+    def _handle_skill_manage_test(self, request: WsRequest, raw_name: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        name = self._decode_skill_name(raw_name)
+        if name is None:
+            return _http_error(400, "invalid skill name")
+        query = _parse_query(request.path)
+        raw_top_k = _query_first(query, "top_k") or _query_first(query, "topK")
+        top_k = 3
+        if raw_top_k:
+            try:
+                top_k = max(1, min(int(raw_top_k), 10))
+            except ValueError:
+                return _http_error(400, "invalid top_k")
+        try:
+            payload = skill_manage_routing_test_payload(
+                self.skills_workspace_path,
+                name,
+                top_k=top_k,
+            )
+        except KeyError:
+            return _http_error(404, "skill not found")
+        except ValueError as e:
+            message = str(e)
+            if "system skill" in message:
+                return _http_error(403, message)
+            return _http_error(400, message)
         return _http_json_response(payload)
 
     def _handle_webui_sidebar_state(self, request: WsRequest) -> Response:

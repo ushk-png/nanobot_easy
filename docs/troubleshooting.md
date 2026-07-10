@@ -237,6 +237,10 @@ nanobot skill test-routing --config ./config.json --workspace ./workspace
 | A skill is unavailable | Open the WebUI skill detail or check missing `requires` commands/env vars. |
 | New or edited skill is ignored | Run `nanobot skill reindex` for the active workspace. |
 | `approve` or `deprecate` refuses a skill | System skills are protected; only non-system skills can change lifecycle state from the CLI. |
+| WebUI skill management returns 403 | Enable `tools.webuiSkillManagement.enabled`, keep the WebUI authenticated, and restart the gateway. |
+| A WebUI draft stays in `failed` | Check provider/OAuth setup and gateway logs; Composer uses the active provider/model. |
+| WebUI blocks registration | Review the red flags. Security risk at `high` or above cannot be overridden; lower risks, routing failures, or duplicates require an override reason. |
+| Registered WebUI skill is still not found | Confirm the draft was registered as `candidate`, then run `nanobot skill reindex` for the active workspace if files were changed manually. |
 | Too many skills seem visible | The WebUI shows the catalog; most skills are selected on demand rather than injected into every prompt. |
 
 ## Chat App Problems

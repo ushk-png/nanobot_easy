@@ -194,12 +194,119 @@ document-review 스킬을 사용해서 이 문서를 검토해줘.
 
 초안 스킬은 검토 전까지 바로 verified 상태가 되지 않는다.
 
+## WebUI에서 스킬 관리하기
+
+스킬 UI는 CLI 없이 스킬 현황을 보고, 초안을 만들고, 등록과 상태 전이를 처리하기 위한 관리 화면이다. CLI와 WebUI는 같은 Skill Store 서비스 계층을 사용하므로 `system` 스킬 쓰기 거부, `draft -> candidate`, `candidate -> verified` 전이 규칙, Minor/Major 판정은 동일하게 적용된다.
+
+### 1. WebUI 관리 기능 켜기
+
+스킬 관리 API는 기본적으로 꺼져 있다. `.local/config.json`에서 다음 설정을 확인한다.
+
+```json
+{
+  "tools": {
+    "webuiSkillManagement": {
+      "enabled": true,
+      "draftExpireDays": 30,
+      "redFlags": {
+        "minRoutingPasses": 7,
+        "securityRiskAtLeast": "medium",
+        "securityBlockAtLeast": "high",
+        "duplicateScoreAtLeast": 0.8
+      }
+    }
+  }
+}
+```
+
+`enabled`가 `false`이면 `/api/skills/manage` 관리 API가 403을 반환한다. 설정을 바꾼 뒤에는 gateway를 재시작한다.
+
+```bash
+./restart-nanobot-skill.sh
+```
+
+### 2. WebUI 열기
+
+일반 실행 스크립트를 사용한다.
+
+```bash
+./start-nanobot-skill.sh
+```
+
+또는 WebUI 명령을 직접 실행한다.
+
+```bash
+PYTHONPATH=. .venv/bin/nanobot webui \
+  --config .local/config.json \
+  --workspace .local/workspace
+```
+
+브라우저에서 WebUI를 열고 `Skills` 화면으로 이동한다. 화면은 왼쪽 목록과 오른쪽 상세 패널로 나뉜다. 목록에서 스킬을 선택하면 페이지 이동 없이 오른쪽 상세가 즉시 바뀐다.
+
+### 3. 기존 스킬 확인과 상태 변경
+
+왼쪽 목록에서는 상태 탭과 검색으로 스킬을 좁혀 볼 수 있다. 상단 `Draft Inbox`는 아직 운영 목록에 등록되지 않은 초안 영역이다.
+
+상태별 기본 동작은 다음과 같다.
+
+| 현재 상태 | WebUI 동작 |
+|---|---|
+| draft | `등록`, `반려` |
+| candidate | `verified로 승격` |
+| verified | `사용 중지` |
+| deprecated | 필요 시 재등록 또는 참고용 조회 |
+| system | 조회만 가능, 쓰기 동작 거부 |
+
+상세 패널에서는 raw markdown, registry 메타, 최근 trace, routing test 결과를 확인할 수 있다. `Run test`를 누르면 해당 스킬의 routing case를 실행해 라우팅 품질을 확인한다.
+
+### 4. WebUI로 새 스킬 만들기
+
+`New skill`을 눌러 생성 위저드를 연다.
+
+1. 이름, 설명, 트리거 발화, category, risk level, 실행 도구 필요 여부, Method 초안을 입력한다.
+2. `Compose draft`를 누르면 서버가 Composer 작업을 시작하고 `draft_id`를 만든다.
+3. Composer가 중복 검토, 보안 검토, 초안 생성, routing case 생성을 진행한다.
+4. 작업 중에는 다른 화면으로 이동해도 된다. 진행 중 draft는 `Draft Inbox`에 남아 있고, 다시 클릭하면 폴링을 이어간다.
+5. 완료되면 검토 리포트, routing test 결과, 생성된 SKILL.md 미리보기를 확인한다.
+6. 문제가 없으면 `등록`을 눌러 draft를 candidate로 전환한다.
+
+승인 전 draft는 DB에만 저장되며 `skill_search`에 노출되지 않는다. `등록`이 완료되면 `.local/workspace/skills/<name>/SKILL.md`와 `routing_cases.json`이 생성되고 registry에 candidate 상태로 기록된다.
+
+### 5. Red flag와 override
+
+다음 조건이 있으면 WebUI가 원클릭 등록 흐름을 접고 추가 확인을 요구한다.
+
+- routing test 통과 수가 설정값보다 낮음. 기본값은 10개 중 7개 미만이다.
+- 보안 검토 risk가 `medium` 이상이다.
+- 중복 점수가 설정값 이상이다. 기본값은 `0.8`이다.
+
+override가 가능한 red flag는 사유 입력 후 등록할 수 있다. 단 보안 risk가 `high` 이상이면 override가 차단되며 WebUI에서 등록할 수 없다.
+
+### 6. 스킬 수정
+
+상세 패널에서 `Edit`을 누르면 스킬 본문을 수정할 수 있다. frontmatter 주요 값은 폼으로 편집하고, 본문은 에디터와 프리뷰 탭으로 확인한다.
+
+저장 시 서버가 변경 내용을 판정한다.
+
+- Minor: description, 트리거처럼 라우팅 표현 중심 변경. 저장 후 상태를 유지한다.
+- Major: Method나 도구 사용 방식처럼 실행 의미가 바뀌는 변경. 스킬이 candidate로 내려가고 재검증이 필요하다.
+
+Major 변경은 확인 다이얼로그에서 diff와 영향을 확인한 뒤 저장한다.
+
 ## 스킬 승인과 폐기
 
 비시스템 스킬을 검증 상태로 승격:
 
 ```bash
 PYTHONPATH=. .venv/bin/nanobot skill approve <skill_id> \
+  --config .local/config.json \
+  --workspace .local/workspace
+```
+
+`approve`는 draft를 `candidate`로 등록한다. 운영 사용으로 충분히 검증된 candidate를 `verified`로 올릴 때는 별도 승격 명령을 사용한다.
+
+```bash
+PYTHONPATH=. .venv/bin/nanobot skill promote <skill_id> \
   --config .local/config.json \
   --workspace .local/workspace
 ```

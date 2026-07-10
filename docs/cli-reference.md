@@ -283,7 +283,8 @@ agent or gateway uses.
 | `nanobot skill reindex` | Rebuild the SQLite skill registry for the active workspace |
 | `nanobot skill list` | List skills currently recorded in the registry |
 | `nanobot skill stats` | Show aggregate skill counts and usage counters |
-| `nanobot skill approve <skill_id>` | Promote a non-system skill to `verified` |
+| `nanobot skill approve <skill_id>` | Register a human-approved draft as `candidate` |
+| `nanobot skill promote <skill_id>` | Promote a proven `candidate` skill to `verified` |
 | `nanobot skill deprecate <skill_id>` | Mark a non-system skill as `deprecated` |
 | `nanobot skill test-routing` | Run deterministic routing checks against indexed skills |
 | `nanobot skill hot-path-report` | Suggest frequently successful skills that may deserve preloading |
@@ -294,12 +295,20 @@ Examples:
 ```bash
 nanobot skill reindex --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill list --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill approve skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill promote skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
 nanobot skill hot-path-report --config ./bot-a/config.json --workspace ./bot-a/workspace
 ```
 
 System skills are protected by the registry. They can be indexed and searched
 where appropriate, but `approve` and `deprecate` only operate on non-system
 skills.
+
+`approve` registers a human-reviewed draft as `candidate`; it does not promote
+directly to `verified`. Use `promote` only after a candidate has proven itself
+through operation, tests, or review. The WebUI Skills management screen calls
+the same service methods as these CLI commands when
+`tools.webuiSkillManagement.enabled` is true.
 
 ## Useful First Checks
 
