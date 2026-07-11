@@ -1,6 +1,6 @@
 ---
 name: skill-test-generator
-description: Generate routing test cases for a skill draft: positive triggers and neighbor negative cases.
+description: "Generate routing test cases for a skill draft: positive triggers and neighbor negative cases."
 metadata:
   nanobot:
     id: system-skill-test-generator

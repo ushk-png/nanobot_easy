@@ -3,7 +3,8 @@ name: pros-cons-decision
 description: >
   Build a concise pros/cons decision note for a practical choice, including
   recommendation, assumptions, and risks. Triggers: "pros and cons", "decision
-  note", "help me decide", "recommend between these options".
+  note", "help me decide", "recommend between these options", "장단점",
+  "찬반", "할지 말지 고민".
 metadata:
   nanobot:
     id: builtin-pros-cons-decision
@@ -21,6 +22,18 @@ metadata:
       - help me decide
       - recommend between these options
       - should we choose
+      - 장단점
+      - 장단점을
+      - 장단점 정리
+      - 장단점을 정리
+      - 장단점 목록
+      - 장단점 목록으로
+      - 찬반
+      - 할지 말지 고민
+      - 도입의 장단점
+      - 도입의 장단점을
+      - 재택근무 도입의 장단점을 정리해줘
+      - 이직할지 말지 고민인데 장단점 목록으로 정리해줘
 ---
 
 # Pros/Cons Decision
@@ -29,10 +42,15 @@ metadata:
 
 - The user wants a decision note with pros, cons, recommendation, and risks.
 - The alternatives are concrete enough to evaluate.
+- The user asks in Korean for "장단점", "찬반", or whether to do something
+  ("할지 말지") and wants a practical decision-oriented list.
 
 ## When Not To Use
 
 - Use `answer-comparison` for conceptual difference explanations.
+- Use `answer-comparison` for general two-item technology/tool comparisons such
+  as "A랑 B 중 뭐가 나아?" when the user has not asked for a pros/cons decision
+  note.
 - Use `compare-options` for a criteria-heavy comparison matrix.
 
 ## Method

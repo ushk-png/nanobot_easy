@@ -2364,6 +2364,15 @@ The initial pilot pair is `yq-setup` and `yq-usage`. It installs yq into
 tool in `<workspace>/tools/installed.md`, and keeps normal usage separate from
 installation.
 
+Installed external tools are shown read-only in the WebUI Tools screen, with the
+same summary also visible from Skills management, by parsing
+`<workspace>/tools/installed.md`. Nanobot does not run cron
+health checks, disk monitors, update scanners, or vulnerability scans for this
+list. Status and last-check fields are only the last recorded values from a
+usage/setup skill or a user-requested status check. Delete, update, start, and
+stop operations remain chat requests that route through the relevant setup or
+usage skill.
+
 ## Tool Hint Max Length
 
 Tool hints are the short progress messages shown when the agent calls tools (e.g. `$ cd …/project && npm test`). By default, these are truncated at 40 characters, which can make long commands hard to read.

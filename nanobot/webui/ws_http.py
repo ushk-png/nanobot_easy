@@ -80,6 +80,7 @@ from nanobot.webui.sidebar_state import (
 )
 from nanobot.webui.skill_manage_api import (
     skill_manage_approve_draft_payload,
+    skill_manage_audit_payload,
     skill_manage_complete_draft,
     skill_manage_detail_payload,
     skill_manage_draft_payload,
@@ -762,6 +763,8 @@ class GatewayHTTPHandler:
             return self._handle_skill_manage_list(request)
         if got == "/api/skills/manage/search":
             return self._handle_skill_manage_search(request)
+        if got == "/api/skills/manage/audit":
+            return self._handle_skill_manage_audit(request)
         if got == "/api/skills/manage/drafts/compose":
             return await self._handle_skill_manage_draft_compose(request)
         m = re.match(r"^/api/skills/manage/drafts/([^/]+)/approve$", got)
@@ -862,6 +865,11 @@ class GatewayHTTPHandler:
         return _http_json_response(
             skill_manage_search_payload(self.skills_workspace_path, q, top_k=top_k)
         )
+
+    def _handle_skill_manage_audit(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        return _http_json_response(skill_manage_audit_payload(self.skills_workspace_path))
 
     def _handle_skill_manage_detail(self, request: WsRequest, raw_name: str) -> Response:
         if error := self._check_skill_manage_access(request):

@@ -17,6 +17,33 @@ GOAL_STATE_KEY = "goal_state"
 _LEGACY_GOAL_STATE_SESSION_KEY = "thread_goal"
 _MAX_OBJECTIVE_IN_RUNTIME = 4000
 _MAX_OBJECTIVE_WS = 600
+_MANUAL_APPROVAL_MARKERS = (
+    "explicit user instruction",
+    "explicit user approval",
+    "explicit approval",
+    "only when the user",
+    "wait for user",
+    "wait for the user",
+    "user confirms",
+    "user approval",
+    "사용자 승인",
+    "사용자 지시",
+    "사용자가",
+    "명시적",
+    "승인",
+)
+_STAGED_WORK_MARKERS = (
+    "step",
+    "steps",
+    "later",
+    "next",
+    "proceed",
+    "continue",
+    "단계",
+    "다음",
+    "진행",
+    "수행",
+)
 
 
 def _session_goal_raw(metadata: Mapping[str, Any] | None) -> Any:
@@ -41,6 +68,28 @@ def sustained_goal_active(metadata: Mapping[str, Any] | None) -> bool:
     """True when this session has an active sustained objective (``long_task`` bookkeeping)."""
     goal = parse_goal_state(goal_state_raw(metadata))
     return isinstance(goal, dict) and goal.get("status") == "active"
+
+
+def sustained_goal_waits_for_user(metadata: Mapping[str, Any] | None) -> bool:
+    """True when an active goal is parked behind an explicit user approval gate.
+
+    This is intentionally conservative and only detects staged/manual-approval
+    goals. Those goals remain visible in runtime metadata, but they must not
+    trigger synthetic long-goal continuation turns that could execute a later
+    step without the user's explicit instruction.
+    """
+    goal = parse_goal_state(goal_state_raw(metadata))
+    if not isinstance(goal, dict) or goal.get("status") != "active":
+        return False
+    if goal.get("requires_user_approval") is True:
+        return True
+    objective = str(goal.get("objective") or "").casefold()
+    if not objective:
+        return False
+    return (
+        any(marker.casefold() in objective for marker in _MANUAL_APPROVAL_MARKERS)
+        and any(marker.casefold() in objective for marker in _STAGED_WORK_MARKERS)
+    )
 
 
 def sustained_goal_turn(

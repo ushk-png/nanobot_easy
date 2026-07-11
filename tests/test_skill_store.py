@@ -6,6 +6,11 @@ from typer.testing import CliRunner
 
 from nanobot.cli.commands import app
 from nanobot.skill_store import SkillStore
+from nanobot.webui.skill_manage_api import (
+    installed_tools_payload,
+    skill_manage_approve_draft_payload,
+    skill_manage_list_payload,
+)
 
 
 def _write_skill(
@@ -85,6 +90,41 @@ def test_skill_store_reindex_loads_skills_relations_and_searches(tmp_path: Path)
     assert rel_count == 3
 
 
+def test_skill_store_reindex_loads_scoped_workspace_packages(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(skills / "@steipete", "obsidian", description="Work with Obsidian vaults")
+
+    store = SkillStore(tmp_path)
+    result = store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    assert result.skills == 1
+    row = store.get_skill("obsidian")
+    assert row is not None
+    assert row["name"] == "obsidian"
+    assert row["source"] == "workspace"
+    assert row["path"].endswith("@steipete/obsidian/SKILL.md")
+
+
+def test_skill_store_audit_reports_advisory_findings(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(skills, "answer-comparison", category="answer.compare")
+    _write_skill(skills, "compare-options", category="decision.compare")
+    _write_skill(skills, "ready", category="document.review")
+    incomplete_dir = skills / "my"
+    incomplete_dir.mkdir(parents=True)
+    (incomplete_dir / "SKILL.md").write_text("---\nname: my\n---\n\n# My\n", encoding="utf-8")
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    report = store.audit_catalog()
+
+    assert Path(report.report_path).is_file()
+    assert report.summary["skills"] == 4
+    assert any(item["code"] == "missing_frontmatter_fields" and item["skill_names"] == ["my"] for item in report.attention)
+    assert any(item["code"] == "unwired_similarity_cluster" for item in report.attention)
+    assert any(item["code"] == "missing_routing_cases" and "ready" in item["skill_names"] for item in report.reference)
+
+
 def test_skill_store_rejects_supersedes_cycles(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
     _write_skill(skills, "alpha", supersedes=["beta"])
@@ -142,6 +182,47 @@ Delete `workspace/tools/demo` and remove its row from `workspace/tools/installed
 
     assert result.skills == 2
     assert store.get_skill("demo-setup")["install_sources_json"] == '["https://github.com/example/demo"]'
+
+
+def test_installed_tools_payload_reads_workspace_ledger(tmp_path: Path) -> None:
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "installed.md").write_text(
+        "| name | description | installed_at | version | status | last_checked_at | path | source |\n"
+        "|---|---|---|---|---|---|---|---|\n"
+        "| yq | YAML query tool | 2026-07-10 | 3.4.3 | running | 2026-07-10T12:00:00Z | tools/yq/.venv/bin/yq | https://pypi.org/project/yq/ |\n",
+        encoding="utf-8",
+    )
+
+    payload = installed_tools_payload(tmp_path)
+
+    assert payload == [
+        {
+            "name": "yq",
+            "description": "YAML query tool",
+            "installed_at": "2026-07-10",
+            "version": "3.4.3",
+            "status": "running",
+            "last_checked_at": "2026-07-10T12:00:00Z",
+            "path": "tools/yq/.venv/bin/yq",
+            "source": "https://pypi.org/project/yq/",
+        }
+    ]
+
+
+def test_skill_manage_list_includes_installed_tools(tmp_path: Path) -> None:
+    tools_dir = tmp_path / "tools"
+    tools_dir.mkdir()
+    (tools_dir / "installed.md").write_text(
+        "| yq | 3.4.3 | tools/yq/.venv/bin/yq | 2026-07-10 | https://pypi.org/project/yq/ |\n",
+        encoding="utf-8",
+    )
+
+    payload = skill_manage_list_payload(tmp_path)
+
+    assert payload["installed_tools"][0]["name"] == "yq"
+    assert payload["installed_tools"][0]["version"] == "3.4.3"
+    assert payload["installed_tools"][0]["installed_at"] == "2026-07-10"
 
 
 def test_skill_store_rejects_invalid_external_tool_setup_skills(tmp_path: Path) -> None:
@@ -401,6 +482,48 @@ def test_skill_store_composed_draft_approve_creates_candidate(tmp_path: Path) ->
     )
     assert composing.status == "composing"
     assert [item.name for item in store.list_skill_drafts()] == ["async-web-draft"]
+
+
+def test_skill_store_draft_records_duplicate_review_and_requires_differentiation(
+    tmp_path: Path,
+) -> None:
+    workspace = tmp_path / "workspace"
+    skills = workspace / "skills"
+    _write_skill(
+        skills,
+        "answer-comparison",
+        description=(
+            "Explain differences between concepts, tools, approaches, or terms in a "
+            "concise comparison for A vs B, compare X and Y, and which is better requests."
+        ),
+        status="verified",
+        category="answer.compare",
+    )
+    store = SkillStore(workspace)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    draft = store.create_skill_draft(
+        name="postgres-mysql-comparison",
+        description=(
+            "Compare PostgreSQL and MySQL and recommend which database to choose "
+            "based on project requirements."
+        ),
+        trigger="PostgreSQL vs MySQL\nPostgreSQL하고 MySQL 중 뭐가 나아",
+        method="# PostgreSQL MySQL Comparison\n\n## Method\nCompare and recommend.",
+        category="answer.compare",
+    )
+
+    duplicate = draft.review_json["duplicate"]
+    assert duplicate["score"] >= 0.8
+    assert duplicate["nearest"]["name"] == "answer-comparison"
+    assert duplicate["differentiation_required"] is True
+
+    with pytest.raises(ValueError, match="duplicate draft requires trigger differentiation"):
+        skill_manage_approve_draft_payload(
+            workspace,
+            draft.draft_id,
+            approval={"reason": "needed"},
+        )
 
 
 def test_skill_trace_updates_usage_counters(tmp_path: Path) -> None:

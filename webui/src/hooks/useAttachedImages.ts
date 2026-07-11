@@ -13,6 +13,7 @@ export type AttachmentStatus = "encoding" | "ready" | "error";
 export interface AttachedImage {
   id: string;
   file: File;
+  kind: "image" | "file";
   /** Optimistic ``blob:`` preview URL; revoked on ``remove`` / ``clear`` /
    * unmount. */
   previewUrl: string;
@@ -44,14 +45,65 @@ export type AttachmentError =
   | "io";                // file read failed at the browser layer
 
 export const MAX_IMAGES_PER_MESSAGE = 4;
+const MAX_FILE_BYTES = 20 * 1024 * 1024;
 
 /** MIME whitelist — mirrors the server's and the ``<input accept>`` attr. */
-const ACCEPTED_MIMES: ReadonlySet<string> = new Set([
+const ACCEPTED_IMAGE_MIMES: ReadonlySet<string> = new Set([
   "image/png",
   "image/jpeg",
   "image/webp",
   "image/gif",
 ]);
+const ACCEPTED_FILE_MIMES: ReadonlySet<string> = new Set([
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/plain",
+  "text/markdown",
+  "text/csv",
+  "application/json",
+  "application/xml",
+  "text/xml",
+  "text/html",
+  "application/x-yaml",
+  "text/yaml",
+  "application/toml",
+]);
+const ACCEPTED_FILE_EXTENSIONS = new Map<string, string>([
+  [".pdf", "application/pdf"],
+  [".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  [".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  [".pptx", "application/vnd.openxmlformats-officedocument.presentationml.presentation"],
+  [".txt", "text/plain"],
+  [".md", "text/markdown"],
+  [".csv", "text/csv"],
+  [".json", "application/json"],
+  [".xml", "application/xml"],
+  [".html", "text/html"],
+  [".htm", "text/html"],
+  [".log", "text/plain"],
+  [".yaml", "application/x-yaml"],
+  [".yml", "application/x-yaml"],
+  [".toml", "application/toml"],
+  [".ini", "text/plain"],
+  [".cfg", "text/plain"],
+]);
+
+function extensionOf(name: string): string {
+  const dot = name.lastIndexOf(".");
+  return dot >= 0 ? name.slice(dot).toLowerCase() : "";
+}
+
+function acceptedMime(file: File): string | null {
+  if (ACCEPTED_IMAGE_MIMES.has(file.type)) return file.type;
+  if (ACCEPTED_FILE_MIMES.has(file.type)) return file.type;
+  return ACCEPTED_FILE_EXTENSIONS.get(extensionOf(file.name)) ?? null;
+}
+
+function isAcceptedImage(file: File): boolean {
+  return ACCEPTED_IMAGE_MIMES.has(file.type);
+}
 
 function dataUrlMime(dataUrl: string): string {
   const match = /^data:([^;,]+)[;,]/.exec(dataUrl);
@@ -151,8 +203,13 @@ export function useAttachedImages(): UseAttachedImagesApi {
       let slot = MAX_IMAGES_PER_MESSAGE - imagesRef.current.length;
 
       for (const file of files) {
-        if (!ACCEPTED_MIMES.has(file.type)) {
+        const mime = acceptedMime(file);
+        if (!mime) {
           rejected.push({ file, reason: "unsupported_type" });
+          continue;
+        }
+        if (!isAcceptedImage(file) && file.size > MAX_FILE_BYTES) {
+          rejected.push({ file, reason: "too_large" });
           continue;
         }
         if (slot <= 0) {
@@ -163,6 +220,7 @@ export function useAttachedImages(): UseAttachedImagesApi {
         toAdd.push({
           id: uuid(),
           file,
+          kind: isAcceptedImage(file) ? "image" : "file",
           previewUrl: URL.createObjectURL(file),
           status: "encoding",
         });
@@ -175,6 +233,25 @@ export function useAttachedImages(): UseAttachedImagesApi {
         // Fire the Worker after the commit so chips render first (good INP).
         for (const entry of toAdd) {
           queueMicrotask(() => {
+            if (entry.kind === "file") {
+              fileToDataUrl(entry.file).then(
+                (dataUrl) => {
+                  setEntry(entry.id, {
+                    status: "ready",
+                    dataUrl,
+                    encodedBytes: entry.file.size,
+                    normalized: false,
+                  });
+                },
+                () => {
+                  setEntry(entry.id, {
+                    status: "error",
+                    error: "io",
+                  });
+                },
+              );
+              return;
+            }
             encodeImage(entry.file).then(
               (result) => {
                 if (result.ok) {
@@ -243,13 +320,14 @@ export function useAttachedImages(): UseAttachedImagesApi {
 
   const restoreReadyImages = useCallback((restored: RestoredReadyImage[]) => {
     const toRestore = restored
-      .filter((img) => ACCEPTED_MIMES.has(dataUrlMime(img.dataUrl)))
+      .filter((img) => ACCEPTED_IMAGE_MIMES.has(dataUrlMime(img.dataUrl)))
       .slice(0, MAX_IMAGES_PER_MESSAGE)
       .map((img): AttachedImage => {
         const file = dataUrlToFile(img.dataUrl, img.name);
         return {
           id: uuid(),
           file,
+          kind: "image",
           previewUrl: img.dataUrl,
           status: "ready",
           dataUrl: img.dataUrl,
@@ -288,4 +366,27 @@ export function useAttachedImages(): UseAttachedImagesApi {
   const full = images.length >= MAX_IMAGES_PER_MESSAGE;
 
   return { images, enqueue, remove, clear, restoreReadyImages, encoding, full };
+}
+
+function fileToDataUrl(file: File): Promise<string> {
+  const mime = acceptedMime(file) || "application/octet-stream";
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error ?? new Error("file read failed"));
+    reader.onload = () => {
+      const result = reader.result;
+      if (!(result instanceof ArrayBuffer)) {
+        reject(new Error("file read failed"));
+        return;
+      }
+      const bytes = new Uint8Array(result);
+      let binary = "";
+      const chunk = 0x8000;
+      for (let i = 0; i < bytes.length; i += chunk) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+      }
+      resolve(`data:${mime};base64,${btoa(binary)}`);
+    };
+    reader.readAsArrayBuffer(file);
+  });
 }

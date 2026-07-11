@@ -1,6 +1,17 @@
 ---
 name: long-goal
 description: Sustained objectives via long_task / complete_goal — idempotent goal wording, project-style modular work, early web/doc research, Runtime Context metadata.
+metadata:
+  nanobot:
+    id: builtin-long-goal
+    version: 1.0.0
+    status: verified
+    category: agent.goal
+    risk_level: low
+    requires_exec: false
+    required_tools:
+      - long_task
+      - complete_goal
 ---
 
 # Long-running objectives (`long_task` / `complete_goal`)
@@ -29,6 +40,22 @@ Those belong to the execution phase after the marker is set.
 - **`complete_goal`** — Close bookkeeping for the **current** active goal. Call when work is **done**, **and also** when the user **cancels**, **changes direction**, or **replaces** the objective: use **`recap`** to state honestly what happened (e.g. cancelled, partially done, superseded). Then you may call **`long_task`** again for a **new** objective after the session shows no active goal (or after the user agrees to replace).
 
 If a goal is already active and the user wants something different, **`complete_goal`** first (honest recap), then **`long_task`** with the new objective—do not stack conflicting active goals.
+
+## Manual approval gates
+
+Some sustained tasks are intentionally staged by the user. If the user says to
+run step 1, report, and wait until they explicitly ask for step 2, treat every
+later step as an explicit-permission-required boundary.
+
+- Record that boundary in the `goal` text, using phrases such as "later steps
+  require explicit user instruction" so runtime continuation can detect it.
+- After finishing the requested step, stop. Do not use the active goal as a
+  reason to fetch URLs, install tools, edit files, run tests, delegate, spawn,
+  or otherwise start the next step.
+- The final line of the step report must restate the boundary. In Korean
+  contexts use: `다음 단계(N)는 승인 전까지 실행하지 않습니다.`
+- If the user cancels, pauses, or changes direction, call `complete_goal` with
+  an honest recap rather than repeatedly explaining why the goal is unfinished.
 
 ## Where the goal appears
 

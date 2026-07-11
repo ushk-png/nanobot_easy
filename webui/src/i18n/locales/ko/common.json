@@ -55,6 +55,7 @@
       "ariaLabel": "언어 변경"
     },
     "apps": "앱",
+    "tools": "도구",
     "automations": "자동화",
     "skills": {
       "title": "스킬"
@@ -82,6 +83,7 @@
       "mcp": "MCP",
       "apps": "앱",
       "automations": "자동화",
+      "tools": "도구",
       "skills": "스킬"
     },
     "sections": {
@@ -850,6 +852,7 @@
         "drag": "드래그하여 순서 변경"
       },
       "attachImage": "이미지 첨부",
+      "attachFile": "파일 첨부",
       "imageMode": {
         "label": "이미지 생성",
         "toggle": "이미지 생성 모드 전환",

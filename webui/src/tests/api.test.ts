@@ -33,6 +33,7 @@ import {
   runCliAppAction,
   runManagedSkillRoutingTest,
   runManagedSkillStatusAction,
+  runSkillAudit,
   runMcpPresetAction,
   searchManagedSkills,
   updateManagedSkillMarkdown,
@@ -195,6 +196,17 @@ describe("webui API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/api/skills/manage/search?q=draft+review",
+      expect.objectContaining({
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("runs the managed skill audit endpoint", async () => {
+    await runSkillAudit("tok");
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/audit",
       expect.objectContaining({
         headers: { Authorization: "Bearer tok" },
       }),

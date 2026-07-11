@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -20,7 +21,7 @@ from nanobot.agent.tools.schema import (
 )
 from nanobot.skill_store import SkillSearchMatch, SkillStore
 
-_DEFAULT_TOP_K = 5
+_DEFAULT_TOP_K = 3
 _MAX_BATCH = 8
 _MAX_TOP_K = 10
 
@@ -54,7 +55,11 @@ def _lexical_score(query: str, match: SkillSearchMatch) -> float:
 
 
 def _rank_score(query: str, match: SkillSearchMatch, *, category: str | None = None) -> float:
-    score = _lexical_score(query, match)
+    # SkillStore.search already scores name, description, when_to_use/not,
+    # triggers, relations text, and phrase matches. Keep that canonical routing
+    # score instead of replacing it with this tool's lightweight presentation
+    # score; otherwise non-English trigger matches can be downgraded to weak.
+    score = max(float(match.score), _lexical_score(query, match))
     if category and category.lower() == match.category.lower():
         score += 10.0
     score += match.stats_weight
@@ -81,9 +86,21 @@ def _coerce_top_k(value: Any) -> int:
     tool_parameters_schema(
         queries=ArraySchema(
             ObjectSchema(
-                query=StringSchema("User task or subtask to route to a skill"),
+                query=StringSchema(
+                    "A rewritten routing query for the user task or subtask. Do not pass the user's "
+                    "raw sentence verbatim when it is vague or idiomatic; generalize the intent into "
+                    "what the user wants done, the target, and the desired output shape."
+                ),
                 category=StringSchema("Optional category hint, e.g. document.review", nullable=True),
                 top_k=IntegerSchema(description="Optional max candidates for this query", minimum=1, maximum=_MAX_TOP_K),
+                wave_no=IntegerSchema(
+                    description=(
+                        "Composite-task wave number for this subtask. Set this when the query is part "
+                        "of a composite-task wave so traces can prove wave ordering."
+                    ),
+                    minimum=1,
+                    nullable=True,
+                ),
                 required=["query"],
                 additional_properties=False,
             ),
@@ -115,8 +132,15 @@ class SkillSearchTool(Tool, ContextAware):
             "Search the workspace skill registry for candidate skills. "
             "Use this when preloaded skills do not clearly cover a specialized task. "
             "Input is always a batch: queries=[{query, category?, top_k?}]. "
-            "Results are grouped per query and include match grades, risk, exec needs, "
-            "and skill relations. If all matches are weak, do not force a skill."
+            "Rewrite each query to the task's underlying intent instead of copying the user's "
+            "surface wording: include the target, operation, and output form. For example, "
+            "'이직할지 말지 고민인데 장단점 목록으로' should become "
+            "'single-decision pros/cons structured analysis'. Results are grouped per query "
+            "and return capability cards with description, when_to_use, when_not_to_use, "
+            "match grades, risk, exec needs, and skill relations. Scores are retrieval hints, "
+            "not the final decision; read the cards and decide whether a candidate actually applies. "
+            "When used inside composite-task, include only the currently dependency-ready wave "
+            "in one batch and set wave_no on every query."
         )
 
     @property
@@ -131,19 +155,33 @@ class SkillSearchTool(Tool, ContextAware):
         store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
         outputs: list[dict[str, Any]] = []
         for item in queries[:_MAX_BATCH]:
+            started = time.perf_counter()
             query = str(item.get("query") or "").strip()
             category = item.get("category")
             category = str(category).strip() if category is not None else None
             top_k = _coerce_top_k(item.get("top_k", _DEFAULT_TOP_K))
+            wave_no = item.get("wave_no")
+            try:
+                wave_no = int(wave_no) if wave_no is not None else None
+            except (TypeError, ValueError):
+                wave_no = None
+            if wave_no is not None and wave_no < 1:
+                wave_no = None
             if not query:
                 outputs.append({
                     "query": query,
                     "category": category,
+                    "wave_no": wave_no,
                     "candidates": [],
                     "note": "empty query; no skill search performed",
                 })
                 continue
             matches = store.search(query, top_k=min(_MAX_TOP_K, top_k * 3), min_status=("candidate", "verified"))
+            if category:
+                by_name = {match.name: match for match in matches}
+                for match in store.category_matches(category, min_status=("candidate", "verified")):
+                    by_name.setdefault(match.name, match)
+                matches = list(by_name.values())
             relations = store.relations_for_names(match.name for match in matches)
             candidates: list[dict[str, Any]] = []
             for match in matches:
@@ -152,6 +190,8 @@ class SkillSearchTool(Tool, ContextAware):
                 candidates.append({
                     "name": match.name,
                     "description": match.description,
+                    "when_to_use": match.when_to_use,
+                    "when_not_to_use": match.when_not_to_use,
                     "risk_level": match.risk_level,
                     "requires_exec": match.requires_exec,
                     "category": match.category,
@@ -171,10 +211,17 @@ class SkillSearchTool(Tool, ContextAware):
             candidates = candidates[:top_k]
             conflict_warning = self._conflict_warning(candidates)
             all_weak = bool(candidates) and all(row["match_grade"] == "weak" for row in candidates)
-            note = "No applicable skill: all candidates are weak." if all_weak else None
+            note = (
+                "All retrieved candidates are weak by score. Treat this as a low-confidence "
+                "retrieval signal, then read the capability cards before deciding whether to "
+                "apply a skill or fall back to ordinary reasoning."
+                if all_weak
+                else None
+            )
             payload = {
                 "query": query,
                 "category": category,
+                "wave_no": wave_no,
                 "candidates": candidates,
                 "note": note,
                 "conflict_warning": conflict_warning,
@@ -188,6 +235,8 @@ class SkillSearchTool(Tool, ContextAware):
                 selected_skill=None,
                 selection_reason="cold",
                 executed_by="main",
+                wave_no=wave_no,
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
                 notes=note or conflict_warning,
             )
         return json.dumps({"results": outputs}, ensure_ascii=False, indent=2)

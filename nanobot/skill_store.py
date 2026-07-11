@@ -116,6 +116,24 @@ class SkillLifecycleFinding:
 
 
 @dataclass(frozen=True)
+class SkillAuditReport:
+    generated_at: str
+    report_path: str
+    summary: dict[str, int]
+    attention: list[dict[str, Any]]
+    reference: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "generated_at": self.generated_at,
+            "report_path": self.report_path,
+            "summary": self.summary,
+            "attention": self.attention,
+            "reference": self.reference,
+        }
+
+
+@dataclass(frozen=True)
 class RoutingTestRow:
     query: str
     expected: str
@@ -151,6 +169,7 @@ class SkillTraceRecord:
     selection_reason: str
     executed_by: str | None
     wave_no: int | None
+    duration_ms: int | None
     gate_result: str | None
     user_feedback: str | None
     notes: str | None
@@ -197,6 +216,8 @@ class SkillDraftContent:
 class SkillSearchMatch:
     name: str
     description: str
+    when_to_use: str
+    when_not_to_use: str
     status: str
     risk_level: str
     requires_exec: bool
@@ -291,7 +312,7 @@ def _json_text(value: Any) -> str:
 def _routing_terms(text: str) -> set[str]:
     terms = {
         term
-        for term in re.findall(r"[a-z0-9][a-z0-9_-]*", text.lower())
+        for term in re.findall(r"[a-z0-9][a-z0-9_-]*|[가-힣]{2,}", text.lower())
         if len(term) >= 2 and term not in _ROUTING_STOPWORDS
     }
     return terms
@@ -300,7 +321,7 @@ def _routing_terms(text: str) -> set[str]:
 def _phrase_lines(text: str) -> list[str]:
     lines: list[str] = []
     for raw in re.split(r"[\n,;|]+", text.lower()):
-        line = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*", raw))
+        line = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*|[가-힣]{2,}", raw))
         if len(line) >= 8:
             lines.append(line)
     return lines
@@ -320,6 +341,8 @@ def _intent_skill_boost(skill_name: str, query: str) -> float:
             "difference between",
             "how are",
             "a vs b",
+            " vs ",
+            "meaning and tradeoffs",
             "conceptual difference",
             "compare token",
             "compare these two api",
@@ -338,7 +361,7 @@ def _intent_skill_boost(skill_name: str, query: str) -> float:
         boost += 80.0
     if skill_name == "error-message-explain" and _has_any(
         q,
-        ("what does", "meaning", "explain this stack", "explain this error", "enoent", "importerror", "http 403"),
+        ("what does this error", "error meaning", "explain this stack", "explain this error", "enoent", "importerror", "http 403"),
     ):
         boost += 90.0
     if skill_name == "compare-options" and _has_any(
@@ -584,6 +607,39 @@ def _draft_materials(
     return input_json, markdown, review, routing_cases
 
 
+def _merge_duplicate_review(
+    review: dict[str, Any],
+    *,
+    duplicate: dict[str, Any] | None,
+) -> dict[str, Any]:
+    if not duplicate:
+        return review
+    current = review.get("duplicate") if isinstance(review.get("duplicate"), dict) else {}
+    current_score = current.get("score")
+    incoming_score = duplicate.get("score")
+    if isinstance(current_score, int | float) and isinstance(incoming_score, int | float):
+        if float(current_score) >= float(incoming_score):
+            return review
+    merged = dict(review)
+    merged["duplicate"] = duplicate
+    if float(duplicate.get("score") or 0.0) >= 0.8:
+        flags = [item for item in merged.get("red_flags", []) if isinstance(item, dict)]
+        if not any(str(item.get("kind") or "").lower() == "duplicate" for item in flags):
+            nearest = duplicate.get("nearest") if isinstance(duplicate.get("nearest"), dict) else {}
+            flags.append(
+                {
+                    "kind": "duplicate",
+                    "severity": "medium",
+                    "message": (
+                        "Proposed skill overlaps existing skill "
+                        f"{nearest.get('name') or 'unknown'}; trigger differentiation is required."
+                    ),
+                }
+            )
+        merged["red_flags"] = flags
+    return merged
+
+
 def _status_for(source: str, frontmatter: dict[str, Any], meta: dict[str, Any]) -> str:
     status = str(meta.get("status") or frontmatter.get("status") or "").strip().lower()
     if not status:
@@ -687,7 +743,7 @@ def _skill_from_file(path: Path, *, source: str, default_status: str | None = No
             description,
             when_to_use,
             when_not_to_use,
-            " ".join(_json_list(meta.get("triggers") or frontmatter.get("triggers"))),
+            "\n".join(_json_list(meta.get("triggers") or frontmatter.get("triggers"))),
         )
         if part
     )
@@ -734,10 +790,35 @@ def discover_skill_files(
     entries: list[tuple[Path, str, str | None]] = []
     seen: set[str] = set()
 
+    def _skill_files(base: Path) -> list[Path]:
+        direct: list[Path] = []
+        scoped: list[Path] = []
+        for skill_dir in sorted(base.iterdir(), key=lambda item: item.name):
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                direct.append(skill_file)
+                continue
+            if skill_dir.name.startswith("@"):
+                for scoped_dir in sorted(skill_dir.iterdir(), key=lambda item: item.name):
+                    if scoped_dir.is_dir() and (scoped_dir / "SKILL.md").exists():
+                        scoped.append(scoped_dir / "SKILL.md")
+
+        files: list[Path] = []
+        local_seen: set[str] = set()
+        for skill_file in [*direct, *scoped]:
+            name = skill_file.parent.name
+            if name in local_seen:
+                continue
+            local_seen.add(name)
+            files.append(skill_file)
+        return files
+
     def _add(base: Path, source: str, default_status: str | None = None, *, shadow: bool = True) -> None:
         if not base.exists():
             return
-        for path in sorted(base.glob("*/SKILL.md")):
+        for path in _skill_files(base):
             name = path.parent.name
             if shadow and name in seen:
                 continue
@@ -839,6 +920,7 @@ class SkillStore:
                     selection_reason TEXT NOT NULL,
                     executed_by TEXT,
                     wave_no INTEGER,
+                    duration_ms INTEGER,
                     gate_result TEXT,
                     user_feedback TEXT,
                     notes TEXT
@@ -861,6 +943,10 @@ class SkillStore:
             )
             try:
                 conn.execute("ALTER TABLE skills ADD COLUMN install_sources_json TEXT NOT NULL DEFAULT '[]'")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE traces ADD COLUMN duration_ms INTEGER")
             except sqlite3.OperationalError:
                 pass
             try:
@@ -1052,6 +1138,290 @@ class SkillStore:
     def managed_list(self, *, include_deprecated: bool = True) -> list[dict[str, Any]]:
         return [row_to_skill_payload(row) for row in self.list_skills(include_deprecated=include_deprecated)]
 
+    def audit_catalog(self, *, write_report: bool = True) -> SkillAuditReport:
+        """Run an advisory, deterministic skill catalog conformance audit."""
+        rows = self.list_skills(include_deprecated=True)
+        relation_pairs = self._relation_pairs()
+        attention: list[dict[str, Any]] = []
+        reference: list[dict[str, Any]] = []
+        category_counts: dict[str, int] = {}
+
+        for row in rows:
+            category = str(row["category"] or "")
+            category_counts[category] = category_counts.get(category, 0) + 1
+            frontmatter = self._frontmatter_for_row(row)
+            meta = _nanobot_meta(frontmatter)
+            path = str(row["path"] or "")
+            name = str(row["name"])
+            missing = self._missing_required_frontmatter(frontmatter, meta)
+            if missing:
+                attention.append(
+                    {
+                        "code": "missing_frontmatter_fields",
+                        "severity": "attention",
+                        "skill_names": [name],
+                        "message": f"{name} is missing required frontmatter fields: {', '.join(missing)}",
+                        "fields": missing,
+                        "path": path,
+                    }
+                )
+
+            if self._category_format_violation(category):
+                reference.append(
+                    {
+                        "code": "category_format",
+                        "severity": "reference",
+                        "skill_names": [name],
+                        "message": f"{name} uses nonconforming category '{category or '(empty)'}'.",
+                        "category": category,
+                        "path": path,
+                    }
+                )
+
+            residue_reasons = self._residue_reasons(row, frontmatter, meta)
+            if residue_reasons:
+                reference.append(
+                    {
+                        "code": "residue_suspect",
+                        "severity": "reference",
+                        "skill_names": [name],
+                        "message": f"{name} should be reviewed for catalog residue.",
+                        "reasons": residue_reasons,
+                        "path": path,
+                    }
+                )
+
+            if self._missing_routing_cases(row):
+                reference.append(
+                    {
+                        "code": "missing_routing_cases",
+                        "severity": "reference",
+                        "skill_names": [name],
+                        "message": f"{name} has no routing_cases.json next to SKILL.md.",
+                        "path": path,
+                    }
+                )
+
+        general_count = category_counts.get("general", 0)
+        if general_count:
+            reference.append(
+                {
+                    "code": "general_category_count",
+                    "severity": "reference",
+                    "skill_names": [
+                        str(row["name"])
+                        for row in rows
+                        if str(row["category"] or "") == "general"
+                    ],
+                    "message": f"{general_count} skill(s) use the general category.",
+                    "category": "general",
+                    "count": general_count,
+                }
+            )
+
+        attention.extend(self._unwired_similarity_clusters(rows, relation_pairs))
+        generated_at = _utc_now()
+        report_path = str(self.db_path.parent / "audit-report.json")
+        summary = {
+            "skills": len(rows),
+            "attention": len(attention),
+            "reference": len(reference),
+            "general_category": general_count,
+            "missing_routing_cases": sum(1 for item in reference if item["code"] == "missing_routing_cases"),
+            "missing_frontmatter_fields": sum(1 for item in attention if item["code"] == "missing_frontmatter_fields"),
+            "unwired_similarity_clusters": sum(1 for item in attention if item["code"] == "unwired_similarity_cluster"),
+        }
+        report = SkillAuditReport(
+            generated_at=generated_at,
+            report_path=report_path,
+            summary=summary,
+            attention=attention,
+            reference=reference,
+        )
+        if write_report:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            Path(report_path).write_text(
+                json.dumps(report.to_dict(), ensure_ascii=False, indent=2) + "\n",
+                encoding="utf-8",
+            )
+        return report
+
+    def _frontmatter_for_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        path = Path(str(row["path"] or ""))
+        try:
+            return _parse_frontmatter(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        except OSError:
+            return {}
+
+    def _missing_required_frontmatter(self, frontmatter: dict[str, Any], meta: dict[str, Any]) -> list[str]:
+        missing: list[str] = []
+        if not (meta.get("id") or frontmatter.get("id")):
+            missing.append("metadata.nanobot.id")
+        if not (meta.get("version") or frontmatter.get("version")):
+            missing.append("metadata.nanobot.version")
+        if not (meta.get("category") or frontmatter.get("category")):
+            missing.append("metadata.nanobot.category")
+        if not (meta.get("risk_level") or frontmatter.get("risk_level")):
+            missing.append("metadata.nanobot.risk_level")
+        if "requires_exec" not in meta and "requires_exec" not in frontmatter:
+            missing.append("metadata.nanobot.requires_exec")
+        return missing
+
+    def _category_format_violation(self, category: str) -> bool:
+        if not category:
+            return True
+        raw_parts = category.split(".")
+        parts = [part for part in raw_parts if part]
+        return len(parts) != len(raw_parts) or len(parts) > 2
+
+    def _residue_reasons(self, row: sqlite3.Row, frontmatter: dict[str, Any], meta: dict[str, Any]) -> list[str]:
+        reasons: list[str] = []
+        name = str(row["name"] or "")
+        description = str(frontmatter.get("description") or row["description"] or "").strip()
+        if not description or description == name:
+            reasons.append("description_missing_or_name_only")
+        triggers = _json_list(meta.get("triggers") or frontmatter.get("triggers"))
+        when_to_use = str(frontmatter.get("when_to_use") or meta.get("when_to_use") or row["when_to_use"] or "").strip()
+        if not triggers and not when_to_use:
+            reasons.append("trigger_guidance_missing")
+        if name.lower() in {"my", "test", "sample", "tmp", "temp"}:
+            reasons.append("suspicious_name")
+        if row["status"] == "verified" and int(row["usage_count"] or 0) == 0 and row["source"] == "workspace":
+            reasons.append("verified_without_usage")
+        return reasons
+
+    def _missing_routing_cases(self, row: sqlite3.Row) -> bool:
+        if row["status"] in {"system", "draft", "deprecated", "rejected"}:
+            return False
+        path = Path(str(row["path"] or ""))
+        if not path.name:
+            return False
+        return not (path.parent / "routing_cases.json").is_file()
+
+    def _relation_pairs(self) -> set[tuple[str, str]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT src.name AS src_name, dst.name AS dst_name
+                FROM skill_relations r
+                JOIN skills src ON src.id = r.src_id
+                JOIN skills dst ON dst.id = r.dst_id
+                """
+            ).fetchall()
+        pairs: set[tuple[str, str]] = set()
+        for row in rows:
+            src = str(row["src_name"])
+            dst = str(row["dst_name"])
+            pairs.add((src, dst))
+            pairs.add((dst, src))
+        return pairs
+
+    def _unwired_similarity_clusters(
+        self,
+        rows: list[sqlite3.Row],
+        relation_pairs: set[tuple[str, str]],
+    ) -> list[dict[str, Any]]:
+        candidates = [
+            row for row in rows
+            if row["status"] in {"candidate", "verified"} and row["source"] != "system"
+        ]
+        edges: dict[str, set[str]] = {}
+        for index, left in enumerate(candidates):
+            for right in candidates[index + 1:]:
+                if (left["name"], right["name"]) in relation_pairs:
+                    continue
+                common = self._similarity_keys(left) & self._similarity_keys(right)
+                if not common:
+                    continue
+                if self._has_mutual_boundary_note(left, right):
+                    continue
+                left_name = str(left["name"])
+                right_name = str(right["name"])
+                edges.setdefault(left_name, set()).add(right_name)
+                edges.setdefault(right_name, set()).add(left_name)
+
+        clusters: list[dict[str, Any]] = []
+        visited: set[str] = set()
+        by_name = {str(row["name"]): row for row in candidates}
+        for name in sorted(edges):
+            if name in visited:
+                continue
+            stack = [name]
+            names: set[str] = set()
+            keys: set[str] = set()
+            while stack:
+                current = stack.pop()
+                if current in visited:
+                    continue
+                visited.add(current)
+                names.add(current)
+                row = by_name.get(current)
+                if row is not None:
+                    keys.update(self._similarity_keys(row))
+                stack.extend(sorted(edges.get(current, set()) - visited))
+            if len(names) < 2:
+                continue
+            clusters.append(
+                {
+                    "code": "unwired_similarity_cluster",
+                    "severity": "attention",
+                    "skill_names": sorted(names),
+                    "message": "Similar catalog cluster has no explicit relation wiring for at least one pair.",
+                    "cluster_keys": sorted(keys),
+                }
+            )
+        return clusters
+
+    def _similarity_keys(self, row: sqlite3.Row) -> set[str]:
+        category = str(row["category"] or "").lower()
+        name = str(row["name"] or "").lower()
+        keys: set[str] = set()
+        parts = [part for part in category.split(".") if part and part != "general"]
+        if len(parts) >= 2 and parts[-1] not in {"tool", "web"}:
+            keys.add(parts[-1].replace("_", "-"))
+        if len(parts) == 2 and parts[0] in {"decision"}:
+            keys.add(f"root:{parts[0]}")
+        if name.endswith("-setup"):
+            keys.add(f"setup:{name.removesuffix('-setup')}")
+        if name.endswith("-usage"):
+            keys.add(f"setup:{name.removesuffix('-usage')}")
+        tokens = {
+            token
+            for token in re.split(r"[^a-z0-9]+", f"{name} {category}")
+            if token
+        }
+        aliases = {
+            "comparison": "compare",
+            "comparing": "compare",
+            "options": "compare",
+            "pros": "decision",
+            "cons": "decision",
+        }
+        signal_tokens = {
+            "compare",
+            "decision",
+            "review",
+            "summary",
+            "summarize",
+            "diagnosis",
+            "howto",
+        }
+        for token in tokens:
+            normalized = aliases.get(token, token)
+            if normalized in signal_tokens:
+                keys.add(normalized)
+        return keys
+
+    def _has_mutual_boundary_note(self, left: sqlite3.Row, right: sqlite3.Row) -> bool:
+        left_name = str(left["name"])
+        right_name = str(right["name"])
+        try:
+            left_text = Path(str(left["path"])).read_text(encoding="utf-8").lower()
+            right_text = Path(str(right["path"])).read_text(encoding="utf-8").lower()
+        except OSError:
+            return False
+        return right_name.lower() in left_text and left_name.lower() in right_text
+
     def managed_search(self, query: str, *, top_k: int = 10) -> list[dict[str, Any]]:
         return [
             {
@@ -1072,6 +1442,70 @@ class SkillStore:
             }
             for match in self.search(query, top_k=top_k, min_status=("candidate", "verified"))
         ]
+
+    def _duplicate_review_for_draft(
+        self,
+        *,
+        name: str,
+        description: str,
+        trigger: str,
+        category: str,
+        requires_exec: bool,
+    ) -> dict[str, Any] | None:
+        query = "\n".join(part for part in [description, trigger, category] if part.strip())
+        if not query.strip():
+            return None
+        candidates = self.search(query, top_k=8, min_status=("candidate", "verified"))
+        checked: list[dict[str, Any]] = []
+        best: tuple[float, SkillSearchMatch] | None = None
+        normalized_category = category.strip().lower()
+        for match in candidates:
+            if match.name == name:
+                continue
+            same_category = bool(normalized_category and match.category.lower() == normalized_category)
+            same_root = bool(
+                normalized_category
+                and match.category.lower().split(".", 1)[0] == normalized_category.split(".", 1)[0]
+            )
+            if same_category:
+                duplicate_score = min(1.0, max(0.0, match.score / 65.0))
+            elif same_root:
+                duplicate_score = min(0.79, max(0.0, match.score / 120.0))
+            else:
+                duplicate_score = min(0.69, max(0.0, match.score / 160.0))
+            if bool(match.requires_exec) != bool(requires_exec):
+                duplicate_score *= 0.6
+            checked.append(
+                {
+                    "name": match.name,
+                    "category": match.category,
+                    "score": round(duplicate_score, 4),
+                    "retrieval_score": round(match.score, 4),
+                    "description": match.description,
+                }
+            )
+            if best is None or duplicate_score > best[0]:
+                best = (duplicate_score, match)
+        if best is None:
+            return None
+        score, match = best
+        classification = "duplicate" if score >= 0.8 else "new"
+        return {
+            "score": round(score, 4),
+            "classification": classification,
+            "differentiation_required": score >= 0.8,
+            "nearest": {
+                "name": match.name,
+                "category": match.category,
+                "description": match.description,
+                "reason": (
+                    "same category and high retrieval similarity"
+                    if score >= 0.8
+                    else "nearest neighbor below duplicate threshold"
+                ),
+            },
+            "checked": checked[:5],
+        }
 
     def recent_traces_for_skill(self, name: str, *, limit: int = 10) -> list[SkillTraceRecord]:
         limit = max(1, min(limit, 100))
@@ -1106,6 +1540,7 @@ class SkillStore:
                     selection_reason=row["selection_reason"],
                     executed_by=row["executed_by"],
                     wave_no=row["wave_no"],
+                    duration_ms=row["duration_ms"] if "duration_ms" in row.keys() else None,
                     gate_result=row["gate_result"],
                     user_feedback=row["user_feedback"],
                     notes=row["notes"],
@@ -1299,6 +1734,16 @@ class SkillStore:
             requires_exec=requires_exec,
             content=content,
         )
+        review = _merge_duplicate_review(
+            review,
+            duplicate=self._duplicate_review_for_draft(
+                name=name,
+                description=description,
+                trigger=trigger,
+                category=category,
+                requires_exec=requires_exec,
+            ),
+        )
         now = _utc_now()
         draft_id = f"draft-{uuid.uuid4().hex}"
         with self._connect() as conn:
@@ -1443,6 +1888,16 @@ class SkillStore:
             risk_level=str(values.get("risk_level") or "low"),
             requires_exec=bool(values.get("requires_exec") or False),
             content=content,
+        )
+        review = _merge_duplicate_review(
+            review,
+            duplicate=self._duplicate_review_for_draft(
+                name=str(values.get("name") or row["name"]),
+                description=str(values.get("description") or ""),
+                trigger=str(values.get("trigger") or ""),
+                category=str(values.get("category") or "general"),
+                requires_exec=bool(values.get("requires_exec") or False),
+            ),
         )
         with self._connect() as conn:
             conn.execute(
@@ -1805,9 +2260,33 @@ class SkillStore:
             ranked.sort(key=lambda item: (item.score + item.stats_weight, item.name), reverse=True)
             return ranked[:top_k]
 
+    def category_matches(
+        self,
+        category: str,
+        *,
+        min_status: Iterable[str] | None = None,
+    ) -> list[SkillSearchMatch]:
+        """Return candidate skills whose category matches the LLM-provided hint."""
+        normalized = (category or "").strip().lower()
+        if not normalized:
+            return []
+        statuses = tuple(min_status or ("candidate", "verified"))
+        if not statuses:
+            return []
+        with self._connect() as conn:
+            rows = conn.execute(
+                f"""
+                SELECT * FROM skills
+                WHERE status IN ({",".join("?" for _ in statuses)})
+                  AND (lower(category) = ? OR lower(category) LIKE ?)
+                """,
+                (*statuses, normalized, f"{normalized}.%"),
+            ).fetchall()
+        return [self._match_from_row(row, score=60.0) for row in rows]
+
     @staticmethod
     def _routing_score(row: sqlite3.Row, query: str, *, fts_score: float = 0.0) -> float:
-        query_lower = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*", query.lower()))
+        query_lower = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*|[가-힣]{2,}", query.lower()))
         query_terms = _routing_terms(query)
         if not query_terms:
             return fts_score
@@ -1858,6 +2337,8 @@ class SkillStore:
         return SkillSearchMatch(
             name=row["name"],
             description=row["description"],
+            when_to_use=row["when_to_use"],
+            when_not_to_use=row["when_not_to_use"],
             status=row["status"],
             risk_level=row["risk_level"],
             requires_exec=bool(row["requires_exec"]),
@@ -1908,6 +2389,7 @@ class SkillStore:
         selection_reason: str = "none",
         executed_by: str | None = None,
         wave_no: int | None = None,
+        duration_ms: int | None = None,
         gate_result: str | None = None,
         user_feedback: str | None = None,
         notes: str | None = None,
@@ -1918,8 +2400,8 @@ class SkillStore:
                 INSERT OR REPLACE INTO traces (
                     trace_id, ts, session_key, query_digest, candidates_json,
                     selected_skill, selection_reason, executed_by, wave_no,
-                    gate_result, user_feedback, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    duration_ms, gate_result, user_feedback, notes
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     trace_id,
@@ -1931,6 +2413,7 @@ class SkillStore:
                     selection_reason,
                     executed_by,
                     wave_no,
+                    duration_ms,
                     gate_result,
                     user_feedback,
                     notes,

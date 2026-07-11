@@ -146,6 +146,7 @@ class AgentDefaults(Base):
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
     max_concurrent_subagents: int = Field(default=1, ge=1)
+    skills: list[str] = Field(default_factory=list)  # Main-agent Hot Path skills preloaded into the prompt.
     subagent_profiles: dict[str, SubagentProfile] = Field(default_factory=dict)
     max_subagent_depth: int = Field(default=2, ge=1, le=3)
     fail_on_tool_error: bool = True

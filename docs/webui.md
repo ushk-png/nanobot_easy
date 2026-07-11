@@ -180,6 +180,13 @@ require confirmation and return verified skills to `candidate` for revalidation.
 See [`configuration.md#webui-skill-management`](./configuration.md#webui-skill-management)
 for the management capability flag and red-flag thresholds.
 
+If external tool skills have written `<workspace>/tools/installed.md`, the left
+sidebar shows a Tools screen with an installed-tools ledger. The Skills view also
+shows the same read-only summary. The ledger shows the tool name, description,
+install date, version, last recorded status, and last check time, but it does not
+provide delete, update, start, or stop buttons. Ask in chat for those actions so
+the normal setup/usage skill routing and confirmation rules apply.
+
 ## Automations
 
 Automations are agent turns that run later in a linked chat/session. They should

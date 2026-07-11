@@ -32,6 +32,19 @@ _MIME_EXTENSION_OVERRIDES = {
     "audio/x-wav": ".wav",
     "audio/vnd.wave": ".wav",
     "video/webm": ".webm",
+    "application/pdf": ".pdf",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": ".docx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": ".pptx",
+    "text/markdown": ".md",
+    "text/csv": ".csv",
+    "application/json": ".json",
+    "application/xml": ".xml",
+    "text/xml": ".xml",
+    "text/html": ".html",
+    "application/x-yaml": ".yaml",
+    "text/yaml": ".yaml",
+    "application/toml": ".toml",
 }
 
 

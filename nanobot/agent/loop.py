@@ -61,6 +61,7 @@ from nanobot.session.goal_state import (
     goal_state_runtime_lines,
     runner_wall_llm_timeout_s,
     sustained_goal_active,
+    sustained_goal_waits_for_user,
 )
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
 from nanobot.session.keys import UNIFIED_SESSION_KEY, session_key_for_channel
@@ -218,6 +219,7 @@ class AgentLoop:
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
+        hot_path_skills: list[str] | None = None,
         tools_config: ToolsConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
@@ -287,7 +289,13 @@ class AgentLoop:
         self._last_usage: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
+        self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
+        self.context = ContextBuilder(
+            workspace,
+            timezone=timezone,
+            disabled_skills=disabled_skills,
+            hot_path_skills=self.hot_path_skills,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         # One file-read/write tracker per logical session. The tool registry is
@@ -420,6 +428,7 @@ class AgentLoop:
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
+            hot_path_skills=defaults.skills,
             session_ttl_minutes=defaults.session_ttl_minutes,
             consolidation_ratio=defaults.consolidation_ratio,
             tools_config=config.tools,
@@ -903,7 +912,10 @@ class AgentLoop:
                     metadata=session_metadata,
                     message_metadata=metadata,
                 ),
-                goal_active_predicate=lambda: sustained_goal_active(session.metadata) if session is not None else False,
+                goal_active_predicate=lambda: (
+                    sustained_goal_active(session.metadata)
+                    and not sustained_goal_waits_for_user(session.metadata)
+                ) if session is not None else False,
                 goal_continue_message=_goal_continue,
                 finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
                     pending_queue_available=pending_queue is not None and session is not None,
@@ -1559,6 +1571,15 @@ class AgentLoop:
             ctx.on_retry_wait = await self._build_retry_wait_callback(ctx.msg)
 
         return "ok"
+
+    @staticmethod
+    def _user_request_text(message: str) -> str:
+        """Return the user-authored prompt before extracted attachment text."""
+        text = (message or "").strip()
+        marker = "\n\n[File:"
+        if marker in text:
+            return text.split(marker, 1)[0].strip()
+        return text
 
     async def _state_run(self, ctx: TurnContext) -> str:
         if ctx.visible_run_started_at is None:

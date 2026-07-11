@@ -14,7 +14,7 @@ SYSTEM_SKILLS_DIR = Path(__file__).parent.parent / "skills-system"
 
 # Opening ---, YAML body (group 1), closing --- on its own line; supports CRLF.
 _STRIP_SKILL_FRONTMATTER = re.compile(
-    r"^---\s*\r?\n(.*?)\r?\n---\s*\r?\n?",
+    r"^---[ \t]*\r?\n(.*?)\r?\n---[ \t]*\r?\n?",
     re.DOTALL,
 )
 
@@ -45,17 +45,41 @@ class SkillsLoader:
         if base is None or not base.exists():
             return []
         entries: list[dict[str, str]] = []
-        for skill_dir in base.iterdir():
-            if not skill_dir.is_dir():
-                continue
-            skill_file = skill_dir / "SKILL.md"
-            if not skill_file.exists():
-                continue
+        for skill_file in self._iter_skill_files(base):
+            skill_dir = skill_file.parent
             name = skill_dir.name
             if skip_names is not None and name in skip_names:
                 continue
             entries.append({"name": name, "path": str(skill_file), "source": source})
+            if skip_names is not None:
+                skip_names.add(name)
         return entries
+
+    def _iter_skill_files(self, base: Path) -> list[Path]:
+        """Return direct and scoped package skill files in precedence order."""
+        direct: list[Path] = []
+        scoped: list[Path] = []
+        for skill_dir in sorted(base.iterdir(), key=lambda item: item.name):
+            if not skill_dir.is_dir():
+                continue
+            skill_file = skill_dir / "SKILL.md"
+            if skill_file.exists():
+                direct.append(skill_file)
+                continue
+            if skill_dir.name.startswith("@"):
+                for scoped_dir in sorted(skill_dir.iterdir(), key=lambda item: item.name):
+                    if scoped_dir.is_dir() and (scoped_dir / "SKILL.md").exists():
+                        scoped.append(scoped_dir / "SKILL.md")
+
+        seen: set[str] = set()
+        files: list[Path] = []
+        for skill_file in [*direct, *scoped]:
+            name = skill_file.parent.name
+            if name in seen:
+                continue
+            seen.add(name)
+            files.append(skill_file)
+        return files
 
     def list_skills(self, filter_unavailable: bool = True) -> list[dict[str, str]]:
         """
@@ -105,6 +129,9 @@ class SkillsLoader:
             path = root / name / "SKILL.md"
             if path.exists():
                 return path.read_text(encoding="utf-8")
+            for scoped_path in sorted(root.glob(f"@*/{name}/SKILL.md")):
+                if scoped_path.exists():
+                    return scoped_path.read_text(encoding="utf-8")
         return None
 
     def load_skills_for_context(self, skill_names: list[str]) -> str:

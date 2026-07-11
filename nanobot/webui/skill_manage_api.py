@@ -18,6 +18,79 @@ from nanobot.skill_store import (
 _RISK_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
+def _normalize_header(value: str) -> str:
+    return value.strip().lower().replace(" ", "_").replace("-", "_")
+
+
+def _status_value(value: str) -> str:
+    normalized = value.strip().lower()
+    if normalized in {"running", "active", "up", "ok", "실행중"}:
+        return "running"
+    if normalized in {"stopped", "inactive", "down", "중지"}:
+        return "stopped"
+    return normalized or "unknown"
+
+
+def _parse_markdown_table_row(line: str) -> list[str] | None:
+    stripped = line.strip()
+    if not stripped.startswith("|") or not stripped.endswith("|"):
+        return None
+    cells = [cell.strip() for cell in stripped.strip("|").split("|")]
+    if not cells:
+        return None
+    if all(set(cell) <= {"-", ":", " "} for cell in cells):
+        return None
+    return cells
+
+
+def installed_tools_payload(workspace_path: Path) -> list[dict[str, Any]]:
+    """Parse the read-only external tool ledger.
+
+    This deliberately does not perform health checks. The ledger may include
+    status/last-checked fields written by usage or setup skills, and the WebUI
+    only displays those last recorded values.
+    """
+
+    path = workspace_path / "tools" / "installed.md"
+    if not path.is_file():
+        return []
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+
+    header: list[str] | None = None
+    rows: list[dict[str, Any]] = []
+    fallback_keys = ["name", "version", "path", "installed_at", "source"]
+    for line in lines:
+        cells = _parse_markdown_table_row(line)
+        if cells is None:
+            continue
+        normalized = [_normalize_header(cell) for cell in cells]
+        if header is None:
+            if any(key in normalized for key in ("name", "tool", "version", "installed_at", "installed")):
+                header = normalized
+                continue
+            header = fallback_keys[: len(cells)]
+        values = dict(zip(header, cells, strict=False))
+        name = values.get("name") or values.get("tool") or values.get("명칭") or cells[0]
+        if not name:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "description": values.get("description") or values.get("desc") or values.get("summary") or "",
+                "installed_at": values.get("installed_at") or values.get("installed") or values.get("date") or "",
+                "version": values.get("version") or "",
+                "status": _status_value(values.get("status") or values.get("state") or ""),
+                "last_checked_at": values.get("last_checked_at") or values.get("last_checked") or None,
+                "path": values.get("path") or values.get("location") or "",
+                "source": values.get("source") or values.get("url") or "",
+            }
+        )
+    return rows
+
+
 def _risk_at_least(value: str, threshold: str) -> bool:
     return _RISK_ORDER.get(str(value).lower(), 0) >= _RISK_ORDER.get(str(threshold).lower(), 0)
 
@@ -133,6 +206,7 @@ def skill_manage_list_payload(workspace_path: Path) -> dict[str, Any]:
     return {
         "skills": store.managed_list(include_deprecated=True),
         "drafts": [_draft_payload(draft) for draft in drafts],
+        "installed_tools": installed_tools_payload(workspace_path),
         "status_counts": status_counts,
     }
 
@@ -150,6 +224,12 @@ def skill_manage_search_payload(
         "query": query,
         "matches": store.managed_search(query, top_k=top_k) if query else [],
     }
+
+
+def skill_manage_audit_payload(workspace_path: Path) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    return {"audit": store.audit_catalog().to_dict()}
 
 
 def skill_manage_detail_payload(
@@ -288,7 +368,27 @@ def skill_manage_approve_draft_payload(
     governance = _draft_governance(draft, policy)
     if governance["blocked"]:
         raise PermissionError("draft has non-overridable red flags")
-    if governance["requires_confirmation"] and not str((approval or {}).get("reason") or "").strip():
+    confirmations = [
+        item for item in governance.get("confirmations", []) if isinstance(item, dict)
+    ]
+    has_duplicate_confirmation = any(
+        str(item.get("kind") or "").lower() == "duplicate" for item in confirmations
+    )
+    if has_duplicate_confirmation:
+        differentiation = (approval or {}).get("differentiation")
+        relations = (approval or {}).get("relations")
+        has_differentiation = bool(str(differentiation or "").strip())
+        has_relation = False
+        if isinstance(relations, dict):
+            has_relation = any(
+                bool(relations.get(key))
+                for key in ("conflicts_with", "supersedes", "fallback_to")
+            )
+        if not has_differentiation or not has_relation:
+            raise ValueError(
+                "duplicate draft requires trigger differentiation and relation wiring"
+            )
+    elif governance["requires_confirmation"] and not str((approval or {}).get("reason") or "").strip():
         raise ValueError("override reason is required for red-flagged draft")
     draft, row = store.approve_composed_draft(draft_id, system_dir=SYSTEM_SKILLS_DIR)
     return {

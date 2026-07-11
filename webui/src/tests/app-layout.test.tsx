@@ -299,21 +299,60 @@ describe("App layout", () => {
     expect(asideClassNames.some((cls) => cls.includes("lg:block"))).toBe(true);
   });
 
-  it("places Automations after Skills in the main sidebar", async () => {
+  it("places Tools between Skills and Automations in the main sidebar", async () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
     const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
+    const toolsButton = within(sidebar).getByRole("button", { name: "Tools" });
     const automationsButton = within(sidebar).getByRole("button", { name: "Automations" });
 
     expect(appsButton.compareDocumentPosition(skillsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    expect(skillsButton.compareDocumentPosition(toolsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
     expect(
-      skillsButton.compareDocumentPosition(automationsButton) &
+      toolsButton.compareDocumentPosition(automationsButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("opens Tools from the main sidebar", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/settings/cli-apps": { apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" },
+      "/api/settings/mcp-presets": { presets: [], installed_count: 0 },
+      "/api/webui/skills": {
+        skills: [],
+        installed_tools: [{
+          name: "yq",
+          description: "YAML query tool",
+          installed_at: "2026-07-10",
+          version: "3.4.3",
+          status: "running",
+          last_checked_at: "2026-07-10T00:00:00Z",
+          path: "tools/yq/.venv/bin/yq",
+          source: "https://pypi.org/project/yq/",
+        }],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Tools" }));
+
+    expect(await screen.findByRole("heading", { name: "Tools" })).toBeInTheDocument();
+    expect(screen.getByText("Installed tools")).toBeInTheDocument();
+    expect(screen.getByText("YAML query tool")).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Tools" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.title).toBe("Tools · nanobot");
   });
 
   it("opens Skills from the main sidebar", async () => {
@@ -358,8 +397,8 @@ describe("App layout", () => {
     fireEvent.click(skillsButton);
 
     expect(await screen.findByRole("heading", { name: "Skills" })).toBeInTheDocument();
-    expect(screen.getByText("cron")).toBeInTheDocument();
-    expect(screen.getByText("github")).toBeInTheDocument();
+    expect(screen.getAllByText("cron").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("github").length).toBeGreaterThan(0);
     expect(screen.getByText("Missing: CLI: gh")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
@@ -427,6 +466,16 @@ describe("App layout", () => {
       "/api/webui/skills": { skills: [] },
       "/api/skills/manage": {
         skills: [draftSkill, managedSkill],
+        installed_tools: [{
+          name: "yq",
+          description: "YAML query tool",
+          installed_at: "2026-07-10",
+          version: "3.4.3",
+          status: "running",
+          last_checked_at: "2026-07-10T00:00:00Z",
+          path: "tools/yq/.venv/bin/yq",
+          source: "https://pypi.org/project/yq/",
+        }],
         drafts: [{
           draft_id: "draft-ready-card",
           name: "ready-web-draft",
@@ -554,6 +603,9 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
 
     expect(await screen.findByText(/Registry-backed skill management/)).toBeInTheDocument();
+    expect(screen.getByText("Installed skills")).toBeInTheDocument();
+    expect(screen.getByText(/Operational skills/)).toBeInTheDocument();
+    expect(screen.queryByText("YAML query tool")).not.toBeInTheDocument();
     expect(screen.getByText("Inbox")).toBeInTheDocument();
     expect(screen.getByText("draft-helper")).toBeInTheDocument();
     expect(screen.getByText("ready-web-draft")).toBeInTheDocument();

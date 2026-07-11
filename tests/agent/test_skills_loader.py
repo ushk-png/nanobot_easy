@@ -35,7 +35,7 @@ def test_list_skills_empty_when_skills_dir_missing(tmp_path: Path) -> None:
     workspace.mkdir()
     builtin = tmp_path / "builtin"
     builtin.mkdir()
-    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin, include_system=False)
     assert loader.list_skills(filter_unavailable=False) == []
 
 
@@ -44,7 +44,7 @@ def test_list_skills_empty_when_skills_dir_exists_but_empty(tmp_path: Path) -> N
     (workspace / "skills").mkdir(parents=True)
     builtin = tmp_path / "builtin"
     builtin.mkdir()
-    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin, include_system=False)
     assert loader.list_skills(filter_unavailable=False) == []
 
 
@@ -56,11 +56,45 @@ def test_list_skills_workspace_entry_shape_and_source(tmp_path: Path) -> None:
     builtin = tmp_path / "builtin"
     builtin.mkdir()
 
-    loader = SkillsLoader(workspace, builtin_skills_dir=builtin)
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin, include_system=False)
     entries = loader.list_skills(filter_unavailable=False)
     assert entries == [
         {"name": "alpha", "path": str(skill_path), "source": "workspace"},
     ]
+
+
+def test_list_skills_includes_scoped_workspace_packages(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    skills_root = workspace / "skills"
+    skill_path = _write_skill(skills_root / "@steipete", "obsidian", body="# Obsidian")
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin, include_system=False)
+    entries = loader.list_skills(filter_unavailable=False)
+
+    assert entries == [
+        {"name": "obsidian", "path": str(skill_path), "source": "workspace"},
+    ]
+    assert loader.load_skill("obsidian") is not None
+
+
+def test_direct_workspace_skill_shadows_scoped_package_same_name(tmp_path: Path) -> None:
+    workspace = tmp_path / "ws"
+    skills_root = workspace / "skills"
+    scoped_path = _write_skill(skills_root / "@steipete", "obsidian", body="# Scoped")
+    direct_path = _write_skill(skills_root, "obsidian", body="# Direct")
+    builtin = tmp_path / "builtin"
+    builtin.mkdir()
+
+    loader = SkillsLoader(workspace, builtin_skills_dir=builtin, include_system=False)
+    entries = loader.list_skills(filter_unavailable=False)
+
+    assert entries == [
+        {"name": "obsidian", "path": str(direct_path), "source": "workspace"},
+    ]
+    assert scoped_path != direct_path
+    assert "# Direct" in (loader.load_skill("obsidian") or "")
 
 
 def test_list_skills_skips_non_directories_and_missing_skill_md(tmp_path: Path) -> None:

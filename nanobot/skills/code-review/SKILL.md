@@ -35,6 +35,8 @@ metadata:
 - Use `code-debugging` when the user asks the agent to reproduce, edit, or fix.
 - Use `debug-procedure` when the user wants a debugging plan rather than review
   findings.
+- Use `document-review` for prose documents, proposals, specs, or policy drafts
+  that are not code, diffs, or pull requests.
 
 ## Method
 

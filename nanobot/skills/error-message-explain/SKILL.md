@@ -36,6 +36,8 @@ metadata:
 - Use `answer-diagnosis` when the user asks for root-cause analysis across
   symptoms.
 - Use `code-debugging` when the user asks the agent to inspect or fix code.
+- Use `answer-comparison` when the user asks about the meaning or tradeoffs of
+  two non-error concepts, tools, or styles.
 
 ## Method
 

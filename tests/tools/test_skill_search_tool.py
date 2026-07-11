@@ -8,6 +8,7 @@ from nanobot.agent.context import ContextBuilder
 from nanobot.agent.tools.context import RequestContext
 from nanobot.agent.tools.loader import ToolLoader
 from nanobot.agent.tools.registry import ToolRegistry
+from nanobot.agent.tools.skill_decision import SkillDecisionTool
 from nanobot.agent.tools.skill_search import SkillSearchTool
 from nanobot.skill_store import SkillStore
 
@@ -70,7 +71,7 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
 
     raw = await tool.execute(
         queries=[
-            {"query": "A vs B which is better", "category": "answer.compare", "top_k": 3},
+            {"query": "A vs B which is better", "category": "answer.compare", "top_k": 3, "wave_no": 1},
             {"query": "fix this bug and run tests", "category": "coding.fix", "top_k": 3},
         ]
     )
@@ -80,6 +81,8 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
     first = payload["results"][0]["candidates"][0]
     second = payload["results"][1]["candidates"][0]
     assert first["name"] == "answer-comparison"
+    assert "when_to_use" in first
+    assert "when_not_to_use" in first
     assert first["match_grade"] in {"strong", "moderate"}
     assert second["name"] == "coding-fix"
     assert second["requires_exec"] is True
@@ -87,7 +90,11 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
 
     with sqlite3.connect(tmp_path / ".skillstore" / "skillstore.db") as conn:
         count = conn.execute("SELECT COUNT(*) FROM traces").fetchone()[0]
+        wave_no = conn.execute(
+            "SELECT wave_no FROM traces WHERE wave_no IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        ).fetchone()[0]
     assert count == 2
+    assert wave_no == 1
 
 
 @pytest.mark.asyncio
@@ -149,6 +156,35 @@ def test_skill_search_tool_is_registered_by_loader(tmp_path: Path) -> None:
     ToolLoader().load(ctx, registry)
 
     assert registry.has("skill_search")
+    assert registry.has("skill_decision")
+
+
+@pytest.mark.asyncio
+async def test_skill_decision_records_final_selection_trace(tmp_path: Path) -> None:
+    _write_skill(tmp_path / "skills", "answer-comparison", description="Compare alternatives")
+    SkillStore(tmp_path).reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    tool = SkillDecisionTool(str(tmp_path))
+    tool.set_context(RequestContext(channel="cli", chat_id="direct", session_key="cli:direct"))
+
+    raw = await tool.execute(
+        decision="hot",
+        skill_name="answer-comparison",
+        rationale="Active Skill card matched a two-option comparison request.",
+        wave_no=2,
+    )
+    assert json.loads(raw)["ok"] is True
+
+    with sqlite3.connect(tmp_path / ".skillstore" / "skillstore.db") as conn:
+        row = conn.execute(
+            "SELECT selected_skill, selection_reason, notes, wave_no FROM traces ORDER BY ts DESC LIMIT 1"
+        ).fetchone()
+    assert row == (
+        "answer-comparison",
+        "hot",
+        "Active Skill card matched a two-option comparison request.",
+        2,
+    )
 
 
 def test_context_builder_uses_skill_search_hint_when_many_skills(tmp_path: Path) -> None:

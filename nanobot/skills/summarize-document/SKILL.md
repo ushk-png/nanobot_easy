@@ -13,6 +13,7 @@ metadata:
     risk_level: low
     requires_exec: false
     conflicts_with:
+      - summarize
       - meeting-notes
       - document-review
       - research-synthesis
@@ -36,6 +37,8 @@ metadata:
 - Use `meeting-notes` for decisions, owners, and action items from a meeting.
 - Use `document-review` for critique and risks.
 - Use `research-synthesis` for combining multiple sources.
+- Use `summarize` when the user asks for summarize.sh, URL or YouTube
+  extraction, or CLI-based processing of an external file.
 
 ## Method
 

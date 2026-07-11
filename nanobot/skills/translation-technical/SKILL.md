@@ -34,6 +34,8 @@ metadata:
 - Use `email-draft` when the user wants a new email composed, not translated.
 - Use `summarize-document` when the user wants a shorter version rather than a
   translation.
+- Use `document-review` when the user asks to review, critique, or check the
+  clarity of an already translated spec or document.
 
 ## Method
 

@@ -27,6 +27,7 @@ import {
   ChevronUp,
   CircleHelp,
   CornerDownRight,
+  FileIcon,
   GripVertical,
   History,
   ImageIcon,
@@ -87,7 +88,29 @@ import { cn } from "@/lib/utils";
 
 /** ``<input accept>``: aligned with the server's MIME whitelist. SVG is
  * deliberately excluded to avoid an embedded-script XSS surface. */
-const ACCEPT_ATTR = "image/png,image/jpeg,image/webp,image/gif";
+const ACCEPT_ATTR = [
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  ".docx",
+  ".xlsx",
+  ".pptx",
+  ".txt",
+  ".md",
+  ".csv",
+  ".json",
+  ".xml",
+  ".html",
+  ".htm",
+  ".log",
+  ".yaml",
+  ".yml",
+  ".toml",
+  ".ini",
+  ".cfg",
+].join(",");
 const VOICE_SHORTCUT_CODE = "KeyD";
 const VOICE_SHORTCUT_ARIA = "Control+Shift+D";
 type VoiceShortcutPlatform = "apple" | "chromeos" | "linux" | "other" | "windows";
@@ -438,6 +461,7 @@ function queuedImagesToSendImages(images?: QueuedPromptImage[]): SendImage[] | u
       ...(img.name ? { name: img.name } : {}),
     },
     preview: {
+      kind: "image",
       url: img.dataUrl,
       ...(img.name ? { name: img.name } : {}),
     },
@@ -1521,7 +1545,7 @@ export function ThreadComposer({
               data_url: img.dataUrl,
               name: img.file.name,
             },
-            preview: { url: img.dataUrl, name: img.file.name },
+            preview: { kind: img.kind, url: img.dataUrl, name: img.file.name },
           }))
         : undefined;
     const attachedCliApps = activeCliMentionApps.map(cliAppMentionPayload);
@@ -1793,7 +1817,7 @@ export function ThreadComposer({
         {images.length > 0 ? (
           <div
             className="flex flex-wrap gap-2 px-3 pt-3"
-            aria-label={t("thread.composer.attachImage")}
+            aria-label={t("thread.composer.attachFile")}
           >
             {images.map((img) => (
               <AttachmentChip
@@ -1888,7 +1912,7 @@ export function ThreadComposer({
               size="icon"
               variant="ghost"
               disabled={attachButtonDisabled}
-              aria-label={t("thread.composer.attachImage")}
+              aria-label={t("thread.composer.attachFile")}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "rounded-full text-muted-foreground hover:text-foreground",
@@ -2636,7 +2660,7 @@ function AttachmentChip({
       data-testid="composer-chip"
     >
       <div className="relative h-10 w-10 overflow-hidden rounded-md bg-background">
-        {image.previewUrl ? (
+        {image.kind === "image" && image.previewUrl ? (
           <img
             src={image.previewUrl}
             alt=""
@@ -2647,7 +2671,11 @@ function AttachmentChip({
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            {image.kind === "file" ? (
+              <FileIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            ) : (
+              <ImageIcon className="h-4 w-4 text-muted-foreground" aria-hidden />
+            )}
           </div>
         )}
         {image.status === "encoding" ? (

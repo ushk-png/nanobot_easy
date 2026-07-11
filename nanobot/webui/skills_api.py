@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.agent.skills import SkillsLoader
+from nanobot.webui.skill_manage_api import installed_tools_payload
 
 
 def webui_skills_payload(
@@ -19,7 +20,10 @@ def webui_skills_payload(
         loader.list_skills(filter_unavailable=False),
         key=lambda entry: (entry.get("source") != "workspace", entry["name"]),
     )
-    return {"skills": [_skill_payload(loader, entry) for entry in entries]}
+    return {
+        "skills": [_skill_payload(loader, entry) for entry in entries],
+        "installed_tools": installed_tools_payload(workspace_path),
+    }
 
 
 def webui_skill_detail_payload(

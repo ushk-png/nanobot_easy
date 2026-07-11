@@ -1,6 +1,6 @@
 ---
 name: skill-utility-review
-description: Decide whether a proposed skill is useful enough to keep: repeated workflow, quality improvement, routing value, and maintenance cost.
+description: "Decide whether a proposed skill is useful enough to keep: repeated workflow, quality improvement, routing value, and maintenance cost."
 metadata:
   nanobot:
     id: system-skill-utility-review

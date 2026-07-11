@@ -72,6 +72,8 @@ async def compose_skill_draft_with_llm(
     skill_docs = "\n\n".join(
         part
         for part in [
+            _read_system_skill("skill-duplicate-check"),
+            _read_system_skill("skill-trigger-differentiation"),
             _read_system_skill("skill-draft-generator"),
             _read_system_skill("skill-security-review"),
             _read_system_skill("skill-utility-review"),
@@ -102,6 +104,16 @@ async def compose_skill_draft_with_llm(
                 "status": "ready",
                 "summary": "short review summary",
                 "security_risk_level": "low|medium|high",
+                "duplicate": {
+                    "score": "0.0-1.0 similarity to nearest existing skill",
+                    "nearest": {
+                        "name": "existing skill name or null",
+                        "category": "existing skill category or null",
+                        "reason": "why it does or does not overlap",
+                    },
+                    "classification": "new|update|duplicate",
+                    "differentiation_required": "boolean",
+                },
                 "red_flags": [
                     {
                         "kind": "security|routing|duplicate|utility",

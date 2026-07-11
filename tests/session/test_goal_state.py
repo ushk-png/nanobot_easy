@@ -10,8 +10,10 @@ from nanobot.session.goal_state import (
     parse_goal_state,
     runner_wall_llm_timeout_s,
     sustained_goal_active,
+    sustained_goal_waits_for_user,
 )
 from nanobot.session.manager import SessionManager
+from nanobot.session.turn_continuation import should_finalize_on_max_iterations
 
 
 def test_runtime_lines_empty_when_no_metadata():
@@ -68,6 +70,47 @@ def test_parse_goal_state_accepts_json_string():
         "status": "active",
         "objective": "x",
     }
+
+
+def test_sustained_goal_waits_for_user_detects_staged_approval_objective():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": (
+                "Create the draft step-by-step. Step 1 reports overlap; "
+                "later steps require explicit user instruction before proceeding."
+            ),
+        },
+    }
+    assert sustained_goal_waits_for_user(meta) is True
+
+
+def test_sustained_goal_waits_for_user_ignores_normal_active_goal():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": "Implement the feature and run focused tests.",
+        },
+    }
+    assert sustained_goal_waits_for_user(meta) is False
+
+
+def test_manual_approval_goal_disables_internal_continuation():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": (
+                "1단계를 수행하고 보고한다. 다음 단계는 사용자가 명시적으로 "
+                "2를 수행해줘라고 지시할 때만 진행한다."
+            ),
+        },
+    }
+
+    assert should_finalize_on_max_iterations(
+        pending_queue_available=True,
+        session_metadata=meta,
+        message_metadata={},
+    ) is True
 
 
 def test_goal_state_ws_blob_inactive_when_missing_or_completed():

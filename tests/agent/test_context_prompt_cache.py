@@ -287,6 +287,16 @@ def test_execution_rules_in_system_prompt(tmp_path) -> None:
     assert "verify the result" in prompt
 
 
+def test_identity_prompt_contains_explicit_permission_gate(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace)
+
+    prompt = builder.build_system_prompt()
+    assert "Explicit Permission Gates" in prompt
+    assert "explicit-permission-required" in prompt
+    assert "다음 단계(N)는 승인 전까지 실행하지 않습니다." in prompt
+
+
 def test_identity_has_no_behavioral_instructions(tmp_path) -> None:
     """Identity template should not contain behavioral rules or hardcoded name."""
     workspace = _make_workspace(tmp_path)

@@ -14,9 +14,17 @@ metadata:
       - find gaps in this proposal
       - critique this draft
       - check this spec for risks
+      - review translated spec for clarity
 ---
 
 # Document Review
+
+## When Not To Use
+
+- Use `code-review` for code files, diffs, pull requests, patches, or
+  implementation-review comments.
+- Use this skill rather than `translation-technical` when the user asks to
+  review, critique, or check clarity of an already translated document.
 
 ## Method
 

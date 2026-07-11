@@ -1,6 +1,16 @@
 ---
 name: cron
 description: Schedule reminders and recurring tasks.
+metadata:
+  nanobot:
+    id: builtin-cron
+    version: 1.0.0
+    status: verified
+    category: automation.schedule
+    risk_level: medium
+    requires_exec: false
+    required_tools:
+      - cron
 ---
 
 # Cron

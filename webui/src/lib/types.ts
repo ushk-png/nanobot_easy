@@ -183,8 +183,6 @@ export interface SkillDetail extends SkillSummary {
   raw_markdown: string;
 }
 
-export interface SkillsPayload { skills: SkillSummary[]; }
-
 export type ManagedSkillStatus =
   | "system"
   | "draft"
@@ -243,10 +241,60 @@ export interface ManagedSkillDetail {
   traces: ManagedSkillTrace[];
 }
 
+export interface InstalledExternalTool {
+  name: string;
+  description: string;
+  installed_at: string;
+  version: string;
+  status: "running" | "stopped" | "unknown" | string;
+  last_checked_at: string | null;
+  path: string;
+  source: string;
+}
+
+export interface SkillsPayload {
+  skills: SkillSummary[];
+  installed_tools?: InstalledExternalTool[];
+}
+
 export interface ManagedSkillsPayload {
   skills: ManagedSkill[];
   drafts?: ManagedSkillDraft[];
+  installed_tools?: InstalledExternalTool[];
   status_counts: Partial<Record<ManagedSkillStatus, number>>;
+}
+
+export interface SkillAuditFinding {
+  code: string;
+  severity: "attention" | "reference" | string;
+  skill_names: string[];
+  message: string;
+  path?: string;
+  fields?: string[];
+  reasons?: string[];
+  cluster_keys?: string[];
+  category?: string;
+  count?: number;
+}
+
+export interface SkillAuditReport {
+  generated_at: string;
+  report_path: string;
+  summary: {
+    skills: number;
+    attention: number;
+    reference: number;
+    general_category: number;
+    missing_routing_cases: number;
+    missing_frontmatter_fields: number;
+    unwired_similarity_clusters: number;
+  };
+  attention: SkillAuditFinding[];
+  reference: SkillAuditFinding[];
+}
+
+export interface SkillAuditPayload {
+  audit: SkillAuditReport;
 }
 
 export interface ManagedSkillSearchMatch {
@@ -1093,13 +1141,11 @@ export type InboundEvent =
     }
   | { event: "error"; chat_id?: string; detail?: string; reason?: string };
 
-/** Base64-encoded image attached to an outbound ``message`` envelope.
+/** Base64-encoded file attached to an outbound ``message`` envelope.
  *
- * ``data_url`` must be a ``data:image/<png|jpeg|webp|gif>;base64,...`` string
- * — the server whitelists those MIME types and rejects everything else
- * (including SVG, to avoid an XSS surface). ``name`` is advisory: it's
- * preserved for the file on disk and surfaced as the placeholder label when
- * the session is replayed.
+ * ``data_url`` must use a server-whitelisted image, video, or document MIME.
+ * SVG remains excluded to avoid an embedded-script XSS surface. ``name`` is
+ * advisory and surfaced as the attachment label when the session is replayed.
  */
 export interface OutboundMedia {
   data_url: string;

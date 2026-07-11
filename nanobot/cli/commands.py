@@ -2328,6 +2328,48 @@ def skill_stats(
         console.print(f"- {status}: {count}")
 
 
+@skill_app.command("audit")
+def skill_audit(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Print the full advisory report as JSON"),
+):
+    """Run an on-demand, advisory skill catalog conformance audit."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    report = store.audit_catalog()
+    payload = report.to_dict()
+    if json_output:
+        console.print_json(data=payload)
+        return
+
+    summary = payload["summary"]
+    console.print(f"Skill catalog audit: {summary['skills']} skill(s)")
+    console.print(f"Report: {payload['report_path']}")
+    console.print(f"Attention: {summary['attention']} · Reference: {summary['reference']}")
+
+    if report.attention:
+        table = Table(title="Attention")
+        table.add_column("Code", style="yellow")
+        table.add_column("Skills", overflow="fold")
+        table.add_column("Message", overflow="fold")
+        for item in report.attention:
+            table.add_row(
+                str(item.get("code") or ""),
+                ", ".join(str(name) for name in item.get("skill_names", [])),
+                str(item.get("message") or ""),
+            )
+        console.print(table)
+    else:
+        console.print("[green]No attention findings.[/green]")
+
+    if report.reference:
+        console.print(
+            "Reference findings were written to the report file "
+            f"({len(report.reference)} item(s))."
+        )
+
+
 def _success_rate(row) -> float | None:
     from nanobot.skill_store import success_rate_for_row
 

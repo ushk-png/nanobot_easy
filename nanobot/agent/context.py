@@ -58,10 +58,17 @@ class ContextBuilder:
     _RUNTIME_CONTEXT_END = "[/Runtime Context]"
     _SKILL_SUMMARY_LIMIT = 30
 
-    def __init__(self, workspace: Path, timezone: str | None = None, disabled_skills: list[str] | None = None):
+    def __init__(
+        self,
+        workspace: Path,
+        timezone: str | None = None,
+        disabled_skills: list[str] | None = None,
+        hot_path_skills: list[str] | None = None,
+    ):
         self.workspace = workspace
         self.timezone = timezone
         self.memory = MemoryStore(workspace)
+        self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
 
     def build_system_prompt(
@@ -88,22 +95,24 @@ class ContextBuilder:
         if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{memory}")
 
-        always_skills = self.skills.get_always_skills()
-        if always_skills:
-            always_content = self.skills.load_skills_for_context(always_skills)
-            if always_content:
-                parts.append(f"# Active Skills\n\n{always_content}")
+        active_skills = list(dict.fromkeys([*(skill_names or []), *self.hot_path_skills, *self.skills.get_always_skills()]))
+        if active_skills:
+            active_content = self.skills.load_skills_for_context(active_skills)
+            if active_content:
+                parts.append(f"# Active Skills\n\n{active_content}")
 
         skill_entries = self.skills.list_skills(filter_unavailable=False)
-        summary_skill_count = len([entry for entry in skill_entries if entry["name"] not in set(always_skills)])
+        summary_skill_count = len([entry for entry in skill_entries if entry["name"] not in set(active_skills)])
         if summary_skill_count > self._SKILL_SUMMARY_LIMIT:
             parts.append(
                 "# Skills\n\n"
                 f"{summary_skill_count} skills are indexed for this workspace. "
                 "Use the `skill_search` tool for specialized tasks not covered by preloaded skills. "
+                "Rewrite routing queries to the task intent, then choose from the returned capability cards. "
+                "Record hot, cold, or none routing decisions with `skill_decision`. "
                 "Do not guess a skill name from memory."
             )
-        elif skills_summary := self.skills.build_skills_summary(exclude=set(always_skills)):
+        elif skills_summary := self.skills.build_skills_summary(exclude=set(active_skills)):
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
         if include_memory_recent_history:

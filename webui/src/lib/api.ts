@@ -14,6 +14,7 @@ import type {
   ManagedSkillsPayload,
   ManagedSkillStatusPayload,
   ManagedSkillUpdatePayload,
+  SkillAuditPayload,
   McpPresetsPayload,
   NanobotFeaturesPayload,
   ModelConfigurationCreate,
@@ -307,6 +308,18 @@ export async function searchManagedSkills(
   params.set("q", query);
   return request<ManagedSkillSearchPayload>(
     `${base}/api/skills/manage/search?${params}`,
+    token,
+    undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function runSkillAudit(
+  token: string,
+  base: string = "",
+): Promise<SkillAuditPayload> {
+  return request<SkillAuditPayload>(
+    `${base}/api/skills/manage/audit`,
     token,
     undefined,
     API_READ_TIMEOUT_MS,

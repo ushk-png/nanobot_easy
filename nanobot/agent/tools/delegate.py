@@ -3,15 +3,33 @@
 from __future__ import annotations
 
 from contextvars import ContextVar
+import time
 from typing import TYPE_CHECKING, Any
+from uuid import uuid4
 
 from nanobot.agent.tools.base import Tool, tool_parameters
 from nanobot.agent.tools.context import ContextAware, RequestContext
 from nanobot.agent.tools.schema import NumberSchema, StringSchema, tool_parameters_schema
 from nanobot.security.workspace_access import current_workspace_scope
+from nanobot.skill_store import SkillStore
 
 if TYPE_CHECKING:
     from nanobot.agent.subagent import SubagentManager
+
+_DEPENDENT_CONTEXT_MARKERS = (
+    "prior wave",
+    "previous wave",
+    "previous output",
+    "based on the summary",
+    "based on prior",
+    "use the summary",
+    "선행",
+    "이전 웨이브",
+    "앞선 결과",
+    "요약 결과",
+    "요약을 바탕",
+    "바탕으로",
+)
 
 
 @tool_parameters(
@@ -48,15 +66,16 @@ if TYPE_CHECKING:
 class DelegateTool(Tool, ContextAware):
     """Tool to run a specialized subagent synchronously."""
 
-    def __init__(self, manager: "SubagentManager"):
+    def __init__(self, manager: "SubagentManager", workspace: str | None = None):
         self._manager = manager
+        self._workspace = workspace
         self._origin_channel: ContextVar[str] = ContextVar("delegate_origin_channel", default="cli")
         self._origin_chat_id: ContextVar[str] = ContextVar("delegate_origin_chat_id", default="direct")
         self._session_key: ContextVar[str] = ContextVar("delegate_session_key", default="cli:direct")
 
     @classmethod
     def create(cls, ctx: Any) -> Tool:
-        return cls(manager=ctx.subagent_manager)
+        return cls(manager=ctx.subagent_manager, workspace=ctx.workspace)
 
     def set_context(self, ctx: RequestContext) -> None:
         """Set the origin context for subagent execution."""
@@ -103,22 +122,51 @@ class DelegateTool(Tool, ContextAware):
         **kwargs: Any,
     ) -> str:
         """Delegate a task and wait for the result."""
+        started = time.perf_counter()
+
+        def record(result: str, *, gate_result: str | None = None) -> None:
+            if not self._workspace:
+                return
+            SkillStore(self._workspace).record_trace(
+                trace_id=f"delegate:{uuid4().hex}",
+                session_key=self._session_key.get(),
+                selected_skill=None,
+                selection_reason="delegate",
+                executed_by=profile or None,
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                gate_result=gate_result,
+                notes=(task or result or "")[:800],
+            )
+
         running = self._manager.get_running_count()
         limit = self._manager.max_concurrent_subagents
         if running >= limit:
-            return (
+            result = (
                 f"Cannot delegate subagent: concurrency limit reached "
                 f"({running}/{limit} running). Wait for a running subagent "
                 f"to complete before delegating a new one."
             )
+            record(result, gate_result="error")
+            return result
         profiles = getattr(self._manager, "profiles", {})
         if profiles and profile not in profiles:
             valid = ", ".join(profiles)
-            return (
+            result = (
                 f"Error: unknown profile '{profile}'. "
                 f"Choose one of: {valid}. Re-read the profile cards and retry."
             )
-        return await self._manager.delegate(
+            record(result, gate_result="error")
+            return result
+        combined = f"{task}\n{expected_output}".lower()
+        if not (context or "").strip() and any(marker in combined for marker in _DEPENDENT_CONTEXT_MARKERS):
+            result = (
+                "Error: dependent delegate task appears to require prior wave output, "
+                "but context is empty. Build a self-contained context package with the "
+                "prior wave result before delegating."
+            )
+            record(result, gate_result="error")
+            return result
+        result = await self._manager.delegate(
             task=task,
             profile=profile,
             expected_output=expected_output,
@@ -129,3 +177,5 @@ class DelegateTool(Tool, ContextAware):
             temperature=temperature,
             workspace_scope=current_workspace_scope(),
         )
+        record(str(result), gate_result="ok")
+        return result

@@ -1,6 +1,18 @@
 ---
 name: update-setup
-description: One-time setup wizard for the nanobot upgrade skill. Triggers: setup update, configure update, 切设置更新, 初始化更新.
+description: "One-time setup wizard for the nanobot upgrade skill. Triggers: setup update, configure update, 切设置更新, 初始化更新."
+metadata:
+  nanobot:
+    id: builtin-update-setup
+    version: 1.0.0
+    status: verified
+    category: system.maintenance
+    risk_level: high
+    requires_exec: true
+    required_tools:
+      - read_file
+      - write_file
+      - exec
 ---
 
 # Update Setup

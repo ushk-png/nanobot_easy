@@ -42,10 +42,12 @@ import {
   fetchManagedSkills,
   fetchSkillDetail,
   runManagedSkillRoutingTest,
+  runSkillAudit,
   runManagedSkillStatusAction,
   updateManagedSkillMarkdown,
 } from "@/lib/api";
 import type {
+  InstalledExternalTool,
   ManagedSkill,
   ManagedSkillDetail,
   ManagedSkillDraft,
@@ -53,6 +55,7 @@ import type {
   ManagedSkillRoutingTestPayload,
   ManagedSkillStatus,
   ManagedSkillUpdateAssessment,
+  SkillAuditReport,
   SkillDetail,
   SkillSummary,
 } from "@/lib/types";
@@ -169,6 +172,8 @@ function ReadOnlySkillsCatalog({ skills }: { skills: SkillSummary[] }) {
         )}
       </section>
 
+      <ReadOnlyOperationalSkillsPanel skills={skills} />
+
       <SkillDetailSheet
         skill={selectedSkill}
         open={selectedSkill !== null}
@@ -211,6 +216,8 @@ function ManagedSkillsSettings({
   const [message, setMessage] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [initialCreateDraft, setInitialCreateDraft] = useState<ManagedSkillDraft | null>(null);
+  const [audit, setAudit] = useState<SkillAuditReport | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
 
   const registryDrafts = useMemo(
     () => skills.filter((skill) => skill.status === "draft"),
@@ -290,6 +297,24 @@ function ManagedSkillsSettings({
     if (next) setSelectedName(next.name);
   };
 
+  const runAudit = async () => {
+    setAuditBusy(true);
+    setMessage(null);
+    try {
+      const payload = await runSkillAudit(token);
+      setAudit(payload.audit);
+      setMessage(
+        payload.audit.summary.attention
+          ? `Audit found ${payload.audit.summary.attention} item(s) needing attention.`
+          : "Audit completed with no attention findings.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill audit failed.");
+    } finally {
+      setAuditBusy(false);
+    }
+  };
+
   return (
     <div className="flex min-h-[min(72vh,48rem)] flex-col gap-4">
       <section className="flex flex-col gap-3 border-b border-border/45 pb-4 lg:flex-row lg:items-end lg:justify-between">
@@ -302,18 +327,35 @@ function ManagedSkillsSettings({
           ) : null}
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
-          <Button
-            type="button"
-            size="sm"
-            onClick={() => {
-              setInitialCreateDraft(null);
-              setCreateOpen(true);
-            }}
-            className="h-9 rounded-[10px]"
-          >
-            <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
-            New skill
-          </Button>
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={runAudit}
+              disabled={auditBusy}
+              className="h-9 rounded-[10px]"
+            >
+              {auditBusy ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <CircleAlert className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              )}
+              Run audit
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setInitialCreateDraft(null);
+                setCreateOpen(true);
+              }}
+              className="h-9 rounded-[10px]"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              New skill
+            </Button>
+          </div>
           <div className="grid grid-cols-3 gap-2 text-right sm:flex">
             <MetricPill label="draft" value={statusCounts.draft ?? 0} />
             <MetricPill label="candidate" value={statusCounts.candidate ?? 0} />
@@ -321,6 +363,10 @@ function ManagedSkillsSettings({
           </div>
         </div>
       </section>
+
+      {audit ? <SkillAuditAttentionPanel audit={audit} /> : null}
+
+      <OperationalSkillsPanel skills={operationalSkills} />
 
       {drafts.length || registryDrafts.length ? (
         <section className="rounded-[18px] border border-amber-500/20 bg-amber-500/[0.055] p-3">
@@ -375,7 +421,7 @@ function ManagedSkillsSettings({
         </section>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[minmax(20rem,24rem)_minmax(0,1fr)]">
+      <div className="grid min-h-0 flex-1 gap-4 overflow-x-auto pb-1 lg:grid-cols-[minmax(20rem,24rem)_minmax(54rem,1fr)]">
         <section className="min-h-0 rounded-[18px] border border-border/50 bg-background/45">
           <div className="border-b border-border/45 p-3">
             <div className="relative">
@@ -499,6 +545,237 @@ function ManagedSkillRow({
   );
 }
 
+function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
+  const attention = audit.attention.slice(0, 6);
+  return (
+    <section className="rounded-[18px] border border-amber-500/25 bg-amber-500/[0.055] p-3">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <CircleAlert className="h-4 w-4 text-amber-600 dark:text-amber-300" aria-hidden />
+            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+              Needs attention
+            </h2>
+          </div>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Advisory audit only. No skill status was changed.
+          </p>
+        </div>
+        <div className="text-left text-[12px] text-muted-foreground sm:text-right">
+          <div>{audit.summary.attention} attention · {audit.summary.reference} reference</div>
+          <div className="max-w-[22rem] truncate" title={audit.report_path}>
+            {audit.report_path}
+          </div>
+        </div>
+      </div>
+      {attention.length ? (
+        <div className="space-y-2">
+          {attention.map((item, index) => (
+            <div
+              key={`${item.code}:${index}`}
+              className="rounded-[12px] border border-amber-500/20 bg-background/60 px-3 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill>{item.code}</Pill>
+                <span className="min-w-0 truncate text-[13px] font-semibold">
+                  {item.skill_names.join(", ")}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px] leading-4 text-muted-foreground">{item.message}</p>
+              {item.cluster_keys?.length ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Keys: {item.cluster_keys.join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ))}
+          {audit.attention.length > attention.length ? (
+            <div className="px-1 text-[12px] text-muted-foreground">
+              {audit.attention.length - attention.length} more attention finding(s) are in the report file.
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-[12px] border border-border/40 bg-background/55 px-3 py-3 text-[13px] text-muted-foreground">
+          No attention findings. Reference findings remain in the report file.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
+  const operational = skills.filter((skill) => isOperationalSkillStatus(skill.status));
+  const [statusFilter, setStatusFilter] = useState<"all" | "system" | "verified" | "candidate">("all");
+  const filtered = operational.filter((skill) => statusFilter === "all" || skill.status === statusFilter);
+  const countFor = (status: "system" | "verified" | "candidate") =>
+    operational.filter((skill) => skill.status === status).length;
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            Installed skills
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Operational skills currently available to the agent.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {operational.length}
+        </span>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <StatusFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>
+          All {operational.length}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "system"} onClick={() => setStatusFilter("system")}>
+          System {countFor("system")}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "verified"} onClick={() => setStatusFilter("verified")}>
+          Verified {countFor("verified")}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "candidate"} onClick={() => setStatusFilter("candidate")}>
+          Candidate {countFor("candidate")}
+        </StatusFilterButton>
+      </div>
+      {operational.length ? (
+        <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((skill) => (
+              <div key={skill.name} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
+                  <StatusBadge status={skill.status} />
+                </div>
+                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                  {skill.category || skill.description || "Uncategorized"}
+                </p>
+              </div>
+            ))}
+          </div>
+          {!filtered.length ? (
+            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+              No skills match this status.
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+          No operational skills are installed yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) {
+  const available = skills.filter((skill) => skill.available);
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            Installed skills
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Skills currently available to the agent in this workspace.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {available.length}
+        </span>
+      </div>
+      {available.length ? (
+        <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {available.map((skill) => (
+              <div key={`${skill.source}:${skill.name}`} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
+                  <Pill>{skill.source}</Pill>
+                </div>
+                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                  {skill.description || "No description."}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+          No operational skills are installed yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function InstalledToolsPanel({
+  tools,
+  title = "Installed tools",
+  description = "Read-only ledger from workspace/tools/installed.md. Actions stay in chat.",
+}: {
+  tools: InstalledExternalTool[];
+  title?: string;
+  description?: string;
+}) {
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            {title}
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {tools.length}
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-[12px] border border-border/45">
+        {tools.length ? (
+          <div className="min-w-[54rem]">
+            <div className="grid grid-cols-[minmax(8rem,1.2fr)_minmax(10rem,1.6fr)_7rem_7rem_7rem_9rem] gap-3 border-b border-border/45 bg-muted/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <span>Name</span>
+              <span>Description</span>
+              <span>Installed</span>
+              <span>Version</span>
+              <span>Status</span>
+              <span>Last check</span>
+            </div>
+            {tools.map((tool) => (
+              <div
+                key={`${tool.name}:${tool.path || tool.source}`}
+                className="grid grid-cols-[minmax(8rem,1.2fr)_minmax(10rem,1.6fr)_7rem_7rem_7rem_9rem] gap-3 border-b border-border/30 px-3 py-2.5 text-[12px] last:border-b-0"
+              >
+                <span className="min-w-0 truncate font-medium text-foreground" title={tool.path || tool.source}>
+                  {tool.name}
+                </span>
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {tool.description || tool.source || tool.path || "-"}
+                </span>
+                <span className="truncate text-muted-foreground">{tool.installed_at || "-"}</span>
+                <span className="truncate text-muted-foreground">{tool.version || "-"}</span>
+                <span className={cn("truncate font-medium", installedToolStatusTone(tool.status))}>
+                  {installedToolStatusLabel(tool.status)}
+                </span>
+                <span className="truncate text-muted-foreground">{tool.last_checked_at || "Not checked"}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No installed external tools are recorded yet.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
 function SkillCreateWizard({
   open,
   onOpenChange,
@@ -515,6 +792,7 @@ function SkillCreateWizard({
   const [description, setDescription] = useState("");
   const [trigger, setTrigger] = useState("");
   const [method, setMethod] = useState("");
+  const [fullPrompt, setFullPrompt] = useState("");
   const [category, setCategory] = useState("general");
   const [riskLevel, setRiskLevel] = useState("low");
   const [requiresExec, setRequiresExec] = useState(false);
@@ -529,6 +807,7 @@ function SkillCreateWizard({
     setDescription("");
     setTrigger("");
     setMethod("");
+    setFullPrompt("");
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
@@ -542,6 +821,7 @@ function SkillCreateWizard({
     setDescription("");
     setTrigger("");
     setMethod("");
+    setFullPrompt("");
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
@@ -643,7 +923,19 @@ function SkillCreateWizard({
     }
   };
 
+  const applyFullPrompt = () => {
+    const parsed = parseSkillFullPrompt(fullPrompt);
+    if (parsed.name) setName(parsed.name);
+    if (parsed.description) setDescription(parsed.description);
+    if (parsed.trigger) setTrigger(parsed.trigger);
+    if (parsed.method) setMethod(parsed.method);
+    if (parsed.category) setCategory(parsed.category);
+    if (parsed.risk_level) setRiskLevel(parsed.risk_level);
+    if (parsed.requires_exec !== null) setRequiresExec(parsed.requires_exec);
+  };
+
   const canCompose = name.trim().length > 0 && description.trim().length > 0;
+  const canApplyFullPrompt = fullPrompt.trim().length > 0 && !busy && draft === null;
   const draftReady = draft?.status === "ready";
   const draftRunning = draft?.status === "composing";
   const draftFailed = draft?.status === "failed";
@@ -660,7 +952,7 @@ function SkillCreateWizard({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? close() : onOpenChange(true))}>
-      <DialogContent className="max-h-[min(88vh,54rem)] max-w-3xl overflow-hidden rounded-[22px] border-border/70 bg-popover p-0 shadow-2xl">
+      <DialogContent className="max-h-[min(90vh,58rem)] max-w-[92rem] overflow-hidden rounded-[22px] border-border/70 bg-popover p-0 shadow-2xl">
         <div className="border-b border-border/45 px-5 py-4">
           <DialogHeader>
             <DialogTitle>New skill</DialogTitle>
@@ -670,7 +962,7 @@ function SkillCreateWizard({
           </DialogHeader>
         </div>
         <div className="max-h-[calc(min(88vh,54rem)-8rem)] overflow-y-auto px-5 py-4">
-          <div className="grid gap-4 lg:grid-cols-[minmax(0,0.85fr)_minmax(0,1.15fr)]">
+          <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.9fr)_minmax(22rem,1fr)_minmax(22rem,1.15fr)]">
             <div className="space-y-3">
               <LabeledField label="Name">
                 <Input
@@ -740,6 +1032,47 @@ function SkillCreateWizard({
                   className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
                 />
               </LabeledField>
+            </div>
+            <div className="space-y-3">
+              <LabeledField label="One-shot input">
+                <Textarea
+                  value={fullPrompt}
+                  onChange={(event) => setFullPrompt(event.target.value)}
+                  placeholder={[
+                    "name: review-renewal-notes",
+                    "description: Review renewal notes and surface customer risk.",
+                    "triggers:",
+                    "- renewal risk review",
+                    "- inspect renewal notes",
+                    "category: business.review",
+                    "risk: low",
+                    "requires_exec: false",
+                    "",
+                    "method:",
+                    "1. Read the input.",
+                    "2. Identify risks.",
+                    "3. Return concise findings.",
+                  ].join("\n")}
+                  disabled={busy || draft !== null}
+                  spellCheck={false}
+                  className="min-h-[34rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
+                />
+              </LabeledField>
+              <div className="flex items-center justify-between gap-2 rounded-[12px] border border-border/45 bg-muted/20 px-3 py-2">
+                <p className="text-[12px] leading-4 text-muted-foreground">
+                  Paste a complete skill request, then fill the structured fields from it.
+                </p>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={applyFullPrompt}
+                  disabled={!canApplyFullPrompt}
+                  className="h-8 shrink-0 rounded-[9px]"
+                >
+                  Apply
+                </Button>
+              </div>
             </div>
             <div className="space-y-3">
               {draft ? (
@@ -1075,7 +1408,7 @@ function ManagedSkillDetailPanel({
             <MetaItem label="Success" value={successRateTitle(skill.success_rate)} />
           </div>
 
-          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,3fr)_18rem]">
             <div className="space-y-5">
               <DetailSection title="Instructions">
                 {editing ? (
@@ -1092,7 +1425,7 @@ function ManagedSkillDetailPanel({
                 ) : (
                   <div className="rounded-[14px] border border-border/40 bg-muted/15 px-3.5 py-3">
                     <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
-                      {detail?.raw_markdown || "No SKILL.md content."}
+                      {formatSkillMarkdownForPreview(detail?.raw_markdown || "No SKILL.md content.")}
                     </MarkdownText>
                   </div>
                 )}
@@ -1287,7 +1620,7 @@ function SkillInstructionEditor({
         ) : (
           <div className="min-h-[24rem] rounded-[12px] border border-border/45 bg-muted/15 px-3.5 py-3">
             <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
-              {markdown || "No SKILL.md content."}
+              {formatSkillMarkdownForPreview(markdown || "No SKILL.md content.")}
             </MarkdownText>
           </div>
         )}
@@ -1507,6 +1840,10 @@ function allowedStatusActions(status: ManagedSkillStatus): Array<"approve" | "pr
   if (status === "candidate") return ["promote"];
   if (status === "verified") return ["deprecate"];
   return [];
+}
+
+function isOperationalSkillStatus(status: ManagedSkillStatus): boolean {
+  return status === "system" || status === "candidate" || status === "verified";
 }
 
 function statusActionLabel(action: "approve" | "promote" | "deprecate" | "reject"): string {
@@ -1828,6 +2165,92 @@ function draftGovernanceFlagLabel(flag: ManagedSkillDraftGovernanceFlag): string
     return `Duplicate check found a close neighbor${score}.`;
   }
   return flag.message ?? `${flag.kind} needs review.`;
+}
+
+function installedToolStatusLabel(status: string): string {
+  if (status === "running") return "Running";
+  if (status === "stopped") return "Stopped";
+  if (!status || status === "unknown") return "Unknown";
+  return status;
+}
+
+function installedToolStatusTone(status: string): string {
+  if (status === "running") return "text-emerald-600 dark:text-emerald-300";
+  if (status === "stopped") return "text-muted-foreground";
+  return "text-amber-700 dark:text-amber-300";
+}
+
+function parseSkillFullPrompt(input: string): {
+  name: string;
+  description: string;
+  trigger: string;
+  method: string;
+  category: string;
+  risk_level: string;
+  requires_exec: boolean | null;
+} {
+  const sections = splitSkillFullPrompt(input);
+  const method = sections.method || sections.instructions || sections.instruction || "";
+  const trigger = sections.triggers || sections.trigger || sections.trigger_utterances || "";
+  const risk = (sections.risk || sections.risk_level || "").trim().toLowerCase();
+  const requiresExecRaw = (sections.requires_exec || sections.requiresexec || sections.requires_execution || "").trim().toLowerCase();
+  return {
+    name: firstLine(sections.name),
+    description: sections.description.trim(),
+    trigger: normalizeListText(trigger),
+    method: method.trim(),
+    category: firstLine(sections.category),
+    risk_level: ["low", "medium", "high"].includes(risk) ? risk : "",
+    requires_exec: parseBooleanLike(requiresExecRaw),
+  };
+}
+
+function splitSkillFullPrompt(input: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  let currentKey = "";
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+$/, "");
+    const heading = line.match(/^\s*(?:#{1,4}\s*)?([A-Za-z][\w\s-]{0,40})\s*:\s*(.*)$/);
+    if (heading) {
+      currentKey = heading[1].trim().toLowerCase().replace(/[-_]+/g, " ");
+      result[currentKey] = heading[2].trim();
+      continue;
+    }
+    if (!currentKey) {
+      result.description = [result.description, line.trim()].filter(Boolean).join("\n");
+      continue;
+    }
+    result[currentKey] = [result[currentKey], line].filter(Boolean).join("\n");
+  }
+  return Object.fromEntries(
+    Object.entries(result).map(([key, value]) => [key.replace(/\s+/g, "_"), value]),
+  );
+}
+
+function firstLine(value: string | undefined): string {
+  return (value ?? "").split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function normalizeListText(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^[-*]\s+/, ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseBooleanLike(value: string): boolean | null {
+  if (["true", "yes", "y", "1", "필요", "예"].includes(value)) return true;
+  if (["false", "no", "n", "0", "불필요", "아니오"].includes(value)) return false;
+  return null;
+}
+
+function formatSkillMarkdownForPreview(markdown: string): string {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return markdown;
+  const frontmatter = match[1].trimEnd();
+  const body = markdown.slice(match[0].length).replace(/^\s+/, "");
+  return ["```yaml", frontmatter, "```", "", body].join("\n");
 }
 
 function sleep(ms: number): Promise<void> {

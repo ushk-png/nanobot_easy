@@ -73,7 +73,7 @@ const SIDEBAR_RAIL_WIDTH = 56;
 const MOBILE_SIDEBAR_WIDTH = `min(${SIDEBAR_WIDTH}px, calc(100vw - 0.75rem))`;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills";
+type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "tools";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -90,6 +90,7 @@ const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "apps",
   "automations",
   "skills",
+  "tools",
   "runtime",
   "advanced",
 ];
@@ -103,7 +104,9 @@ function defaultShellRoute(): ShellRoute {
 }
 
 function shellViewForSettingsSection(section: SettingsSectionKey): ShellView {
-  if (section === "apps" || section === "automations" || section === "skills") return section;
+  if (section === "apps" || section === "automations" || section === "skills" || section === "tools") {
+    return section;
+  }
   return "settings";
 }
 
@@ -137,6 +140,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/skills") {
     return { view: "skills", activeKey, settingsSection: "skills" };
+  }
+  if (path === "/tools") {
+    return { view: "tools", activeKey, settingsSection: "tools" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -579,7 +585,9 @@ function Shell({
   const [runningChatIds, setRunningChatIds] = useState<Set<string>>(() => new Set());
   const [updatedChatIds, setUpdatedChatIds] = useState<Set<string>>(readSessionUpdateChatIds);
   const [workspaces, setWorkspaces] = useState<WorkspacesPayload | null>(null);
-  const skills = useSkills(token);
+  const skillsPayload = useSkills(token);
+  const skills = skillsPayload.skills;
+  const installedTools = skillsPayload.installed_tools ?? [];
   const [settingsSnapshot, setSettingsSnapshot] = useState<SettingsPayload | null>(null);
   const [workspaceError, setWorkspaceError] = useState<string | null>(null);
   const [draftWorkspaceScope, setDraftWorkspaceScope] =
@@ -1198,6 +1206,12 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenTools = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate({ view: "tools", activeKey, settingsSection: "tools" });
+    setMobileSidebarOpen(false);
+  }, [activeKey, navigate]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1379,6 +1393,12 @@ function Shell({
       });
       return;
     }
+    if (view === "tools") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("settings.nav.tools", { defaultValue: "Tools" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1401,8 +1421,12 @@ function Shell({
     onOpenApps,
     onOpenAutomations,
     onOpenSkills,
+    onOpenTools,
     onOpenSearch: onOpenSessionSearch,
-    activeUtility: view === "apps" || view === "automations" || view === "skills" ? view : null,
+    activeUtility:
+      view === "apps" || view === "automations" || view === "skills" || view === "tools"
+        ? view
+        : null,
     onToggleArchived,
     pinnedKeys: sidebarState.pinned_keys,
     archivedKeys: sidebarState.archived_keys,
@@ -1601,6 +1625,7 @@ function Shell({
                   onModelNameChange={onModelNameChange}
                   onSettingsChange={setSettingsSnapshot}
                   skills={skills}
+                  installedTools={installedTools}
                   onWorkspaceSettingsChange={refreshWorkspaces}
                   onSectionChange={onSettingsSectionChange}
                   onLogout={onLogout}

@@ -35,20 +35,31 @@ metadata:
 
 ## Method
 
-1. Identify the topic phrase from the user request. If ambiguous, ask which topic.
+1. Identify candidate topic phrases from the user request. Use explicit identifiers
+   first: file paths, filenames, function names, config keys, dates, IDs, or named tasks.
+   If two or more plausible topics match, or no concrete identifier/recent single topic
+   makes the target clear, ask the user which topic. If exactly one topic is clearly
+   implied, continue and state the topic you are restoring at the start of the answer.
 2. Check `memory/topics/` for a matching topic snapshot.
    - Start with `grep` in `memory/topics` using likely keywords.
    - Read the best matching topic file if one exists.
-3. If no topic snapshot exists or it is insufficient, search the current session log
+3. If no topic snapshot exists or it is insufficient, search `memory/history.jsonl`.
+   The history log is the preferred lightweight fallback because consolidation preserves
+   topic-separated summaries and concrete identifiers. If it contains enough details
+   to restore decisions, open items, next steps, and related paths, do not read raw
+   session logs.
+4. If history is missing, ambiguous, or lacks required identifiers, search session logs
    under `sessions/` for the topic phrase, file path, function, or decision.
-4. If the session log is too large to inspect directly, delegate reconstruction to a
-   low-risk profile. The delegated task must include the topic phrase, session file path,
-   and expected output.
-5. Present a short restored-state summary: decisions, open items, next steps, related paths.
-6. Continue the user's requested work from that restored state.
+5. If the relevant session log is too large to inspect directly, delegate reconstruction
+   to a low-risk profile. The delegated task must include the topic phrase, session file
+   path, and expected output.
+6. Present a short restored-state summary: decisions, open items, next steps, related paths.
+7. Continue the user's requested work from that restored state.
 
 ## Failure Rules
 
 - If no matching topic can be found, say what you searched and ask the user for a more
   specific topic, file, or date.
+- If multiple plausible topics match, do not choose one silently. Present the short
+  candidate list and ask which topic to restore.
 - Do not invent missing decisions.

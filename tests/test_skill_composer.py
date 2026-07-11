@@ -80,3 +80,7 @@ async def test_compose_skill_draft_with_llm_returns_safe_content(tmp_path):
     ]
     assert provider.calls[0]["model"] == "fake/composer"
     assert provider.calls[0]["temperature"] == 0.2
+    prompt = provider.calls[0]["messages"][1]["content"]
+    assert "skill-duplicate-check" in prompt
+    assert "skill-trigger-differentiation" in prompt
+    assert '"duplicate"' in prompt

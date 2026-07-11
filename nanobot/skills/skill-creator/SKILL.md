@@ -1,6 +1,18 @@
 ---
 name: skill-creator
 description: Create or update AgentSkills. Use when designing, structuring, or packaging skills with scripts, references, and assets.
+metadata:
+  nanobot:
+    id: builtin-skill-creator
+    version: 1.0.0
+    status: verified
+    category: skill.authoring
+    risk_level: medium
+    requires_exec: true
+    required_tools:
+      - read_file
+      - write_file
+      - exec
 ---
 
 # Skill Creator

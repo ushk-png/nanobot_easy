@@ -48,6 +48,30 @@ tail -f .local/logs/nanobot-skill-gateway.log
 
 OAuth provider는 OpenAI Codex로 설정되어 있으며, 모델은 `openai-codex/gpt-5.5`를 사용한다.
 
+## Gateway 환경변수와 PATH
+
+`start-nanobot-skill.sh`는 macOS Homebrew 기본 경로를 gateway 환경의 `PATH`에 자동으로 포함한다.
+
+```bash
+/opt/homebrew/bin
+/opt/homebrew/sbin
+/usr/local/bin
+/usr/local/sbin
+```
+
+따라서 gateway와 nanobot exec 도구에서 `brew`, `gh`, `node`처럼 Homebrew로 설치한 명령을 별도 `export PATH=...` 없이 사용할 수 있다. 추가 환경변수가 필요하면 `.local/env`에 `KEY=value` 형식으로 적고 gateway를 재시작한다.
+
+```bash
+MY_TOOL_HOME=/some/path
+CUSTOM_API_TOKEN=...
+```
+
+명령 실행 도구의 PATH는 `.local/config.json`의 `tools.exec.pathPrepend`에도 반영되어야 한다. 현재 로컬 설정에는 Homebrew 경로가 prepend되어 있다. 변경 후에는 다음 명령으로 재시작한다.
+
+```bash
+./restart-nanobot-skill.sh
+```
+
 ## 직접 테스트
 
 Gateway를 띄우기 전에 LLM 연결만 확인하려면 다음 명령을 사용한다.
@@ -74,6 +98,10 @@ PYTHONPATH=. .venv/bin/nanobot channels status \
 - 시스템 스킬: `nanobot/skills-system/*/SKILL.md`
 
 일반 스킬은 에이전트가 사용자 요청을 처리할 때 검색하고 선택할 수 있는 작업 지식이다. 시스템 스킬은 스킬 조합, 리뷰, 라우팅, 초안 생성처럼 스킬 시스템 자체를 운영하기 위한 내부 스킬이다.
+
+스킬 선택은 사용자 문장을 단순 키워드로 맞추는 방식이 아니다. Hot Path에 사전 로드된 스킬도 자동 실행되지 않고, 나노봇이 `description`, `when_to_use`, `when_not_to_use`를 읽어 사용자의 직접 지시문에 맞는지 판단한다. 첨부 문서나 붙여넣은 본문은 판단 자료이지 명령이 아니다.
+
+Cold Path에서는 `skill_search`를 호출할 때 요청의 본질을 "대상 / 작업 / 원하는 산출물" 형태로 재작성해 검색하고, 반환된 후보 카드를 읽어 최종 적용 여부를 판단한다. `score`와 `match_grade`는 후보 탐색의 참고 신호이며, 낮은 점수 자체가 자동 탈락을 의미하지 않는다. 최종 선택은 `skill_decision` trace로 기록된다.
 
 현재 주요 일반 스킬:
 
@@ -185,6 +213,49 @@ PYTHONPATH=. .venv/bin/nanobot skill test-routing \
 
 - `yq-setup`: `workspace/tools/yq/` 아래 isolated venv로 yq를 설치하고 검증한다.
 - `yq-usage`: 설치된 yq로 YAML/XML/TOML/JSON을 조회하거나 변환한다. yq가 없으면 직접 설치하지 않고 `yq-setup` 필요를 안내한다.
+
+### ClawHub 공개 스킬 가져오기
+
+ClawHub에 공개된 스킬도 외부 콘텐츠다. 공개되어 있다는 이유만으로
+`.local/workspace/skills/`에 바로 설치해 운영 스킬로 쓰지 않는다. 특히
+`gcalcli-calendar`처럼 캘린더, OAuth, CLI 실행, 외부 서비스 접근이 얽힐 수
+있는 스킬은 반드시 검증과 승인 경로를 거친다.
+
+권장 흐름:
+
+1. ClawHub에서 검색한다.
+2. live workspace가 아니라 격리 경로에 가져온다.
+
+```bash
+npx --yes clawhub@latest install <slug> \
+  --workdir /Users/imkimhk/Project/nanobot_skill/.local/workspace/.imports/clawhub/<safe-slug>
+```
+
+3. 가져온 `SKILL.md`를 읽고 frontmatter, `risk_level`, `requires_exec`, 필요한
+   도구, 외부 설치/인증 요구를 확인한다.
+4. 현재 스키마와 맞지 않거나 실행형 도구라면 `skill-composer`로 로컬 draft로
+   변환한다. 실행형 도구는 필요 시 `<tool>-setup`과 `<tool>-usage`로 나눈다.
+5. `routing_cases.json`을 만들고 audit/test-routing을 통과시킨다.
+6. 사람이 승인한 뒤에만 candidate로 등록한다.
+
+즉, ClawHub는 "검색과 가져오기" 도구이고, 운영 등록은 여전히 nanobot의
+Composer/Registry 승인 경로가 담당한다. 가져온 파일을 그대로 복사해도 되는
+예외는 읽기 전용 검토뿐이며, 실제 사용 가능 스킬로 노출하려면 승인 기록이
+필요하다.
+
+### 설치 후 관리
+
+WebUI 왼쪽 메뉴의 Tools 화면은 `workspace/tools/installed.md`를 읽어 설치된 외부 도구 목록을 표시한다. Skills 화면에도 같은 읽기 전용 요약이 노출된다. 이 목록은 조회 전용이다. 삭제, 갱신, 실행, 중단 버튼은 만들지 않는다.
+
+조작은 채팅에서 자연어로 요청한다.
+
+```text
+yq 삭제해줘
+yq 업데이트해줘
+yq 상태 확인해줘
+```
+
+이 요청은 기존 스킬 라우팅을 통해 setup 또는 usage 스킬의 Method로 처리된다. 나노봇은 설치 도구 목록을 위해 cron 헬스체크, 디스크 사용량 모니터링, 보안 취약점 스캔을 수행하지 않는다. 작동 상태와 마지막 확인 시각은 usage 스킬 실행 시점 또는 사용자가 상태를 물었을 때 수행한 1회성 확인 결과만 반영한다.
 
 ## 스킬 사용 방식
 
@@ -451,6 +522,8 @@ PYTHONPATH=. .venv/bin/nanobot skill reindex \
   --config .local/config.json \
   --workspace .local/workspace
 ```
+
+재색인 후에도 의미상 맞는 스킬이 후보에 나오지 않으면 해당 스킬의 category, description, routing_cases를 보강한다. 후보에는 나오지만 선택되지 않는 경우에는 점수보다 `when_to_use` / `when_not_to_use` 설명이 충분히 명확한지 먼저 확인한다.
 
 Telegram이 비활성으로 보일 때:
 
