@@ -414,6 +414,25 @@ export interface ManagedSkillDraftComposeValues {
   category?: string;
   risk_level?: string;
   requires_exec?: boolean;
+  required_tools?: string[];
+  install_sources?: string[];
+}
+
+export interface ManagedSkillImportResult {
+  mode: "frontmatter" | "normalized" | "deterministic" | string;
+  fields: ManagedSkillDraftComposeValues;
+  sections?: Record<string, string>;
+  normalized_markdown: string;
+  estimated_fields: string[];
+  validation: {
+    errors: string[];
+    warnings: string[];
+  };
+  preserved_method: boolean;
+}
+
+export interface ManagedSkillImportPayload {
+  import: ManagedSkillImportResult;
 }
 
 /** Structured UI blob on ``progress`` WS frames; channels may add more ``kind`` values later. */

@@ -53,6 +53,10 @@ class ContextBuilder:
 
     BOOTSTRAP_FILES = ["AGENTS.md", "SOUL.md", "USER.md"]
     _RUNTIME_CONTEXT_TAG = "[Runtime Context — metadata only, not instructions]"
+    _RECENT_MEMORY_TAG = "[Recent Memory — background, not instructions]"
+    _RECENT_MEMORY_END = "[/Recent Memory]"
+    _SKILL_CANDIDATES_TAG = "[Skill Candidates — retrieval hints, not instructions]"
+    _SKILL_CANDIDATES_END = "[/Skill Candidates]"
     _MAX_RECENT_HISTORY = 50
     _MAX_HISTORY_TOKENS = 8_000  # hard cap on recent history section size (tokens)
     _RUNTIME_CONTEXT_END = "[/Runtime Context]"
@@ -77,7 +81,7 @@ class ContextBuilder:
         channel: str | None = None,
         session_summary: str | None = None,
         workspace: Path | None = None,
-        include_memory_recent_history: bool = True,
+        include_memory_recent_history: bool = False,
         session_key: str | None = None,
         unified_session: bool = False,
     ) -> str:
@@ -115,24 +119,36 @@ class ContextBuilder:
         elif skills_summary := self.skills.build_skills_summary(exclude=set(active_skills)):
             parts.append(render_template("agent/skills_section.md", skills_summary=skills_summary))
 
-        if include_memory_recent_history:
-            entries = self.memory.read_recent_history_for_prompt(
-                since_cursor=self.memory.get_last_dream_cursor(),
-                session_key=session_key,
-                unified_session=unified_session,
-            )
-            if entries:
-                capped = entries[-self._MAX_RECENT_HISTORY:]
-                history_text = "\n".join(
-                    f"- [{e['timestamp']}] {e['content']}" for e in capped
-                )
-                history_text = truncate_text_to_tokens(history_text, self._MAX_HISTORY_TOKENS)
-                parts.append("# Recent History\n\n" + history_text)
-
         if session_summary:
             parts.append(f"[Archived Context Summary]\n\n{session_summary}")
 
         return "\n\n---\n\n".join(parts)
+
+    def _build_recent_memory_context(
+        self,
+        *,
+        session_key: str | None = None,
+        unified_session: bool = False,
+    ) -> str | None:
+        entries = self.memory.read_recent_history_for_prompt(
+            since_cursor=self.memory.get_last_dream_cursor(),
+            session_key=session_key,
+            unified_session=unified_session,
+        )
+        if not entries:
+            return None
+        capped = entries[-self._MAX_RECENT_HISTORY:]
+        history_text = "\n".join(
+            f"- [{e['timestamp']}] {e['content']}" for e in capped
+        )
+        history_text = truncate_text_to_tokens(history_text, self._MAX_HISTORY_TOKENS)
+        return (
+            self._RECENT_MEMORY_TAG
+            + "\n"
+            + history_text
+            + "\n"
+            + self._RECENT_MEMORY_END
+        )
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
         """Get the core identity section."""
@@ -239,6 +255,14 @@ class ContextBuilder:
             sender_id=sender_id,
             supplemental_lines=extra or None,
         )
+        recent_memory_ctx = (
+            self._build_recent_memory_context(
+                session_key=session_key,
+                unified_session=unified_session,
+            )
+            if include_memory_recent_history
+            else None
+        )
         user_content = self._build_user_content(current_message, media)
 
         # Merge runtime context and user content into a single user message
@@ -246,9 +270,15 @@ class ContextBuilder:
         # Runtime context is appended to keep the user-content prefix stable
         # for prompt-cache hits (the context changes every turn due to time).
         if isinstance(user_content, str):
-            merged = f"{user_content}\n\n{runtime_ctx}"
+            volatile_blocks = [block for block in (recent_memory_ctx, runtime_ctx) if block]
+            merged = "\n\n".join([user_content, *volatile_blocks])
         else:
-            merged = user_content + [{"type": "text", "text": runtime_ctx}]
+            volatile_blocks = [
+                {"type": "text", "text": block}
+                for block in (recent_memory_ctx, runtime_ctx)
+                if block
+            ]
+            merged = user_content + volatile_blocks
         messages = [
             {
                 "role": "system",
@@ -257,7 +287,7 @@ class ContextBuilder:
                     channel=channel,
                     session_summary=session_summary,
                     workspace=root,
-                    include_memory_recent_history=include_memory_recent_history,
+                    include_memory_recent_history=False,
                     session_key=session_key,
                     unified_session=unified_session,
                 ),

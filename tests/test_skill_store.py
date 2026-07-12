@@ -2,10 +2,11 @@ import sqlite3
 from pathlib import Path
 
 import pytest
+import yaml
 from typer.testing import CliRunner
 
 from nanobot.cli.commands import app
-from nanobot.skill_store import SkillStore
+from nanobot.skill_store import SkillStore, parse_skill_markdown
 from nanobot.webui.skill_manage_api import (
     installed_tools_payload,
     skill_manage_approve_draft_payload,
@@ -30,34 +31,37 @@ def _write_skill(
 ) -> None:
     skill_dir = root / name
     skill_dir.mkdir(parents=True, exist_ok=True)
-    meta_lines = [
-        "---",
-        f"name: {name}",
-        f"description: {description or f'{name} description'}",
-        "metadata:",
-        "  nanobot:",
-        f"    id: {name}-id",
-        "    version: 1.0.0",
-        f"    category: {category}",
-        f"    risk_level: {risk_level}",
-        f"    requires_exec: {'true' if requires_exec else 'false'}",
-    ]
+    frontmatter = {
+        "name": name,
+        "description": description or f"{name} description",
+        "metadata": {
+            "nanobot": {
+                "id": f"{name}-id",
+                "version": "1.0.0",
+                "category": category,
+                "risk_level": risk_level,
+                "requires_exec": requires_exec,
+            }
+        },
+    }
+    meta = frontmatter["metadata"]["nanobot"]
     if status:
-        meta_lines.append(f"    status: {status}")
+        meta["status"] = status
     if supersedes:
-        meta_lines.append("    supersedes:")
-        meta_lines.extend(f"      - {item}" for item in supersedes)
+        meta["supersedes"] = supersedes
     if conflicts_with:
-        meta_lines.append("    conflicts_with:")
-        meta_lines.extend(f"      - {item}" for item in conflicts_with)
+        meta["conflicts_with"] = conflicts_with
     if fallback_to:
-        meta_lines.append("    fallback_to:")
-        meta_lines.extend(f"      - {item}" for item in fallback_to)
+        meta["fallback_to"] = fallback_to
     if install_sources:
-        meta_lines.append("    install_sources:")
-        meta_lines.extend(f"      - {item}" for item in install_sources)
-    meta_lines.extend(["---", "", body or f"# {name}\nUse this skill."])
-    (skill_dir / "SKILL.md").write_text("\n".join(meta_lines), encoding="utf-8")
+        meta["install_sources"] = install_sources
+    markdown = (
+        "---\n"
+        + yaml.safe_dump(frontmatter, sort_keys=False, allow_unicode=True).strip()
+        + "\n---\n\n"
+        + (body or f"# {name}\nUse this skill.")
+    )
+    (skill_dir / "SKILL.md").write_text(markdown, encoding="utf-8")
 
 
 def _approve(store: SkillStore, *names: str, promote: bool = False) -> None:
@@ -99,6 +103,118 @@ def test_skill_store_reindex_loads_skills_relations_and_searches(tmp_path: Path)
     with sqlite3.connect(result.db_path) as conn:
         rel_count = conn.execute("SELECT COUNT(*) FROM skill_relations").fetchone()[0]
     assert rel_count == 3
+
+
+def test_skill_store_reindex_rejects_malformed_frontmatter(tmp_path: Path) -> None:
+    skill_dir = tmp_path / "skills" / "bad"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "---\n"
+        "name: bad\n"
+        "description: Bad trigger: unquoted colon\n"
+        "---\n\n"
+        "# Bad\n",
+        encoding="utf-8",
+    )
+
+    store = SkillStore(tmp_path)
+    with pytest.raises(ValueError, match="malformed YAML frontmatter"):
+        store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+
+def test_parse_skill_markdown_preserves_method_and_normalizes_frontmatter() -> None:
+    markdown = """---
+name: imported-review
+description: Review imported content.
+metadata:
+  nanobot:
+    category: document.review
+    risk_level: low
+    requires_exec: false
+    triggers:
+      - review imported doc
+---
+
+## When to use
+Use for imported document review.
+
+## Method
+Keep this exact procedure.
+
+## Failure rules
+Ask for the document if missing.
+"""
+
+    parsed = parse_skill_markdown(markdown)
+
+    assert parsed["fields"]["name"] == "imported-review"
+    assert parsed["fields"]["category"] == "document.review"
+    assert parsed["fields"]["method"].find("Keep this exact procedure.") != -1
+    assert parsed["preserved_method"] is True
+    assert parsed["validation"]["errors"] == []
+    assert "```" not in parsed["normalized_markdown"]
+
+
+def test_parse_skill_markdown_reports_external_setup_shape_errors() -> None:
+    markdown = """---
+name: demo-setup
+description: Install demo.
+metadata:
+  nanobot:
+    category: external.demo
+    risk_level: low
+    requires_exec: false
+---
+
+## Install
+Clone the repo.
+
+## Verify
+Run demo --version.
+"""
+
+    parsed = parse_skill_markdown(markdown)
+
+    assert parsed["fields"]["name"] == "demo-setup"
+    assert any("setup skills must declare risk_level=high" in item for item in parsed["validation"]["errors"])
+
+
+def test_skill_store_hybrid_search_uses_optional_query_vector(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(skills, "alpha", description="Alpha task")
+    _write_skill(skills, "beta", description="Beta task")
+
+    store = SkillStore(tmp_path)
+
+    def embed(texts: list[str]) -> list[list[float]]:
+        vectors: list[list[float]] = []
+        for text in texts:
+            vectors.append([1.0, 0.0] if "Alpha" in text else [0.0, 1.0])
+        return vectors
+
+    store.reindex(
+        builtin_dir=tmp_path / "empty_builtin",
+        embedding_fn=embed,
+        embedding_model="test-embedding",
+        embedding_dimensions=2,
+    )
+    _approve(store, "alpha", "beta")
+
+    matches = store.search("unrelated wording", top_k=2, query_vector=[0.0, 1.0])
+
+    assert matches[0].name == "beta"
+    assert matches[0].score > matches[1].score
+
+
+def test_skill_store_query_vector_cache(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+
+    assert store.get_cached_query_vector("abc", embedding_model="embed") is None
+
+    store.set_cached_query_vector("abc", embedding_model="embed", vector=[0.1, 0.2])
+
+    assert store.get_cached_query_vector("abc", embedding_model="embed") == [0.1, 0.2]
+    assert store.get_cached_query_vector("abc", embedding_model="other") is None
 
 
 def test_skill_cards_extract_when_sections_from_body(tmp_path: Path) -> None:

@@ -9,7 +9,7 @@ import math
 import re
 import sqlite3
 import uuid
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
@@ -254,6 +254,17 @@ def success_rate_for_row(row: sqlite3.Row) -> float | None:
     return int(row["success_count"]) / attempts
 
 
+def _cosine_similarity(left: list[float], right: list[float]) -> float | None:
+    if not left or not right or len(left) != len(right):
+        return None
+    dot = sum(a * b for a, b in zip(left, right, strict=True))
+    left_norm = math.sqrt(sum(a * a for a in left))
+    right_norm = math.sqrt(sum(b * b for b in right))
+    if left_norm <= 0 or right_norm <= 0:
+        return None
+    return dot / (left_norm * right_norm)
+
+
 def row_to_skill_payload(row: sqlite3.Row) -> dict[str, Any]:
     return {
         "id": row["id"],
@@ -342,6 +353,23 @@ def _parse_frontmatter(content: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _parse_frontmatter_strict(content: str, path: Path) -> dict[str, Any]:
+    if not content.startswith("---"):
+        return {}
+    match = _STRIP_SKILL_FRONTMATTER.match(content)
+    if not match:
+        raise ValueError(f"{path}: malformed YAML frontmatter delimiter")
+    try:
+        parsed = yaml.safe_load(match.group(1))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"{path}: malformed YAML frontmatter: {exc}") from exc
+    if parsed is None:
+        return {}
+    if not isinstance(parsed, dict):
+        raise ValueError(f"{path}: YAML frontmatter must be a mapping")
+    return parsed
+
+
 def _body_without_frontmatter(content: str) -> str:
     if not content.startswith("---"):
         return content.strip()
@@ -391,25 +419,174 @@ def _render_skill_markdown(
     requires_exec: bool,
     triggers: list[str],
     method: str,
+    required_tools: list[str] | None = None,
+    install_sources: list[str] | None = None,
 ) -> str:
+    nanobot_meta = {
+        "id": str(uuid.uuid4()),
+        "version": "0.1.0",
+        "category": category or "general",
+        "risk_level": risk_level or "low",
+        "requires_exec": bool(requires_exec),
+        "required_tools": required_tools or [],
+        "triggers": triggers,
+    }
+    if install_sources:
+        nanobot_meta["install_sources"] = install_sources
     frontmatter = {
         "name": name,
         "description": description or name,
-        "metadata": {
-            "nanobot": {
-                "id": str(uuid.uuid4()),
-                "version": "0.1.0",
-                "category": category or "general",
-                "risk_level": risk_level or "low",
-                "requires_exec": bool(requires_exec),
-                "required_tools": [],
-                "triggers": triggers,
-            }
-        },
+        "metadata": {"nanobot": nanobot_meta},
     }
     return "---\n" + yaml.safe_dump(frontmatter, sort_keys=False).strip() + "\n---\n\n" + (
         method.strip() or "# Method\nDescribe the skill procedure."
     ).strip() + "\n"
+
+
+def parse_skill_markdown(content: str, *, source_name: str = "pasted skill") -> dict[str, Any]:
+    """Parse pasted skill content into the nanobot draft shape.
+
+    This is intentionally deterministic and LLM-free. It is used by WebUI
+    import flows before any draft persistence happens, so malformed or
+    incomplete external content becomes form feedback instead of a live skill.
+    """
+
+    warnings: list[str] = []
+    errors: list[str] = []
+    estimated_fields: list[str] = []
+    path = Path(source_name)
+    try:
+        frontmatter = _parse_frontmatter_strict(content, path)
+    except ValueError as exc:
+        frontmatter = {}
+        errors.append(str(exc))
+    meta = _nanobot_meta(frontmatter)
+    body = _body_without_frontmatter(content)
+    first_heading = re.search(r"^#{1,2}\s+(.+?)\s*$", body, flags=re.MULTILINE)
+    inferred_name = re.sub(
+        r"[^A-Za-z0-9_-]+",
+        "-",
+        (first_heading.group(1) if first_heading else "imported-skill").strip().lower(),
+    ).strip("-")
+    if not inferred_name:
+        inferred_name = "imported-skill"
+
+    name = str(frontmatter.get("name") or meta.get("name") or inferred_name)
+    try:
+        name = _validate_skill_name(name)
+    except ValueError as exc:
+        errors.append(str(exc))
+        name = re.sub(r"[^A-Za-z0-9_-]+", "-", name).strip("-")[:80] or "imported-skill"
+        estimated_fields.append("name")
+
+    description = str(frontmatter.get("description") or meta.get("description") or "").strip()
+    if not description:
+        description = name
+        estimated_fields.append("description")
+        warnings.append("description was not declared; using the skill name.")
+
+    category = str(meta.get("category") or frontmatter.get("category") or "").strip()
+    if not category:
+        category = "general"
+        estimated_fields.append("category")
+    risk_level = str(meta.get("risk_level") or frontmatter.get("risk_level") or "").strip().lower()
+    if risk_level not in {"low", "medium", "high"}:
+        risk_level = "low"
+        estimated_fields.append("risk_level")
+    requires_exec_raw = meta.get("requires_exec", frontmatter.get("requires_exec"))
+    if requires_exec_raw is None:
+        requires_exec = False
+        estimated_fields.append("requires_exec")
+    else:
+        requires_exec = bool(requires_exec_raw)
+
+    triggers = _json_list(meta.get("triggers") or frontmatter.get("triggers"))
+    if not triggers:
+        trigger_section = _markdown_section_body(body, "triggers", "trigger utterances")
+        triggers = [
+            line.strip().lstrip("-*").strip()
+            for line in trigger_section.splitlines()
+            if line.strip().lstrip("-*").strip()
+        ]
+    when_to_use = _json_text(frontmatter.get("when_to_use") or meta.get("when_to_use")) or (
+        _markdown_section_body(body, "when to use")
+    )
+    when_not_to_use = _json_text(frontmatter.get("when_not_to_use") or meta.get("when_not_to_use")) or (
+        _markdown_section_body(body, "when not to use")
+    )
+    required_tools = _json_list(meta.get("required_tools") or frontmatter.get("required_tools"))
+    install_sources = _json_list(meta.get("install_sources") or frontmatter.get("install_sources"))
+
+    validation_meta = dict(meta)
+    if name.lower().endswith(("-setup", "-usage")):
+        validation_meta.setdefault("external_tool", True)
+    try:
+        _validate_external_tool_shape(
+            name=name,
+            frontmatter=frontmatter,
+            meta=validation_meta,
+            body=body,
+            category=category,
+            risk_level=risk_level,
+            requires_exec=requires_exec,
+            install_sources=install_sources,
+        )
+    except ValueError as exc:
+        errors.append(str(exc))
+
+    normalized_frontmatter = {
+        "name": name,
+        "description": description,
+        "metadata": {
+            "nanobot": {
+                "id": str(meta.get("id") or uuid.uuid4()),
+                "version": str(meta.get("version") or frontmatter.get("version") or "0.1.0"),
+                "category": category,
+                "risk_level": risk_level,
+                "requires_exec": requires_exec,
+                "required_tools": required_tools,
+                "triggers": triggers,
+            }
+        },
+    }
+    if install_sources:
+        normalized_frontmatter["metadata"]["nanobot"]["install_sources"] = install_sources
+    for key in ("conflicts_with", "supersedes", "fallback_to"):
+        values = _relation_names(meta, frontmatter, key, key.replace("_", ""))
+        if values:
+            normalized_frontmatter["metadata"]["nanobot"][key] = values
+
+    normalized_markdown = (
+        "---\n"
+        + yaml.safe_dump(normalized_frontmatter, sort_keys=False, allow_unicode=True).strip()
+        + "\n---\n\n"
+        + (body.strip() or "# Method\nDescribe the skill procedure.")
+        + "\n"
+    )
+    return {
+        "mode": "frontmatter" if frontmatter else "deterministic",
+        "fields": {
+            "name": name,
+            "description": description,
+            "trigger": "\n".join(triggers),
+            "method": body.strip(),
+            "category": category,
+            "risk_level": risk_level,
+            "requires_exec": requires_exec,
+            "required_tools": required_tools,
+            "install_sources": install_sources,
+        },
+        "sections": {
+            "when_to_use": when_to_use,
+            "when_not_to_use": when_not_to_use,
+            "method": _markdown_section_body(body, "method"),
+            "failure_rules": _markdown_section_body(body, "failure rules", "failure rule"),
+        },
+        "normalized_markdown": normalized_markdown,
+        "estimated_fields": sorted(set(estimated_fields)),
+        "validation": {"errors": errors, "warnings": warnings},
+        "preserved_method": True,
+    }
 
 
 def _draft_materials(
@@ -421,6 +598,8 @@ def _draft_materials(
     category: str,
     risk_level: str,
     requires_exec: bool,
+    required_tools: list[str] | None = None,
+    install_sources: list[str] | None = None,
     content: SkillDraftContent | None = None,
 ) -> tuple[dict[str, Any], str, dict[str, Any], list[dict[str, str]]]:
     triggers = [item.strip() for item in trigger.splitlines() if item.strip()]
@@ -435,6 +614,8 @@ def _draft_materials(
         requires_exec=requires_exec,
         triggers=triggers,
         method=method,
+        required_tools=required_tools,
+        install_sources=install_sources,
     )
     if content and content.review:
         review = dict(content.review)
@@ -476,6 +657,8 @@ def _draft_materials(
         "category": category,
         "risk_level": risk_level,
         "requires_exec": requires_exec,
+        "required_tools": required_tools or [],
+        "install_sources": install_sources or [],
     }
     return input_json, markdown, review, routing_cases
 
@@ -608,7 +791,7 @@ def _validate_external_tool_shape(
 
 def _skill_from_file(path: Path, *, source: str, default_status: str | None = None) -> tuple[SkillRecord, list[SkillRelation]]:
     content = path.read_text(encoding="utf-8")
-    frontmatter = _parse_frontmatter(content)
+    frontmatter = _parse_frontmatter_strict(content, path)
     meta = _nanobot_meta(frontmatter)
     body = _body_without_frontmatter(content)
     name = str(frontmatter.get("name") or path.parent.name)
@@ -841,6 +1024,22 @@ class SkillStore:
                     updated_at TEXT NOT NULL,
                     approved_at TEXT
                 );
+                CREATE TABLE IF NOT EXISTS skill_vectors (
+                    skill_id TEXT PRIMARY KEY,
+                    model TEXT NOT NULL,
+                    dimensions INTEGER NOT NULL,
+                    vector_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY (skill_id) REFERENCES skills(id) ON DELETE CASCADE
+                );
+                CREATE TABLE IF NOT EXISTS skill_query_vectors (
+                    query_digest TEXT NOT NULL,
+                    model TEXT NOT NULL,
+                    dimensions INTEGER NOT NULL,
+                    vector_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    PRIMARY KEY (query_digest, model)
+                );
                 """
             )
             try:
@@ -867,6 +1066,9 @@ class SkillStore:
         *,
         builtin_dir: Path | None = None,
         system_dir: Path | None = None,
+        embedding_fn: Callable[[list[str]], list[list[float]]] | None = None,
+        embedding_model: str | None = None,
+        embedding_dimensions: int | None = None,
     ) -> ReindexResult:
         discovered = discover_skill_files(
             self.workspace,
@@ -885,6 +1087,13 @@ class SkillStore:
             relations.extend(record_relations)
         _validate_supersedes_cycles(records, relations)
         self.replace_index(records, relations)
+        if embedding_fn and embedding_model:
+            self.replace_vectors(
+                records,
+                embedding_fn=embedding_fn,
+                embedding_model=embedding_model,
+                embedding_dimensions=embedding_dimensions,
+            )
         return ReindexResult(skills=len(records), relations=len(relations), db_path=self.db_path)
 
     def needs_reindex(
@@ -943,6 +1152,7 @@ class SkillStore:
             }
             conn.execute("DELETE FROM skill_relations")
             conn.execute("DELETE FROM skills")
+            conn.execute("DELETE FROM skill_vectors")
             self._clear_fts(conn)
             for record in records:
                 status = (
@@ -1002,6 +1212,93 @@ class SkillStore:
                     """,
                     (src.id, dst.id, relation.kind, now),
                 )
+
+    def replace_vectors(
+        self,
+        records: list[SkillRecord],
+        *,
+        embedding_fn: Callable[[list[str]], list[list[float]]],
+        embedding_model: str,
+        embedding_dimensions: int | None = None,
+    ) -> None:
+        texts = [record.search_text or record.description or record.name for record in records]
+        vectors = embedding_fn(texts)
+        if len(vectors) != len(records):
+            raise ValueError("embedding_fn returned a different number of vectors than records")
+        now = _utc_now()
+        with self._connect() as conn:
+            conn.execute("DELETE FROM skill_vectors")
+            for record, vector in zip(records, vectors, strict=True):
+                clean = [float(value) for value in vector]
+                dimensions = int(embedding_dimensions or len(clean))
+                if dimensions != len(clean):
+                    raise ValueError(
+                        f"embedding dimension mismatch for {record.name}: "
+                        f"expected {dimensions}, got {len(clean)}"
+                    )
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO skill_vectors (
+                        skill_id, model, dimensions, vector_json, updated_at
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        record.id,
+                        embedding_model,
+                        dimensions,
+                        json.dumps(clean),
+                        now,
+                    ),
+                )
+
+    def get_cached_query_vector(self, query_digest: str, *, embedding_model: str) -> list[float] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT vector_json FROM skill_query_vectors
+                WHERE query_digest = ? AND model = ?
+                """,
+                (query_digest, embedding_model),
+            ).fetchone()
+        if row is None:
+            return None
+        try:
+            data = json.loads(row["vector_json"] or "[]")
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(data, list):
+            return None
+        return [float(value) for value in data]
+
+    def set_cached_query_vector(
+        self,
+        query_digest: str,
+        *,
+        embedding_model: str,
+        vector: list[float],
+        embedding_dimensions: int | None = None,
+    ) -> None:
+        clean = [float(value) for value in vector]
+        dimensions = int(embedding_dimensions or len(clean))
+        if dimensions != len(clean):
+            raise ValueError(
+                f"query embedding dimension mismatch: expected {dimensions}, got {len(clean)}"
+            )
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO skill_query_vectors (
+                    query_digest, model, dimensions, vector_json, updated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    query_digest,
+                    embedding_model,
+                    dimensions,
+                    json.dumps(clean),
+                    _utc_now(),
+                ),
+            )
 
     def _clear_fts(self, conn: sqlite3.Connection) -> None:
         if self._has_fts(conn):
@@ -1617,6 +1914,8 @@ class SkillStore:
         category: str = "general",
         risk_level: str = "low",
         requires_exec: bool = False,
+        required_tools: list[str] | None = None,
+        install_sources: list[str] | None = None,
         created_by: str = "webui",
         content: SkillDraftContent | None = None,
     ) -> SkillDraftResult:
@@ -1634,6 +1933,8 @@ class SkillStore:
             category=category,
             risk_level=risk_level,
             requires_exec=requires_exec,
+            required_tools=required_tools,
+            install_sources=install_sources,
             content=content,
         )
         review = _merge_duplicate_review(
@@ -2129,7 +2430,14 @@ class SkillStore:
                 ].append(row["dst_name"])
         return result
 
-    def search(self, query: str, *, top_k: int = 5, min_status: Iterable[str] | None = None) -> list[SkillSearchMatch]:
+    def search(
+        self,
+        query: str,
+        *,
+        top_k: int = 5,
+        min_status: Iterable[str] | None = None,
+        query_vector: list[float] | None = None,
+    ) -> list[SkillSearchMatch]:
         statuses = tuple(min_status or ("candidate", "verified"))
         if not statuses:
             return []
@@ -2152,6 +2460,7 @@ class SkillStore:
                     rows = []
                 else:
                     fts_scores = {str(row["id"]): -float(row["score"]) for row in rows}
+            semantic_scores = self._semantic_scores(conn, query_vector, statuses)
             rows = conn.execute(
                 f"""
                 SELECT * FROM skills
@@ -2162,13 +2471,61 @@ class SkillStore:
             ranked = [
                 self._match_from_row(
                     row,
-                    score=self._routing_score(row, query, fts_score=fts_scores.get(str(row["id"]), 0.0)),
+                    score=self._hybrid_score(
+                        self._routing_score(
+                            row,
+                            query,
+                            fts_score=fts_scores.get(str(row["id"]), 0.0),
+                        ),
+                        semantic_scores.get(str(row["id"])),
+                    ),
                 )
                 for row in rows
             ]
             ranked = [match for match in ranked if match.score > 0]
             ranked.sort(key=lambda item: (item.score + item.stats_weight, item.name), reverse=True)
             return ranked[:top_k]
+
+    @staticmethod
+    def _hybrid_score(lexical_score: float, semantic_score: float | None) -> float:
+        if semantic_score is None:
+            return lexical_score
+        return max(lexical_score, semantic_score * 0.9)
+
+    def _semantic_scores(
+        self,
+        conn: sqlite3.Connection,
+        query_vector: list[float] | None,
+        statuses: tuple[str, ...],
+    ) -> dict[str, float]:
+        if not query_vector:
+            return {}
+        placeholders = ",".join("?" for _ in statuses)
+        try:
+            rows = conn.execute(
+                f"""
+                SELECT v.skill_id, v.vector_json
+                FROM skill_vectors v
+                JOIN skills s ON s.id = v.skill_id
+                WHERE s.status IN ({placeholders})
+                """,
+                statuses,
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return {}
+        scores: dict[str, float] = {}
+        for row in rows:
+            try:
+                vector = json.loads(row["vector_json"] or "[]")
+            except json.JSONDecodeError:
+                continue
+            if not isinstance(vector, list):
+                continue
+            similarity = _cosine_similarity(query_vector, [float(value) for value in vector])
+            if similarity is None:
+                continue
+            scores[str(row["skill_id"])] = max(0.0, min(100.0, ((similarity + 1.0) / 2.0) * 100.0))
+        return scores
 
     def category_matches(
         self,

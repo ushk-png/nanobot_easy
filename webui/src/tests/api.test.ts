@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   approveManagedSkillDraft,
   composeManagedSkillDraft,
+  createImportedManagedSkillDraft,
   createModelConfiguration,
   deleteSession,
   fetchFilePreview,
@@ -22,6 +23,7 @@ import {
   fetchSkills,
   fetchWebuiThread,
   fetchWorkspaces,
+  importManagedSkillText,
   importMcpConfig,
   listSessions,
   listSlashCommands,
@@ -302,6 +304,50 @@ describe("webui API helpers", () => {
           Authorization: "Bearer tok",
           "X-Nanobot-Skill-Approval": encodeURIComponent(JSON.stringify({
             reason: "Local-only overlap is acceptable.",
+          })),
+        },
+      }),
+    );
+  });
+
+  it("serializes managed skill import preview and imported draft creation", async () => {
+    await importManagedSkillText("tok", "---\nname: imported\n---\n# Method\nUse it.");
+    await createImportedManagedSkillDraft("tok", {
+      name: "imported",
+      description: "Imported skill.",
+      method: "# Method\nUse it.",
+      category: "general",
+      risk_level: "low",
+      requires_exec: false,
+      validation: { errors: [], warnings: [] },
+      estimated_fields: ["category"],
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/import",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Skill-Import": encodeURIComponent(JSON.stringify({
+            markdown: "---\nname: imported\n---\n# Method\nUse it.",
+          })),
+        },
+      }),
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      "/api/skills/manage/drafts/import",
+      expect.objectContaining({
+        headers: {
+          Authorization: "Bearer tok",
+          "X-Nanobot-Skill-Draft": encodeURIComponent(JSON.stringify({
+            name: "imported",
+            description: "Imported skill.",
+            method: "# Method\nUse it.",
+            category: "general",
+            risk_level: "low",
+            requires_exec: false,
+            validation: { errors: [], warnings: [] },
+            estimated_fields: ["category"],
           })),
         },
       }),

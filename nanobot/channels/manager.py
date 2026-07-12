@@ -161,10 +161,20 @@ class ChannelManager:
 
                     async def _compose_skill_draft(values: dict[str, Any]) -> Any:
                         from nanobot.providers.factory import make_provider
-                        from nanobot.skill_composer import compose_skill_draft_with_llm
+                        from nanobot.skill_composer import (
+                            compose_skill_draft_with_llm,
+                            normalize_skill_import_with_llm,
+                        )
 
                         resolved = self.config.resolve_preset()
                         provider = make_provider(self.config)
+                        if values.get("mode") == "normalize_import":
+                            return await normalize_skill_import_with_llm(
+                                provider,
+                                model=resolved.model,
+                                source_text=str(values.get("source_text") or ""),
+                                workspace=workspace,
+                            )
                         return await compose_skill_draft_with_llm(
                             provider,
                             model=resolved.model,

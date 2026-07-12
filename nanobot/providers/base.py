@@ -392,6 +392,16 @@ class LLMProvider(ABC):
         """
         pass
 
+    async def embed(self, texts: list[str], model: str) -> list[list[float]]:
+        """Return embedding vectors for *texts* using *model*.
+
+        Providers that do not expose an embeddings endpoint should leave this
+        default implementation in place. Callers must treat embeddings as an
+        optional acceleration/recall feature and fall back to lexical search
+        when this raises ``NotImplementedError``.
+        """
+        raise NotImplementedError(f"{self.__class__.__name__} does not support embeddings")
+
     @classmethod
     def _is_transient_error(cls, content: str | None) -> bool:
         err = (content or "").lower()

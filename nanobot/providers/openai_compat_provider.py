@@ -1555,6 +1555,17 @@ class OpenAICompatProvider(LLMProvider):
         except Exception as e:
             return self._handle_error(e, spec=self._spec, api_base=self.api_base)
 
+    async def embed(self, texts: list[str], model: str) -> list[list[float]]:
+        """Call the OpenAI-compatible embeddings endpoint."""
+        if not texts:
+            return []
+        await self._ensure_client()
+        response = await self._client.embeddings.create(model=model, input=texts)
+        vectors: list[list[float]] = []
+        for item in response.data:
+            vectors.append([float(value) for value in item.embedding])
+        return vectors
+
     async def chat_stream(
         self,
         messages: list[dict[str, Any]],

@@ -37,10 +37,12 @@ import {
   ApiError,
   approveManagedSkillDraft,
   composeManagedSkillDraft,
+  createImportedManagedSkillDraft,
   fetchManagedSkillDetail,
   fetchManagedSkillDraft,
   fetchManagedSkills,
   fetchSkillDetail,
+  importManagedSkillText,
   runManagedSkillRoutingTest,
   runSkillAudit,
   runManagedSkillStatusAction,
@@ -52,6 +54,7 @@ import type {
   ManagedSkillDetail,
   ManagedSkillDraft,
   ManagedSkillDraftGovernanceFlag,
+  ManagedSkillImportResult,
   ManagedSkillRoutingTestPayload,
   ManagedSkillStatus,
   ManagedSkillUpdateAssessment,
@@ -796,6 +799,8 @@ function SkillCreateWizard({
   const [category, setCategory] = useState("general");
   const [riskLevel, setRiskLevel] = useState("low");
   const [requiresExec, setRequiresExec] = useState(false);
+  const [importResult, setImportResult] = useState<ManagedSkillImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
   const [draft, setDraft] = useState<ManagedSkillDraft | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
   const [busy, setBusy] = useState(false);
@@ -811,6 +816,8 @@ function SkillCreateWizard({
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
+    setImportResult(null);
+    setImporting(false);
     setDraft(initialDraft);
     setOverrideReason("");
     setError(null);
@@ -825,6 +832,8 @@ function SkillCreateWizard({
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
+    setImportResult(null);
+    setImporting(false);
     setDraft(null);
     setOverrideReason("");
     setBusy(false);
@@ -883,7 +892,7 @@ function SkillCreateWizard({
     setBusy(true);
     setError(null);
     try {
-      const payload = await composeManagedSkillDraft(token, {
+      const values = {
         name,
         description,
         trigger,
@@ -891,15 +900,26 @@ function SkillCreateWizard({
         category,
         risk_level: riskLevel,
         requires_exec: requiresExec,
-      });
+      };
+      const payload = importResult
+        ? await createImportedManagedSkillDraft(token, {
+            ...values,
+            required_tools: importResult.fields.required_tools,
+            install_sources: importResult.fields.install_sources,
+            validation: importResult.validation,
+            estimated_fields: importResult.estimated_fields,
+          })
+        : await composeManagedSkillDraft(token, values);
       let nextDraft = payload.draft;
       setDraft(nextDraft);
       setOverrideReason("");
-      nextDraft = await pollDraft(nextDraft);
       if (nextDraft.status === "composing") {
-        setError("Composer is still running. Close this dialog and return to the draft later.");
-      } else if (nextDraft.status === "failed") {
-        setError("Composer failed. Adjust the request and compose again.");
+        nextDraft = await pollDraft(nextDraft);
+        if (nextDraft.status === "composing") {
+          setError("Composer is still running. Close this dialog and return to the draft later.");
+        } else if (nextDraft.status === "failed") {
+          setError("Composer failed. Adjust the request and compose again.");
+        }
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not compose skill draft.");
@@ -923,19 +943,41 @@ function SkillCreateWizard({
     }
   };
 
-  const applyFullPrompt = () => {
-    const parsed = parseSkillFullPrompt(fullPrompt);
-    if (parsed.name) setName(parsed.name);
-    if (parsed.description) setDescription(parsed.description);
-    if (parsed.trigger) setTrigger(parsed.trigger);
-    if (parsed.method) setMethod(parsed.method);
-    if (parsed.category) setCategory(parsed.category);
-    if (parsed.risk_level) setRiskLevel(parsed.risk_level);
-    if (parsed.requires_exec !== null) setRequiresExec(parsed.requires_exec);
+  const applyFullPrompt = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const payload = await importManagedSkillText(token, fullPrompt);
+      const parsed = payload.import;
+      setImportResult(parsed);
+      const fields = parsed.fields;
+      if (fields.name) setName(fields.name);
+      if (fields.description) setDescription(fields.description);
+      if (fields.trigger) setTrigger(fields.trigger);
+      if (fields.method) setMethod(fields.method);
+      if (fields.category) setCategory(fields.category);
+      if (fields.risk_level) setRiskLevel(fields.risk_level);
+      if (typeof fields.requires_exec === "boolean") setRequiresExec(fields.requires_exec);
+    } catch (err) {
+      const parsed = parseSkillFullPrompt(fullPrompt);
+      if (parsed.name) setName(parsed.name);
+      if (parsed.description) setDescription(parsed.description);
+      if (parsed.trigger) setTrigger(parsed.trigger);
+      if (parsed.method) setMethod(parsed.method);
+      if (parsed.category) setCategory(parsed.category);
+      if (parsed.risk_level) setRiskLevel(parsed.risk_level);
+      if (parsed.requires_exec !== null) setRequiresExec(parsed.requires_exec);
+      setError(err instanceof Error ? err.message : "Could not import skill text.");
+    } finally {
+      setImporting(false);
+    }
   };
 
   const canCompose = name.trim().length > 0 && description.trim().length > 0;
-  const canApplyFullPrompt = fullPrompt.trim().length > 0 && !busy && draft === null;
+  const canApplyFullPrompt = fullPrompt.trim().length > 0 && !busy && !importing && draft === null;
+  const importErrors = importResult?.validation.errors ?? [];
+  const importWarnings = importResult?.validation.warnings ?? [];
+  const estimatedFields = new Set(importResult?.estimated_fields ?? []);
   const draftReady = draft?.status === "ready";
   const draftRunning = draft?.status === "composing";
   const draftFailed = draft?.status === "failed";
@@ -972,6 +1014,7 @@ function SkillCreateWizard({
                   disabled={busy || draft !== null}
                   className="h-9 rounded-[10px]"
                 />
+                {estimatedFields.has("name") ? <EstimatedBadge /> : null}
               </LabeledField>
               <LabeledField label="Description">
                 <Textarea
@@ -981,6 +1024,7 @@ function SkillCreateWizard({
                   disabled={busy || draft !== null}
                   className="min-h-[5rem] resize-y rounded-[10px]"
                 />
+                {estimatedFields.has("description") ? <EstimatedBadge /> : null}
               </LabeledField>
               <LabeledField label="Trigger utterances">
                 <Textarea
@@ -999,6 +1043,7 @@ function SkillCreateWizard({
                     disabled={busy || draft !== null}
                     className="h-9 rounded-[10px]"
                   />
+                  {estimatedFields.has("category") ? <EstimatedBadge /> : null}
                 </LabeledField>
                 <LabeledField label="Risk">
                   <select
@@ -1011,6 +1056,7 @@ function SkillCreateWizard({
                     <option value="medium">medium</option>
                     <option value="high">high</option>
                   </select>
+                  {estimatedFields.has("risk_level") ? <EstimatedBadge /> : null}
                 </LabeledField>
               </div>
               <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
@@ -1022,6 +1068,7 @@ function SkillCreateWizard({
                   className="h-4 w-4"
                 />
                 Requires execution tools
+                {estimatedFields.has("requires_exec") ? <EstimatedBadge /> : null}
               </label>
               <LabeledField label="Method draft">
                 <Textarea
@@ -1034,24 +1081,24 @@ function SkillCreateWizard({
               </LabeledField>
             </div>
             <div className="space-y-3">
-              <LabeledField label="One-shot input">
+              <LabeledField label="Smart paste">
                 <Textarea
                   value={fullPrompt}
                   onChange={(event) => setFullPrompt(event.target.value)}
                   placeholder={[
+                    "Paste a ClawHub SKILL.md, another agent's skill file, or rough prompt text.",
+                    "",
+                    "---",
                     "name: review-renewal-notes",
                     "description: Review renewal notes and surface customer risk.",
-                    "triggers:",
-                    "- renewal risk review",
-                    "- inspect renewal notes",
-                    "category: business.review",
-                    "risk: low",
-                    "requires_exec: false",
-                    "",
-                    "method:",
-                    "1. Read the input.",
-                    "2. Identify risks.",
-                    "3. Return concise findings.",
+                    "metadata:",
+                    "  nanobot:",
+                    "    category: business.review",
+                    "    risk_level: low",
+                    "    requires_exec: false",
+                    "---",
+                    "# Method",
+                    "1. Read the input and return concise findings.",
                   ].join("\n")}
                   disabled={busy || draft !== null}
                   spellCheck={false}
@@ -1060,7 +1107,7 @@ function SkillCreateWizard({
               </LabeledField>
               <div className="flex items-center justify-between gap-2 rounded-[12px] border border-border/45 bg-muted/20 px-3 py-2">
                 <p className="text-[12px] leading-4 text-muted-foreground">
-                  Paste a complete skill request, then fill the structured fields from it.
+                  Import parses frontmatter on the server. Non-standard text is normalized before draft creation.
                 </p>
                 <Button
                   type="button"
@@ -1070,9 +1117,33 @@ function SkillCreateWizard({
                   disabled={!canApplyFullPrompt}
                   className="h-8 shrink-0 rounded-[9px]"
                 >
-                  Apply
+                  {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
+                  Import
                 </Button>
               </div>
+              {importResult ? (
+                <div className="space-y-2 rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2 text-[12px] leading-5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-semibold">Import preview</span>
+                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                      {importResult.mode}
+                    </span>
+                  </div>
+                  {importResult.preserved_method ? (
+                    <p className="text-muted-foreground">Method content is preserved for review.</p>
+                  ) : null}
+                  {importErrors.length ? (
+                    <div className="rounded-[10px] bg-destructive/10 px-2.5 py-2 text-destructive">
+                      {importErrors.map((item) => <div key={item}>{item}</div>)}
+                    </div>
+                  ) : null}
+                  {importWarnings.length ? (
+                    <div className="rounded-[10px] bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
+                      {importWarnings.map((item) => <div key={item}>{item}</div>)}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
             <div className="space-y-3">
               {draft ? (
@@ -1182,9 +1253,19 @@ function SkillCreateWizard({
                   ) : null}
                 </>
               ) : (
-                <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
-                  The draft preview will appear here after compose.
-                </div>
+                <DetailSection title="SKILL.md preview">
+                  {importResult?.normalized_markdown ? (
+                    <div className="max-h-[34rem] overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                      <MarkdownText className="max-w-none text-[13px] leading-6">
+                        {formatSkillMarkdownForPreview(importResult.normalized_markdown)}
+                      </MarkdownText>
+                    </div>
+                  ) : (
+                    <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
+                      Paste skill text and import it to preview the normalized SKILL.md.
+                    </div>
+                  )}
+                </DetailSection>
               )}
             </div>
           </div>
@@ -1204,9 +1285,9 @@ function SkillCreateWizard({
               Register
             </Button>
           ) : (
-            <Button type="button" onClick={composeDraft} disabled={busy || !canCompose}>
+            <Button type="button" onClick={composeDraft} disabled={busy || !canCompose || importErrors.length > 0}>
               {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
-              Compose draft
+              Create draft
             </Button>
           )}
         </DialogFooter>
@@ -1221,6 +1302,14 @@ function LabeledField({ label, children }: { label: string; children: ReactNode 
       <span className="text-[12px] font-semibold text-muted-foreground">{label}</span>
       {children}
     </label>
+  );
+}
+
+function EstimatedBadge() {
+  return (
+    <span className="inline-flex w-fit rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+      estimated
+    </span>
   );
 }
 

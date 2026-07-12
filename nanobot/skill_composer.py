@@ -11,7 +11,7 @@ from loguru import logger
 
 from nanobot.agent.skills import SYSTEM_SKILLS_DIR
 from nanobot.providers.base import LLMProvider
-from nanobot.skill_store import SkillDraftContent
+from nanobot.skill_store import SkillDraftContent, parse_skill_markdown
 
 
 def _read_system_skill(name: str) -> str:
@@ -151,3 +151,86 @@ async def compose_skill_draft_with_llm(
         review=review,
         routing_cases=_routing_cases(payload.get("routing_cases"), name),
     )
+
+
+async def normalize_skill_import_with_llm(
+    provider: LLMProvider,
+    *,
+    model: str,
+    source_text: str,
+    workspace: Path,
+) -> dict[str, Any]:
+    """Normalize non-SKILL.md pasted content into the WebUI import preview shape."""
+
+    system = (
+        "You normalize pasted skill-like text for nanobot. Return only JSON. "
+        "Do not register, approve, or write files. Preserve the user's Method or "
+        "procedure content as faithfully as possible; only add missing headings needed "
+        "for nanobot's schema. Mark inferred fields explicitly."
+    )
+    user = {
+        "workspace": str(workspace),
+        "source_text": source_text,
+        "target_schema": {
+            "name": "kebab-case skill name",
+            "description": "one concise sentence",
+            "category": "domain.subdomain or general",
+            "risk_level": "low|medium|high",
+            "requires_exec": "boolean",
+            "triggers": ["3-7 user utterances"],
+            "body": "markdown body with When to use, When not to use, Method, Failure rules",
+            "estimated_fields": ["field names inferred rather than explicit"],
+        },
+    }
+    response = await provider.chat_with_retry(
+        messages=[
+            {"role": "system", "content": system},
+            {"role": "user", "content": json.dumps(user, ensure_ascii=False)},
+        ],
+        tools=None,
+        model=model,
+        max_tokens=4096,
+        temperature=0.1,
+    )
+    if response.finish_reason == "error":
+        raise RuntimeError(response.content or "skill import normalization failed")
+    payload = _extract_json_object(response.content or "")
+    name = str(payload.get("name") or "imported-skill").strip()
+    description = str(payload.get("description") or name).strip()
+    category = str(payload.get("category") or "general").strip()
+    risk_level = str(payload.get("risk_level") or "low").strip().lower()
+    requires_exec = bool(payload.get("requires_exec") or False)
+    triggers_raw = payload.get("triggers")
+    triggers = [str(item).strip() for item in triggers_raw if str(item).strip()] if isinstance(triggers_raw, list) else []
+    body = str(payload.get("body") or source_text).strip()
+    markdown = (
+        "---\n"
+        + json.dumps(
+            {
+                "name": name,
+                "description": description,
+                "metadata": {
+                    "nanobot": {
+                        "version": "0.1.0",
+                        "category": category,
+                        "risk_level": risk_level if risk_level in {"low", "medium", "high"} else "low",
+                        "requires_exec": requires_exec,
+                        "required_tools": ["exec"] if requires_exec else [],
+                        "triggers": triggers,
+                    }
+                },
+            },
+            ensure_ascii=False,
+        )
+        + "\n---\n\n"
+        + body
+        + "\n"
+    )
+    parsed = parse_skill_markdown(markdown, source_name="normalized import")
+    estimated = payload.get("estimated_fields")
+    if isinstance(estimated, list):
+        parsed["estimated_fields"] = sorted(
+            set([str(item) for item in estimated if str(item)] + parsed.get("estimated_fields", []))
+        )
+    parsed["mode"] = "normalized"
+    return parsed

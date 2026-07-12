@@ -12,6 +12,7 @@ from nanobot.skill_store import (
     SkillDraftResult,
     SkillStore,
     SkillUpdateAssessment,
+    parse_skill_markdown,
     row_to_skill_payload,
 )
 
@@ -305,7 +306,87 @@ def skill_manage_compose_draft_payload(
         category=str(values.get("category") or "general"),
         risk_level=str(values.get("risk_level") or values.get("riskLevel") or "low"),
         requires_exec=bool(values.get("requires_exec") or values.get("requiresExec") or False),
+        required_tools=[str(item) for item in values.get("required_tools", []) if str(item)]
+        if isinstance(values.get("required_tools"), list)
+        else [],
+        install_sources=[str(item) for item in values.get("install_sources", []) if str(item)]
+        if isinstance(values.get("install_sources"), list)
+        else [],
         content=content,
+    )
+    return {"draft": _draft_payload(draft, policy=policy)}
+
+
+def skill_manage_import_payload(workspace_path: Path, markdown: str) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    parsed = parse_skill_markdown(markdown)
+    fields = parsed.get("fields") if isinstance(parsed.get("fields"), dict) else {}
+    name = str(fields.get("name") or "")
+    validation = parsed.get("validation") if isinstance(parsed.get("validation"), dict) else {}
+    errors = [str(item) for item in validation.get("errors", []) if str(item)]
+    warnings = [str(item) for item in validation.get("warnings", []) if str(item)]
+    if name and store.get_skill(name) is not None:
+        errors.append(f"skill '{name}' already exists")
+    if name and (workspace_path / "skills" / name).exists():
+        errors.append(f"skill directory already exists: {name}")
+    parsed["validation"] = {"errors": errors, "warnings": warnings}
+    return {"import": parsed}
+
+
+def skill_manage_import_draft_payload(
+    workspace_path: Path,
+    values: dict[str, Any],
+    *,
+    policy: Any | None = None,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    method = str(values.get("method") or "")
+    review = values.get("review") if isinstance(values.get("review"), dict) else {}
+    validation = values.get("validation") if isinstance(values.get("validation"), dict) else {}
+    red_flags = [
+        {
+            "kind": "import",
+            "severity": "medium",
+            "message": str(message),
+        }
+        for message in validation.get("errors", [])
+        if str(message)
+    ]
+    review = {
+        "status": "ready",
+        "summary": "Imported skill draft. Review external content before registration.",
+        "security_risk_level": str(values.get("risk_level") or values.get("riskLevel") or "low"),
+        **review,
+        "red_flags": [*red_flags, *[item for item in review.get("red_flags", []) if isinstance(item, dict)]],
+        "import": {
+            "preserved_method": True,
+            "estimated_fields": values.get("estimated_fields") or values.get("estimatedFields") or [],
+            "warnings": validation.get("warnings", []),
+        },
+    }
+    trigger = str(values.get("trigger") or values.get("triggers") or "")
+    triggers = [line.strip() for line in trigger.splitlines() if line.strip()]
+    routing_cases = [
+        {"query": item, "expected": str(values.get("name") or "")}
+        for item in triggers[:10]
+    ]
+    draft = store.create_skill_draft(
+        name=str(values.get("name") or ""),
+        description=str(values.get("description") or ""),
+        trigger=trigger,
+        method=method,
+        category=str(values.get("category") or "general"),
+        risk_level=str(values.get("risk_level") or values.get("riskLevel") or "low"),
+        requires_exec=bool(values.get("requires_exec") or values.get("requiresExec") or False),
+        required_tools=[str(item) for item in values.get("required_tools", []) if str(item)]
+        if isinstance(values.get("required_tools"), list)
+        else [],
+        install_sources=[str(item) for item in values.get("install_sources", []) if str(item)]
+        if isinstance(values.get("install_sources"), list)
+        else [],
+        content=SkillDraftContent(method=method, review=review, routing_cases=routing_cases),
     )
     return {"draft": _draft_payload(draft, policy=policy)}
 

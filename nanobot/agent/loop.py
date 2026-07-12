@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import os
+import re
 import time
 from contextlib import AsyncExitStack, nullcontext, suppress
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanobot.agent.skills import SYSTEM_SKILLS_DIR, _STRIP_SKILL_FRONTMATTER
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
@@ -74,6 +77,7 @@ from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
 from nanobot.utils.helpers import image_placeholder_text
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
+from nanobot.utils.helpers import truncate_text_to_tokens
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
@@ -87,6 +91,7 @@ if TYPE_CHECKING:
         ToolsConfig,
     )
     from nanobot.cron.service import CronService
+    from nanobot.skill_store import SkillSearchMatch
 
 class TurnState(Enum):
     RESTORE = auto()
@@ -220,6 +225,9 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         hot_path_skills: list[str] | None = None,
+        proactive_skill_cards: bool | None = None,
+        proactive_card_min_score: int | None = None,
+        proactive_method_inline: bool | None = None,
         tools_config: ToolsConfig | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
@@ -290,6 +298,26 @@ class AgentLoop:
         self._extra_hooks: list[AgentHook] = hooks or []
 
         self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
+        self.proactive_skill_cards = (
+            proactive_skill_cards
+            if proactive_skill_cards is not None
+            else defaults.proactive_skill_cards
+        )
+        self.proactive_card_min_score = (
+            proactive_card_min_score
+            if proactive_card_min_score is not None
+            else defaults.proactive_card_min_score
+        )
+        self.proactive_method_inline = (
+            proactive_method_inline
+            if proactive_method_inline is not None
+            else defaults.proactive_method_inline
+        )
+        from nanobot.skill_store import SkillStore
+
+        self.skill_store = SkillStore(workspace)
+        with suppress(Exception):
+            self.skill_store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
         self.context = ContextBuilder(
             workspace,
             timezone=timezone,
@@ -429,6 +457,9 @@ class AgentLoop:
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
             hot_path_skills=defaults.skills,
+            proactive_skill_cards=defaults.proactive_skill_cards,
+            proactive_card_min_score=defaults.proactive_card_min_score,
+            proactive_method_inline=defaults.proactive_method_inline,
             session_ttl_minutes=defaults.session_ttl_minutes,
             consolidation_ratio=defaults.consolidation_ratio,
             tools_config=config.tools,
@@ -674,6 +705,7 @@ class AgentLoop:
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
+        current_runtime_lines = self._proactive_skill_card_lines(msg, session)
         return self.context.build_messages(
             history=history,
             current_message=image_generation_prompt(msg.content, msg.metadata),
@@ -686,6 +718,7 @@ class AgentLoop:
             workspace=scope.project_path,
             runtime_state=self,
             inbound_message=msg,
+            current_runtime_lines=current_runtime_lines,
             include_memory_recent_history=include_memory_recent_history,
             session_key=session.key,
             unified_session=self._unified_session,
@@ -1270,6 +1303,7 @@ class AgentLoop:
         }
         history = session.get_history(**_hist_kwargs)
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
+        current_runtime_lines = [] if is_subagent else self._proactive_skill_card_lines(msg, session)
 
         messages = self.context.build_messages(
             history=history,
@@ -1286,6 +1320,7 @@ class AgentLoop:
             skip_runtime_lines=is_subagent,
             session_key=key,
             unified_session=self._unified_session,
+            current_runtime_lines=current_runtime_lines,
         )
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
@@ -1572,6 +1607,138 @@ class AgentLoop:
 
         return "ok"
 
+    def _proactive_skill_card_lines(self, msg: InboundMessage, session: Session) -> list[str]:
+        if not self.proactive_skill_cards:
+            return []
+        text = self._user_request_text(msg.content)
+        if not text:
+            return []
+        try:
+            started = time.perf_counter()
+            matches = self.skill_store.search(text, top_k=3, min_status=("candidate", "verified"))
+            candidates = self._proactive_candidate_payloads(matches)
+            if not candidates:
+                return []
+            top_score = float(candidates[0]["score"])
+            if top_score < float(self.proactive_card_min_score):
+                return []
+            block = self._format_proactive_skill_cards(candidates)
+            trace_raw = f"{session.key}\n{text}".encode("utf-8")
+            self.skill_store.record_trace(
+                trace_id=f"proactive_skill_cards:{hashlib.sha256(trace_raw).hexdigest()[:24]}",
+                session_key=session.key,
+                query_digest=hashlib.sha256(text.encode("utf-8")).hexdigest()[:24],
+                candidates=candidates,
+                selected_skill=None,
+                selection_reason="cold",
+                executed_by="main",
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                notes="proactive",
+            )
+            return block.splitlines()
+        except Exception as exc:
+            logger.debug("Skipping proactive skill cards: {}", exc)
+            return []
+
+    def _proactive_candidate_payloads(self, matches: list[SkillSearchMatch]) -> list[dict[str, Any]]:
+        if not matches:
+            return []
+        relations = self.skill_store.relations_for_names(match.name for match in matches)
+        candidates: list[dict[str, Any]] = []
+        for match in matches:
+            score = max(0.0, min(100.0, float(match.score) + match.stats_weight))
+            rel = relations.get(match.name, {})
+            candidates.append({
+                "name": match.name,
+                "description": match.description,
+                "when_to_use": match.when_to_use,
+                "when_not_to_use": match.when_not_to_use,
+                "risk_level": match.risk_level,
+                "requires_exec": match.requires_exec,
+                "category": match.category,
+                "status": match.status,
+                "score": round(score, 2),
+                "match_grade": self._proactive_match_grade(score),
+                "conflicts_with": rel.get("conflicts_with", []),
+                "supersedes": rel.get("supersedes", []),
+                "fallback_to": rel.get("fallback_to", []),
+                "path": match.path,
+            })
+        candidates.sort(key=lambda row: float(row["score"]), reverse=True)
+        return candidates[:3]
+
+    def _format_proactive_skill_cards(self, candidates: list[dict[str, Any]]) -> str:
+        lines = [
+            ContextBuilder._SKILL_CANDIDATES_TAG,
+            "These are retrieval hints only. Apply a card only if it fits the user's direct request; otherwise ignore it.",
+        ]
+        inline_method_for = self._proactive_inline_method_candidate(candidates)
+        for idx, candidate in enumerate(candidates, start=1):
+            name = str(candidate["name"])
+            lines.append(
+                f"{idx}. {name} | score={candidate['score']} ({candidate['match_grade']}) "
+                f"| risk={candidate['risk_level']} | exec={str(candidate['requires_exec']).lower()}"
+            )
+            lines.append(f"   description: {self._one_line(candidate.get('description'))}")
+            use = self._one_line(candidate.get("when_to_use")) or "not specified"
+            not_use = self._one_line(candidate.get("when_not_to_use")) or "not specified"
+            lines.append(f"   use/not: use={use}; not={not_use}")
+            lines.append(f"   path: {candidate.get('path')}")
+            if inline_method_for == name:
+                method = self._read_skill_method(candidate.get("path"))
+                if method:
+                    lines.append("   Method excerpt — apply only if the card truly fits:")
+                    for method_line in method.splitlines():
+                        lines.append(f"   {method_line}")
+        lines.append(ContextBuilder._SKILL_CANDIDATES_END)
+        return "\n".join(lines)
+
+    def _proactive_inline_method_candidate(self, candidates: list[dict[str, Any]]) -> str | None:
+        if not self.proactive_method_inline or not candidates:
+            return None
+        first = candidates[0]
+        first_score = float(first.get("score") or 0.0)
+        if first_score < 70.0:
+            return None
+        if len(candidates) > 1 and first_score - float(candidates[1].get("score") or 0.0) < 20.0:
+            return None
+        if first.get("conflicts_with"):
+            return None
+        return str(first.get("name") or "") or None
+
+    @staticmethod
+    def _proactive_match_grade(score: float) -> str:
+        if score >= 70:
+            return "strong"
+        if score >= 35:
+            return "moderate"
+        return "weak"
+
+    @staticmethod
+    def _one_line(value: Any, *, max_chars: int = 180) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 1].rstrip() + "…"
+
+    @staticmethod
+    def _read_skill_method(path: Any) -> str | None:
+        if not path:
+            return None
+        skill_path = Path(str(path))
+        skill_file = skill_path if skill_path.name == "SKILL.md" else skill_path / "SKILL.md"
+        try:
+            markdown = skill_file.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        body = _STRIP_SKILL_FRONTMATTER.sub("", markdown, count=1).strip()
+        match = re.search(r"(?ims)^##\s+Method\s*$([\s\S]*?)(?=^##\s+|\Z)", body)
+        if match:
+            method = match.group(1).strip()
+        else:
+            method = body
+        return truncate_text_to_tokens(method, 1_500).strip() or None
+
     @staticmethod
     def _user_request_text(message: str) -> str:
         """Return the user-authored prompt before extracted attachment text."""
@@ -1691,7 +1858,11 @@ class AgentLoop:
                 drop_runtime
                 and block.get("type") == "text"
                 and isinstance(block.get("text"), str)
-                and block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+                and (
+                    block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+                    or block["text"].startswith(ContextBuilder._RECENT_MEMORY_TAG)
+                    or block["text"].startswith(ContextBuilder._SKILL_CANDIDATES_TAG)
+                )
             ):
                 continue
 
@@ -1758,10 +1929,23 @@ class AgentLoop:
                         ]
                     entry["content"] = filtered
             elif role == "user":
-                if isinstance(content, str) and ContextBuilder._RUNTIME_CONTEXT_TAG in content:
-                    # Strip the runtime-context block appended at the end.
-                    tag_pos = content.find(ContextBuilder._RUNTIME_CONTEXT_TAG)
-                    before = content[:tag_pos].rstrip("\n ")
+                if isinstance(content, str):
+                    volatile_positions = [
+                        pos
+                        for tag in (
+                            ContextBuilder._RECENT_MEMORY_TAG,
+                            ContextBuilder._SKILL_CANDIDATES_TAG,
+                            ContextBuilder._RUNTIME_CONTEXT_TAG,
+                        )
+                        if (pos := content.find(tag)) >= 0
+                    ]
+                    if volatile_positions:
+                        before = content[:min(volatile_positions)].rstrip("\n ")
+                    else:
+                        before = None
+                else:
+                    before = None
+                if before is not None:
                     if before:
                         entry["content"] = before
                     else:

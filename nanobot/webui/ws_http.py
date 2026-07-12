@@ -84,6 +84,8 @@ from nanobot.webui.skill_manage_api import (
     skill_manage_complete_draft,
     skill_manage_detail_payload,
     skill_manage_draft_payload,
+    skill_manage_import_draft_payload,
+    skill_manage_import_payload,
     skill_manage_list_payload,
     skill_manage_routing_test_payload,
     skill_manage_search_payload,
@@ -100,6 +102,7 @@ _SLOW_WEBUI_HTTP_LOG_MS = 1_000
 _AUTOMATION_VALUES_HEADER = "X-Nanobot-Automation-Values"
 _SKILL_UPDATE_HEADER = "X-Nanobot-Skill-Update"
 _SKILL_DRAFT_HEADER = "X-Nanobot-Skill-Draft"
+_SKILL_IMPORT_HEADER = "X-Nanobot-Skill-Import"
 _SKILL_APPROVAL_HEADER = "X-Nanobot-Skill-Approval"
 
 if TYPE_CHECKING:
@@ -765,8 +768,12 @@ class GatewayHTTPHandler:
             return self._handle_skill_manage_search(request)
         if got == "/api/skills/manage/audit":
             return self._handle_skill_manage_audit(request)
+        if got == "/api/skills/manage/import":
+            return await self._handle_skill_manage_import(request)
         if got == "/api/skills/manage/drafts/compose":
             return await self._handle_skill_manage_draft_compose(request)
+        if got == "/api/skills/manage/drafts/import":
+            return self._handle_skill_manage_draft_import(request)
         m = re.match(r"^/api/skills/manage/drafts/([^/]+)/approve$", got)
         if m:
             return self._handle_skill_manage_draft_approve(request, m.group(1))
@@ -871,6 +878,40 @@ class GatewayHTTPHandler:
             return error
         return _http_json_response(skill_manage_audit_payload(self.skills_workspace_path))
 
+    async def _handle_skill_manage_import(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        raw = _case_insensitive_header(request.headers, _SKILL_IMPORT_HEADER)
+        if not raw:
+            return _http_error(400, "missing skill import")
+        try:
+            values = json.loads(raw)
+        except Exception:
+            try:
+                values = json.loads(unquote(raw))
+            except Exception:
+                return _http_error(400, "skill import must be JSON")
+        if not isinstance(values, dict):
+            return _http_error(400, "skill import must be an object")
+        text = values.get("markdown") or values.get("text") or values.get("source_text")
+        if not isinstance(text, str) or not text.strip():
+            return _http_error(400, "markdown must be a non-empty string")
+        has_frontmatter = text.lstrip().startswith("---")
+        if not has_frontmatter and self.skill_draft_composer is not None:
+            try:
+                normalized = await self.skill_draft_composer(
+                    {"mode": "normalize_import", "source_text": text}
+                )
+                if isinstance(normalized, dict):
+                    return _http_json_response({"import": normalized})
+            except Exception as e:
+                logger.warning("Skill import normalization failed: {}", e)
+        try:
+            payload = skill_manage_import_payload(self.skills_workspace_path, text)
+        except ValueError as e:
+            return _http_error(400, str(e))
+        return _http_json_response(payload)
+
     def _handle_skill_manage_detail(self, request: WsRequest, raw_name: str) -> Response:
         if error := self._check_skill_manage_access(request):
             return error
@@ -943,6 +984,34 @@ class GatewayHTTPHandler:
         draft_id = str(payload["draft"]["draft_id"])
         asyncio.create_task(self._complete_skill_draft(draft_id, values))
         return _http_json_response(payload, status=202)
+
+    def _handle_skill_manage_draft_import(self, request: WsRequest) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        raw = _case_insensitive_header(request.headers, _SKILL_DRAFT_HEADER)
+        if not raw:
+            return _http_error(400, "missing skill draft")
+        try:
+            values = json.loads(raw)
+        except Exception:
+            try:
+                values = json.loads(unquote(raw))
+            except Exception:
+                return _http_error(400, "skill draft must be JSON")
+        if not isinstance(values, dict):
+            return _http_error(400, "skill draft must be an object")
+        validation = values.get("validation") if isinstance(values.get("validation"), dict) else {}
+        if validation.get("errors"):
+            return _http_error(400, "fix import validation errors before creating a draft")
+        try:
+            payload = skill_manage_import_draft_payload(
+                self.skills_workspace_path,
+                values,
+                policy=self.skill_management_red_flags,
+            )
+        except ValueError as e:
+            return _http_error(400, str(e))
+        return _http_json_response(payload)
 
     async def _complete_skill_draft(self, draft_id: str, values: dict[str, Any]) -> None:
         try:

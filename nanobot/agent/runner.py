@@ -432,7 +432,11 @@ class AgentRunner:
 
             if response.should_execute_tools:
                 context.tool_calls = list(response.tool_calls)
-                if hook.wants_streaming():
+                observability_final = (
+                    not is_blank_text(response.content)
+                    and self._all_tool_calls_observability(spec, response.tool_calls)
+                )
+                if hook.wants_streaming() and not observability_final:
                     await hook.on_stream_end(context, resuming=True)
 
                 assistant_message = build_assistant_message(
@@ -501,6 +505,37 @@ class AgentRunner:
                     if should_continue:
                         had_injections = True
                         continue
+                    break
+                if observability_final:
+                    clean = hook.finalize_content(context, response.content)
+                    if hook.wants_streaming():
+                        await hook.on_stream_end(context, resuming=False)
+                    await self._emit_checkpoint(
+                        spec,
+                        {
+                            "phase": "tools_completed",
+                            "iteration": iteration,
+                            "model": spec.model,
+                            "assistant_message": assistant_message,
+                            "completed_tool_results": completed_tool_results,
+                            "pending_tool_calls": [],
+                        },
+                    )
+                    await self._emit_checkpoint(
+                        spec,
+                        {
+                            "phase": "final_response",
+                            "iteration": iteration,
+                            "model": spec.model,
+                            "assistant_message": assistant_message,
+                            "completed_tool_results": completed_tool_results,
+                            "pending_tool_calls": [],
+                        },
+                    )
+                    final_content = clean
+                    context.final_content = final_content
+                    context.stop_reason = stop_reason
+                    await hook.after_iteration(context)
                     break
                 await self._emit_checkpoint(
                     spec,
@@ -707,6 +742,19 @@ class AgentRunner:
             tool_events=tool_events,
             had_injections=had_injections,
         )
+
+    @staticmethod
+    def _all_tool_calls_observability(
+        spec: AgentRunSpec,
+        tool_calls: list[ToolCallRequest],
+    ) -> bool:
+        if not tool_calls:
+            return False
+        for tool_call in tool_calls:
+            tool = spec.tools.get(tool_call.name)
+            if tool is None or getattr(tool, "observability", False) is not True:
+                return False
+        return True
 
     def _build_request_kwargs(
         self,

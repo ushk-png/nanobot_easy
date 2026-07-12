@@ -15,6 +15,31 @@ from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 
+class _ObservabilityTool:
+    name = "skill_decision"
+    observability = True
+
+    async def execute(self, **_kwargs):
+        return "recorded"
+
+
+class _SimpleToolRegistry:
+    def __init__(self, tool):
+        self.tool = tool
+        self.execute_count = 0
+
+    def get_definitions(self):
+        return []
+
+    def get(self, name):
+        return self.tool if name == self.tool.name else None
+
+    async def execute(self, name, params):
+        self.execute_count += 1
+        assert name == self.tool.name
+        return await self.tool.execute(**params)
+
+
 @pytest.mark.asyncio
 async def test_runner_preserves_reasoning_fields_and_tool_results():
     from nanobot.agent.runner import AgentRunner, AgentRunSpec
@@ -70,6 +95,80 @@ async def test_runner_preserves_reasoning_fields_and_tool_results():
         msg.get("role") == "tool" and msg.get("content") == "tool result"
         for msg in captured_second_call
     )
+
+
+@pytest.mark.asyncio
+async def test_runner_finishes_text_response_with_observability_tool_without_second_llm_call():
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock(spec=LLMProvider)
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
+        content="Use PostgreSQL when you need advanced SQL features.",
+        tool_calls=[
+            ToolCallRequest(
+                id="call_1",
+                name="skill_decision",
+                arguments={"decision": "hot", "skill_name": "answer-comparison", "rationale": "matched"},
+            )
+        ],
+        usage={"prompt_tokens": 5, "completion_tokens": 5},
+    ))
+    tools = _SimpleToolRegistry(_ObservabilityTool())
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "compare databases"},
+        ],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+    ))
+
+    assert provider.chat_with_retry.await_count == 1
+    assert tools.execute_count == 1
+    assert result.final_content == "Use PostgreSQL when you need advanced SQL features."
+    assert result.tools_used == ["skill_decision"]
+    assert any(msg.get("role") == "tool" and msg.get("content") == "recorded" for msg in result.messages)
+
+
+@pytest.mark.asyncio
+async def test_runner_keeps_loop_for_observability_tool_without_text():
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock(spec=LLMProvider)
+    responses = [
+        LLMResponse(
+            content="",
+            tool_calls=[
+                ToolCallRequest(
+                    id="call_1",
+                    name="skill_decision",
+                    arguments={"decision": "none", "rationale": "no fit"},
+                )
+            ],
+        ),
+        LLMResponse(content="No matching skill applies.", tool_calls=[]),
+    ]
+    provider.chat_with_retry = AsyncMock(side_effect=responses)
+    tools = _SimpleToolRegistry(_ObservabilityTool())
+
+    runner = AgentRunner(provider)
+    result = await runner.run(AgentRunSpec(
+        initial_messages=[
+            {"role": "system", "content": "system"},
+            {"role": "user", "content": "question"},
+        ],
+        tools=tools,
+        model="test-model",
+        max_iterations=3,
+        max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+    ))
+
+    assert provider.chat_with_retry.await_count == 2
+    assert result.final_content == "No matching skill applies."
 
 
 @pytest.mark.asyncio

@@ -627,7 +627,7 @@ describe("App layout", () => {
     fireEvent.change(screen.getByPlaceholderText(/review this renewal/), {
       target: { value: "web created" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Compose draft" }));
+    fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
     expect(await screen.findByText("Draft ready")).toBeInTheDocument();
     expect(screen.getByText("expected web-created")).toBeInTheDocument();
     expect(screen.getByText("Confirmation required")).toBeInTheDocument();

@@ -398,6 +398,50 @@ def test_save_turn_strips_runtime_context_suffix_from_string() -> None:
     assert session.messages[0]["content"] == "hello world"
 
 
+def test_save_turn_strips_recent_memory_before_runtime_from_string() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:recent-memory-strip")
+    recent = (
+        ContextBuilder._RECENT_MEMORY_TAG
+        + "\n- old volatile fact\n"
+        + ContextBuilder._RECENT_MEMORY_END
+    )
+    runtime = (
+        ContextBuilder._RUNTIME_CONTEXT_TAG
+        + "\nCurrent Time: now\n"
+        + ContextBuilder._RUNTIME_CONTEXT_END
+    )
+
+    loop._save_turn(
+        session,
+        [{"role": "user", "content": f"hello world\n\n{recent}\n\n{runtime}"}],
+        skip=0,
+    )
+    assert session.messages[0]["content"] == "hello world"
+
+
+def test_save_turn_strips_skill_candidates_before_runtime_from_string() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:skill-candidates-strip")
+    candidates = (
+        ContextBuilder._SKILL_CANDIDATES_TAG
+        + "\n1. meeting-minutes | score=88\n"
+        + ContextBuilder._SKILL_CANDIDATES_END
+    )
+    runtime = (
+        ContextBuilder._RUNTIME_CONTEXT_TAG
+        + "\nCurrent Time: now\n"
+        + ContextBuilder._RUNTIME_CONTEXT_END
+    )
+
+    loop._save_turn(
+        session,
+        [{"role": "user", "content": f"hello world\n\n{candidates}\n\n{runtime}"}],
+        skip=0,
+    )
+    assert session.messages[0]["content"] == "hello world"
+
+
 def test_save_turn_skips_string_user_when_only_runtime_context_suffix() -> None:
     loop = _mk_loop()
     session = Session(key="test:suffix-only")

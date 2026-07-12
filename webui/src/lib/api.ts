@@ -8,6 +8,7 @@ import type {
   ManagedSkillDetail,
   ManagedSkillDraftApprovePayload,
   ManagedSkillDraftComposeValues,
+  ManagedSkillImportPayload,
   ManagedSkillDraftPayload,
   ManagedSkillRoutingTestPayload,
   ManagedSkillSearchPayload,
@@ -397,6 +398,44 @@ export async function composeManagedSkillDraft(
 ): Promise<ManagedSkillDraftPayload> {
   return request<ManagedSkillDraftPayload>(
     `${base}/api/skills/manage/drafts/compose`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Draft": encodeURIComponent(JSON.stringify(values)),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function importManagedSkillText(
+  token: string,
+  markdown: string,
+  base: string = "",
+): Promise<ManagedSkillImportPayload> {
+  return request<ManagedSkillImportPayload>(
+    `${base}/api/skills/manage/import`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Import": encodeURIComponent(JSON.stringify({ markdown })),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function createImportedManagedSkillDraft(
+  token: string,
+  values: ManagedSkillDraftComposeValues & {
+    validation?: { errors?: string[]; warnings?: string[] };
+    estimated_fields?: string[];
+    review?: Record<string, unknown>;
+  },
+  base: string = "",
+): Promise<ManagedSkillDraftPayload> {
+  return request<ManagedSkillDraftPayload>(
+    `${base}/api/skills/manage/drafts/import`,
     token,
     {
       headers: {

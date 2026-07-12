@@ -2259,6 +2259,13 @@ def _skill_store_for_cli(config: str | None, workspace: str | None):
     return SkillStore(loaded.workspace_path)
 
 
+def _skill_store_and_config_for_cli(config: str | None, workspace: str | None):
+    loaded = _load_runtime_config(config, workspace)
+    from nanobot.skill_store import SkillStore
+
+    return SkillStore(loaded.workspace_path), loaded
+
+
 def _system_skills_dir() -> Path:
     from nanobot.agent.skills import SYSTEM_SKILLS_DIR
 
@@ -2271,16 +2278,33 @@ def skill_reindex(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
 ):
     """Rebuild the SQLite skill registry for a workspace."""
-    store = _skill_store_for_cli(config, workspace)
+    store, loaded = _skill_store_and_config_for_cli(config, workspace)
     try:
-        result = store.reindex(system_dir=_system_skills_dir())
-    except ValueError as exc:
+        from nanobot.skill_embeddings import make_skill_embedding_fn
+
+        embedding = make_skill_embedding_fn(loaded)
+        if embedding is None:
+            result = store.reindex(system_dir=_system_skills_dir())
+        else:
+            embedding_fn, embedding_model, dimensions = embedding
+            result = store.reindex(
+                system_dir=_system_skills_dir(),
+                embedding_fn=embedding_fn,
+                embedding_model=embedding_model,
+                embedding_dimensions=dimensions,
+            )
+    except (NotImplementedError, ValueError) as exc:
         console.print(f"[red]Skill reindex failed: {escape(str(exc))}[/red]")
         raise typer.Exit(1) from exc
     console.print(
         f"[green]Indexed {result.skills} skill(s) and {result.relations} relation(s)[/green]\n"
         f"DB: {result.db_path}"
     )
+    if loaded.skills.embedding.provider and loaded.skills.embedding.model:
+        console.print(
+            "[green]Skill embeddings indexed[/green] "
+            f"({escape(loaded.skills.embedding.provider)} / {escape(loaded.skills.embedding.model)})"
+        )
 
 
 @skill_app.command("list")
@@ -2565,6 +2589,11 @@ def skill_test_routing(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Candidates to inspect per case"),
     threshold: float = typer.Option(0.90, "--threshold", min=0.0, max=1.0, help="Required top-1 accuracy"),
+    include_drafts: bool = typer.Option(
+        False,
+        "--include-drafts",
+        help="Include draft skills for pre-approval routing validation only.",
+    ),
 ):
     """Run deterministic skill routing tests against the registry."""
     store = _skill_store_for_cli(config, workspace)
@@ -2583,7 +2612,8 @@ def skill_test_routing(
         console.print("[red]No routing cases found.[/red]")
         raise typer.Exit(1)
 
-    result = store.run_routing_test(routing_cases, top_k=top_k)
+    min_status = ("draft", "candidate", "verified") if include_drafts else ("candidate", "verified")
+    result = store.run_routing_test(routing_cases, top_k=top_k, min_status=min_status)
     table = Table(title=f"Skill Routing Test ({len(discovered_files)} file(s), {len(routing_cases)} case(s))")
     table.add_column("Query", overflow="fold")
     table.add_column("Expected")

@@ -74,6 +74,10 @@ class SkillDecisionTool(Tool, ContextAware):
     def read_only(self) -> bool:
         return False
 
+    @property
+    def observability(self) -> bool:
+        return True
+
     def set_context(self, ctx: RequestContext) -> None:
         self._session_key = ctx.session_key or f"{ctx.channel}:{ctx.chat_id}"
 

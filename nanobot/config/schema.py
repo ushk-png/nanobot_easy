@@ -147,6 +147,23 @@ class AgentDefaults(Base):
     max_tool_iterations: int = 200
     max_concurrent_subagents: int = Field(default=1, ge=1)
     skills: list[str] = Field(default_factory=list)  # Main-agent Hot Path skills preloaded into the prompt.
+    proactive_skill_cards: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("proactiveSkillCards", "proactive_skill_cards"),
+        serialization_alias="proactiveSkillCards",
+    )  # Inject top skill candidate cards into the turn context before the model decides.
+    proactive_card_min_score: int = Field(
+        default=35,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices("proactiveCardMinScore", "proactive_card_min_score"),
+        serialization_alias="proactiveCardMinScore",
+    )  # Minimum retrieval score required before proactive skill cards are injected.
+    proactive_method_inline: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("proactiveMethodInline", "proactive_method_inline"),
+        serialization_alias="proactiveMethodInline",
+    )  # Inline the top skill Method only for strong, unambiguous proactive matches.
     subagent_profiles: dict[str, SubagentProfile] = Field(default_factory=dict)
     max_subagent_depth: int = Field(default=2, ge=1, le=3)
     fail_on_tool_error: bool = True
@@ -348,6 +365,20 @@ class GatewayConfig(Base):
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
 
 
+class SkillEmbeddingConfig(Base):
+    """Optional semantic embedding configuration for skill routing."""
+
+    provider: str | None = None
+    model: str | None = None
+    dimensions: int | None = Field(default=None, ge=1)
+
+
+class SkillsConfig(Base):
+    """Skill runtime/indexing configuration."""
+
+    embedding: SkillEmbeddingConfig = Field(default_factory=SkillEmbeddingConfig)
+
+
 class MCPServerConfig(Base):
     """MCP server connection configuration (stdio or HTTP)."""
 
@@ -465,6 +496,7 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
