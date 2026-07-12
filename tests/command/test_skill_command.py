@@ -136,3 +136,114 @@ async def test_skill_command_registered_on_router(tmp_path: Path) -> None:
 
     assert out is not None
     assert "No skills available." in out.content
+
+
+@pytest.mark.asyncio
+async def test_skill_drafts_lists_materialized_draft(tmp_path: Path) -> None:
+    """A workspace SKILL.md file indexes as draft by default and shows up here."""
+    from nanobot.skill_store import SkillStore
+
+    ws_skills = tmp_path / "skills"
+    ws_skills.mkdir()
+    _write_skill(ws_skills, "gcalcli-calendar", description="Manage Google Calendar via gcalcli")
+    SkillStore(tmp_path).reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+
+    out = await router.dispatch(_ctx(loop, "/skill drafts"))
+
+    assert out is not None
+    assert "gcalcli-calendar" in out.content
+    assert "/skill approve gcalcli-calendar" in out.content
+
+
+@pytest.mark.asyncio
+async def test_skill_drafts_empty(tmp_path: Path) -> None:
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+    out = await router.dispatch(_ctx(loop, "/skill drafts"))
+    assert out is not None
+    assert out.content == "No pending skill drafts."
+
+
+@pytest.mark.asyncio
+async def test_skill_approve_materialized_draft_promotes_to_candidate(tmp_path: Path) -> None:
+    from nanobot.skill_store import SkillStore
+
+    ws_skills = tmp_path / "skills"
+    ws_skills.mkdir()
+    _write_skill(ws_skills, "gcalcli-calendar", description="Manage Google Calendar via gcalcli")
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    assert store.get_skill("gcalcli-calendar")["status"] == "draft"
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+
+    out = await router.dispatch(_ctx(loop, "/skill approve gcalcli-calendar"))
+
+    assert out is not None
+    assert "Approved `gcalcli-calendar`" in out.content
+    assert store.get_skill("gcalcli-calendar")["status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_skill_approve_unknown_name_lists_pending(tmp_path: Path) -> None:
+    from nanobot.skill_store import SkillStore
+
+    ws_skills = tmp_path / "skills"
+    ws_skills.mkdir()
+    _write_skill(ws_skills, "real-draft", description="Real pending draft")
+    SkillStore(tmp_path).reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+
+    out = await router.dispatch(_ctx(loop, "/skill approve nonexistent-skill"))
+
+    assert out is not None
+    assert "No pending draft named `nonexistent-skill`" in out.content
+    assert "real-draft" in out.content
+
+
+@pytest.mark.asyncio
+async def test_skill_approve_composed_draft_materializes_file(tmp_path: Path) -> None:
+    """A composer-produced (skill_drafts table) draft is materialized and approved."""
+    from nanobot.skill_store import SkillStore
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    store.create_skill_draft(
+        name="standup-notes",
+        description="Summarize daily standup notes into action items.",
+        trigger="standup notes\ndaily standup summary",
+        method="# Standup Notes\n\n## Method\n1. Summarize.\n",
+        category="notes.standup",
+    )
+    assert (tmp_path / "skills" / "standup-notes").exists() is False
+
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+
+    out = await router.dispatch(_ctx(loop, "/skill approve standup-notes"))
+
+    assert out is not None
+    assert "Approved `standup-notes`" in out.content
+    assert (tmp_path / "skills" / "standup-notes" / "SKILL.md").exists()
+    assert store.get_skill("standup-notes")["status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_skill_approve_requires_name(tmp_path: Path) -> None:
+    router = CommandRouter()
+    register_builtin_commands(router)
+    loop = _loop_with_skills(tmp_path)
+    out = await router.dispatch(_ctx(loop, "/skill approve "))
+    assert out is not None
+    assert "Usage:" in out.content

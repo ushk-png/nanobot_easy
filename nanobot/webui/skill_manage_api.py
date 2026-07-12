@@ -397,6 +397,84 @@ def skill_manage_approve_draft_payload(
     }
 
 
+def skill_manage_pending_approvals_payload(workspace_path: Path) -> dict[str, Any]:
+    """List everything a human could approve right now, from any front-end.
+
+    Merges the two draft surfaces: composer drafts not yet materialized
+    (``skill_drafts`` table) and workspace SKILL.md files already indexed
+    with ``status=draft`` (e.g. a copied-in external skill or a hand-written
+    file). Chat, WebUI, and CLI all resolve approval targets against this
+    same list so "which name can I approve" never diverges between them.
+    """
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    composed = [
+        {
+            "name": draft.name,
+            "source": "composed",
+            "status": draft.status,
+            "draft_id": draft.draft_id,
+            "updated_at": draft.updated_at,
+        }
+        for draft in store.list_skill_drafts()
+        if draft.status == "ready"
+    ]
+    materialized = [
+        {
+            "name": row["name"],
+            "source": "file",
+            "status": row["status"],
+            "draft_id": None,
+            "updated_at": row["updated_at"],
+        }
+        for row in store.list_skills(include_deprecated=False)
+        if row["status"] == "draft"
+    ]
+    return {"pending": composed + materialized}
+
+
+def skill_manage_chat_approve_payload(
+    workspace_path: Path,
+    name: str,
+    *,
+    policy: Any | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Resolve *name* against either draft surface and approve it.
+
+    This is the shared entry point for chat-based approval: it performs the
+    same lookup a human would do in the WebUI draft inbox, then delegates to
+    the existing governance-checked approval paths. It never bypasses the
+    duplicate-differentiation or red-flag gates in :func:`_draft_governance` —
+    a chat one-liner can supply a free-text override *reason* for a
+    confirmable flag, but a duplicate-neighbor flag still requires the
+    structured relation wiring only the WebUI form collects, and a blocking
+    red flag cannot be overridden from here at all.
+    """
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+
+    row = store.get_skill(name)
+    if row is not None and row["status"] == "draft":
+        approved = store.approve_draft(name)
+        return {"source": "file", "skill": row_to_skill_payload(approved)}
+
+    composed_matches = [
+        draft
+        for draft in store.list_skill_drafts()
+        if draft.name == name and draft.status == "ready"
+    ]
+    if composed_matches:
+        draft_id = composed_matches[0].draft_id
+        approval = {"reason": reason} if reason else None
+        payload = skill_manage_approve_draft_payload(
+            workspace_path, draft_id, policy=policy, approval=approval
+        )
+        return {"source": "composed", **payload}
+
+    raise KeyError(f"no pending draft named '{name}'")
+
+
 def _routing_test_payload(result: Any) -> dict[str, Any]:
     return {
         "passed": result.passed,

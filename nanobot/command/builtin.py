@@ -9,7 +9,7 @@ import sys
 import time
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
@@ -144,9 +144,11 @@ BUILTIN_COMMAND_SPECS: tuple[BuiltinCommandSpec, ...] = (
     ),
     BuiltinCommandSpec(
         "/skill",
-        "List skills",
-        "List all enabled skills available to the agent.",
+        "Manage skills",
+        "List skills, review pending drafts, or approve a draft by name.",
         "wrench",
+        "[drafts|approve <name> [reason]]",
+        accepts_args=True,
     ),
     BuiltinCommandSpec(
         "/help",
@@ -810,18 +812,86 @@ async def cmd_pairing(ctx: CommandContext) -> OutboundMessage:
     )
 
 
-async def cmd_skill(ctx: CommandContext) -> OutboundMessage:
-    """List all enabled skills (name and description only)."""
-    loop = ctx.loop
+def _skill_list_reply(loop: Any) -> str:
     skills = loop.context.skills.list_skills(filter_unavailable=False)
     if not skills:
-        content = "No skills available."
+        return "No skills available."
+    lines = [f"Available skills ({len(skills)}):", ""]
+    for entry in skills:
+        desc = loop.context.skills._get_skill_description(entry["name"])
+        lines.append(f"- **{entry['name']}** — {desc}")
+    return "\n".join(lines)
+
+
+def _skill_drafts_reply(loop: Any) -> str:
+    from nanobot.webui.skill_manage_api import skill_manage_pending_approvals_payload
+
+    pending = skill_manage_pending_approvals_payload(loop.workspace)["pending"]
+    if not pending:
+        return "No pending skill drafts."
+    lines = [f"Pending drafts ({len(pending)}):", ""]
+    for item in pending:
+        lines.append(f"- **{item['name']}** ({item['source']}) — reply `/skill approve {item['name']}`")
+    return "\n".join(lines)
+
+
+def _skill_approve_reply(loop: Any, args: str) -> str:
+    from nanobot.webui.skill_manage_api import skill_manage_pending_approvals_payload
+
+    parts = args.split(None, 1)
+    if not parts:
+        return "Usage: `/skill approve <name> [reason]`"
+    name, reason = parts[0], (parts[1] if len(parts) > 1 else None)
+    policy = getattr(getattr(loop.tools_config, "webui_skill_management", None), "red_flags", None)
+    try:
+        from nanobot.webui.skill_manage_api import skill_manage_chat_approve_payload
+
+        result = skill_manage_chat_approve_payload(loop.workspace, name, policy=policy, reason=reason)
+    except KeyError:
+        pending = skill_manage_pending_approvals_payload(loop.workspace)["pending"]
+        if not pending:
+            return f"No pending draft named `{name}`, and there is nothing else pending."
+        names = ", ".join(f"`{item['name']}`" for item in pending)
+        return f"No pending draft named `{name}`. Pending: {names}"
+    except PermissionError:
+        return (
+            f"Draft `{name}` has a blocking review flag and cannot be approved from chat. "
+            "Open the WebUI skill manager to review it in full."
+        )
+    except ValueError as exc:
+        message = str(exc)
+        if "differentiation" in message:
+            return (
+                f"Draft `{name}` is close to an existing skill and needs explicit trigger "
+                "differentiation and relation wiring — approve it from the WebUI skill manager."
+            )
+        return f"Cannot approve `{name}` from chat: {message}. Reply `/skill approve {name} <reason>` if this needs an override reason."
+    skill = result.get("skill")
+    status = skill.get("status") if isinstance(skill, dict) else None
+    return f"Approved `{name}`" + (f" — status is now `{status}`." if status else ".")
+
+
+async def cmd_skill(ctx: CommandContext) -> OutboundMessage:
+    """List skills, show pending drafts, or approve a draft by name.
+
+    Dispatched deterministically by CommandRouter before the LLM turn runs
+    (see AgentLoop.is_dispatchable_command), so approval here is a human
+    typing this exact command in chat — never an action the agent's own
+    reasoning can trigger on its own.
+    """
+    loop = ctx.loop
+    args = ctx.args.strip()
+    if not args:
+        content = _skill_list_reply(loop)
+    elif args == "drafts":
+        content = _skill_drafts_reply(loop)
+    elif args.startswith("approve "):
+        content = _skill_approve_reply(loop, args[len("approve "):].strip())
     else:
-        lines = [f"Available skills ({len(skills)}):", ""]
-        for entry in skills:
-            desc = loop.context.skills._get_skill_description(entry["name"])
-            lines.append(f"- **{entry['name']}** — {desc}")
-        content = "\n".join(lines)
+        content = (
+            "Usage: `/skill` (list) | `/skill drafts` (pending) | "
+            "`/skill approve <name> [reason]`"
+        )
     return OutboundMessage(
         channel=ctx.msg.channel,
         chat_id=ctx.msg.chat_id,
@@ -928,6 +998,7 @@ def register_builtin_commands(router: CommandRouter) -> None:
     router.exact("/dream-prompt", cmd_dream_prompt)
     router.prefix("/dream-prompt ", cmd_dream_prompt)
     router.exact("/skill", cmd_skill)
+    router.prefix("/skill ", cmd_skill)
     router.exact("/help", cmd_help)
     router.exact("/pairing", cmd_pairing)
     router.prefix("/pairing ", cmd_pairing)
