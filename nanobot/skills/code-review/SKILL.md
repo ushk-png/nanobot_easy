@@ -32,6 +32,8 @@ metadata:
 
 ## When Not To Use
 
+- Reviewing a spec, proposal, config, guide, or other non-code document —
+  use `document-review`.
 - Use `code-debugging` when the user asks the agent to reproduce, edit, or fix.
 - Use `debug-procedure` when the user wants a debugging plan rather than review
   findings.

@@ -18,6 +18,11 @@ metadata:
       - document-review
       - research-synthesis
     triggers:
+      - summarize this report
+      - summarize this memo
+      - summarize this article
+      - summarize this pdf
+      - summarize this transcript
       - summarize this document
       - short summary of this article
       - extract key points

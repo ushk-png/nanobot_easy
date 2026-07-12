@@ -46,6 +46,19 @@ def _write_skill(
     (skill_dir / "SKILL.md").write_text("\n".join(lines), encoding="utf-8")
 
 
+def _index_and_approve(workspace: Path, *names: str) -> SkillStore:
+    """Reindex, then run the human approval transition for the given skills.
+
+    Workspace files always enter the registry as draft regardless of any
+    self-declared frontmatter status, so tests must approve explicitly.
+    """
+    store = SkillStore(workspace)
+    store.reindex(builtin_dir=workspace / "empty_builtin")
+    for name in names:
+        store.approve_draft(name)
+    return store
+
+
 @pytest.mark.asyncio
 async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
@@ -64,7 +77,7 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
         requires_exec=True,
     )
     _write_skill(skills, "draft-only", description="Hidden draft", status="draft")
-    SkillStore(tmp_path).reindex(builtin_dir=tmp_path / "empty_builtin")
+    _index_and_approve(tmp_path, "answer-comparison", "coding-fix")
 
     tool = SkillSearchTool(str(tmp_path))
     tool.set_context(RequestContext(channel="cli", chat_id="direct", session_key="cli:direct"))
@@ -112,7 +125,7 @@ async def test_skill_search_conflict_warning_for_close_scores(tmp_path: Path) ->
         description="review document",
         conflicts_with=["alpha-review"],
     )
-    SkillStore(tmp_path).reindex(builtin_dir=tmp_path / "empty_builtin")
+    _index_and_approve(tmp_path, "alpha-review", "beta-review")
 
     raw = await SkillSearchTool(str(tmp_path)).execute(
         queries=[{"query": "review document", "top_k": 2}]
@@ -128,8 +141,7 @@ async def test_skill_search_uses_stats_weighting(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
     _write_skill(skills, "stable-review", description="review document")
     _write_skill(skills, "noisy-review", description="review document")
-    store = SkillStore(tmp_path)
-    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    store = _index_and_approve(tmp_path, "stable-review", "noisy-review")
     for idx in range(5):
         store.record_skill_outcome("stable-review", gate_result="ok")
     for idx in range(5):

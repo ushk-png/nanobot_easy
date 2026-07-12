@@ -20,6 +20,7 @@ metadata:
       - compare-options
       - pros-cons-decision
     triggers:
+      - compare two apis
       - what is the difference between
       - compare these terms
       - A vs B meaning

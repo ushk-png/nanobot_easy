@@ -14,6 +14,9 @@ metadata:
       - grep
       - exec
     triggers:
+      - find the regression
+      - run the failing command
+      - repair the implementation
       - fix this bug
       - tests are failing
       - debug this error

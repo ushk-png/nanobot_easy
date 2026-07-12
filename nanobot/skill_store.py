@@ -33,7 +33,7 @@ VALID_STATUSES: set[str] = {
     "rejected",
 }
 VALID_RELATIONS: set[str] = {"conflicts", "supersedes", "fallback"}
-DEFAULT_WORKSPACE_STATUS = "candidate"
+DEFAULT_WORKSPACE_STATUS = "draft"
 DEFAULT_BUILTIN_STATUS = "verified"
 _ROUTING_STOPWORDS = {
     "a",
@@ -322,138 +322,11 @@ def _phrase_lines(text: str) -> list[str]:
     lines: list[str] = []
     for raw in re.split(r"[\n,;|]+", text.lower()):
         line = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*|[가-힣]{2,}", raw))
-        if len(line) >= 8:
+        # Phrase evidence needs at least two words; a lone word is term-level
+        # evidence and is already scored (and capped) as such.
+        if len(line) >= 8 and " " in line:
             lines.append(line)
     return lines
-
-
-def _has_any(text: str, phrases: Iterable[str]) -> bool:
-    return any(phrase in text for phrase in phrases)
-
-
-def _intent_skill_boost(skill_name: str, query: str) -> float:
-    q = query.lower()
-    boost = 0.0
-    if skill_name == "answer-comparison" and _has_any(
-        q,
-        (
-            "what is the difference",
-            "difference between",
-            "how are",
-            "a vs b",
-            " vs ",
-            "meaning and tradeoffs",
-            "conceptual difference",
-            "compare token",
-            "compare these two api",
-        ),
-    ):
-        boost += 90.0
-    if skill_name == "answer-howto" and _has_any(
-        q,
-        ("how do i", "walk me through", "what are the steps", "setup steps", "how should i configure"),
-    ):
-        boost += 90.0
-    if skill_name == "answer-diagnosis" and _has_any(
-        q,
-        ("why is", "why my", "diagnose", "what caused", "root causes", "possible root causes", "failing"),
-    ):
-        boost += 80.0
-    if skill_name == "error-message-explain" and _has_any(
-        q,
-        ("what does this error", "error meaning", "explain this stack", "explain this error", "enoent", "importerror", "http 403"),
-    ):
-        boost += 90.0
-    if skill_name == "compare-options" and _has_any(
-        q,
-        ("compare these two", "which should i choose", "evaluate option", "compare these vendors", "choose between"),
-    ):
-        boost += 90.0
-    if skill_name == "pros-cons-decision" and _has_any(
-        q,
-        ("pros and cons", "decision note", "help me decide", "build or buy", "should we choose", "recommend between"),
-    ):
-        boost += 90.0
-    if skill_name == "summarize-document" and _has_any(
-        q,
-        ("summarize this", "short summary", "extract the key points", "make this long", "single pdf", "single report"),
-    ):
-        boost += 90.0
-    if skill_name == "meeting-notes" and _has_any(
-        q,
-        ("meeting transcript", "meeting notes", "meeting minutes", "action items", "owners", "follow-ups", "meeting decisions"),
-    ):
-        boost += 110.0
-    if skill_name == "document-review" and _has_any(
-        q,
-        ("review this", "find gaps", "critique this", "check this spec", "proposal for risks", "for clarity"),
-    ):
-        boost += 80.0
-    if skill_name == "research-brief" and _has_any(
-        q,
-        ("research the latest", "find current", "sourced research brief", "external-information", "authoritative sources"),
-    ):
-        boost += 100.0
-    if skill_name == "research-synthesis" and _has_any(
-        q,
-        ("synthesize", "combine these findings", "say together", "evidence across", "sources i already collected"),
-    ):
-        boost += 110.0
-    if skill_name == "code-review" and _has_any(
-        q,
-        ("review this code", "review this diff", "pr diff", "code review", "check this function", "review this implementation"),
-    ):
-        boost += 100.0
-    if skill_name == "code-debugging" and _has_any(
-        q,
-        ("fix this bug", "tests are failing", "make the fix", "update the test", "run the failing", "fix the failing"),
-    ):
-        boost += 110.0
-    if skill_name == "debug-procedure" and _has_any(
-        q,
-        ("debugging plan", "how should i debug", "investigation steps", "triage this failure", "narrow down", "before touching code"),
-    ):
-        boost += 110.0
-    if skill_name == "data-analysis" and _has_any(
-        q,
-        ("analyze this csv", "load this dataset", "compute weekly", "inspect this spreadsheet", "calculate"),
-    ):
-        boost += 100.0
-    if skill_name == "data-interpretation" and _has_any(
-        q,
-        ("interpret these", "what does this chart", "explain these metrics", "read this table", "what should i conclude"),
-    ):
-        boost += 100.0
-    if skill_name == "translation-technical" and "translate" in q:
-        boost += 120.0
-    if skill_name == "email-draft" and _has_any(
-        q,
-        ("draft an email", "write a reply", "polish this message", "customer response", "email response", "draft a follow-up"),
-    ):
-        boost += 110.0
-    if skill_name == "topic-recall" and _has_any(
-        q,
-        ("continue what we were doing", "go back to", "earlier", "from before", "edited earlier", "restore context"),
-    ):
-        boost += 110.0
-    if skill_name == "clawhub" and _has_any(q, ("install", "find a skill", "search for skills")):
-        boost += 70.0
-    if skill_name == "yq-setup" and "yq" in q and _has_any(
-        q,
-        ("install", "set up", "setup", "configure", "add a yaml query", "prepare"),
-    ):
-        boost += 130.0
-    if skill_name == "yq-usage" and "yq" in q and _has_any(
-        q,
-        ("use", "query", "extract", "convert", "run yq", "show the"),
-    ):
-        boost += 130.0
-
-    if skill_name == "summarize" and not _has_any(q, ("url", "youtube", "video", "podcast", "transcribe", "link")):
-        boost -= 120.0
-    if skill_name in {"weather", "github", "my", "update-setup"} and skill_name.replace("-", " ") not in q:
-        boost -= 30.0
-    return boost
 
 
 def _parse_frontmatter(content: str) -> dict[str, Any]:
@@ -641,6 +514,12 @@ def _merge_duplicate_review(
 
 
 def _status_for(source: str, frontmatter: dict[str, Any], meta: dict[str, Any]) -> str:
+    if source == "workspace":
+        # The registry is the single source of truth for lifecycle state. A
+        # workspace SKILL.md cannot self-declare its status: runtime-written
+        # files always enter as draft and only a human approval (CLI/WebUI)
+        # moves them to candidate, so they stay out of skill_search until then.
+        return DEFAULT_WORKSPACE_STATUS
     status = str(meta.get("status") or frontmatter.get("status") or "").strip().lower()
     if not status:
         status = DEFAULT_BUILTIN_STATUS if source == "builtin" else DEFAULT_WORKSPACE_STATUS
@@ -665,6 +544,24 @@ _SECTION_RE = re.compile(r"^#{1,3}\s+(.+?)\s*$", re.MULTILINE)
 
 def _markdown_sections(body: str) -> set[str]:
     return {match.group(1).strip().lower() for match in _SECTION_RE.finditer(body)}
+
+
+def _markdown_section_body(body: str, *titles: str) -> str:
+    """Return the content of the first heading whose title starts with one of ``titles``.
+
+    Title matching is case-insensitive and tolerates suffixes such as
+    "When to use (trigger phrases)". The section ends at the next heading.
+    """
+    matches = list(_SECTION_RE.finditer(body))
+    wanted = tuple(title.lower() for title in titles)
+    for index, match in enumerate(matches):
+        heading = match.group(1).strip().lower()
+        if not heading.startswith(wanted):
+            continue
+        start = match.end()
+        end = matches[index + 1].start() if index + 1 < len(matches) else len(body)
+        return body[start:end].strip()
+    return ""
 
 
 def _validate_external_tool_shape(
@@ -721,8 +618,12 @@ def _skill_from_file(path: Path, *, source: str, default_status: str | None = No
     risk_level = str(meta.get("risk_level") or frontmatter.get("risk_level") or "low")
     category = str(meta.get("category") or frontmatter.get("category") or "general")
     requires_exec = bool(meta.get("requires_exec") or frontmatter.get("requires_exec") or False)
-    when_to_use = _json_text(frontmatter.get("when_to_use") or meta.get("when_to_use"))
-    when_not_to_use = _json_text(frontmatter.get("when_not_to_use") or meta.get("when_not_to_use"))
+    when_to_use = _json_text(frontmatter.get("when_to_use") or meta.get("when_to_use")) or (
+        _markdown_section_body(body, "when to use")
+    )
+    when_not_to_use = _json_text(frontmatter.get("when_not_to_use") or meta.get("when_not_to_use")) or (
+        _markdown_section_body(body, "when not to use")
+    )
     required_tools = _json_list(meta.get("required_tools") or frontmatter.get("required_tools"))
     install_sources = _json_list(meta.get("install_sources") or frontmatter.get("install_sources"))
     _validate_external_tool_shape(
@@ -736,13 +637,14 @@ def _skill_from_file(path: Path, *, source: str, default_status: str | None = No
         install_sources=install_sources,
     )
     content_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    # Positive trigger surface only. when_to_use/when_not_to_use are scored
+    # from their own columns with matching polarity; mixing when_not_to_use
+    # into the shared index would reward negative evidence.
     search_text = "\n".join(
         part
         for part in (
             name,
             description,
-            when_to_use,
-            when_not_to_use,
             "\n".join(_json_list(meta.get("triggers") or frontmatter.get("triggers"))),
         )
         if part
@@ -1980,6 +1882,14 @@ class SkillStore:
                     encoding="utf-8",
                 )
             self.reindex(system_dir=system_dir)
+            # Indexing always lands workspace files as draft; this call is the
+            # human approval, so promote the registry row explicitly.
+            self._transition_status(
+                name,
+                "candidate",
+                allowed_from={"draft"},
+                idempotent_from={"candidate"},
+            )
             now = _utc_now()
             with self._connect() as conn:
                 conn.execute(
@@ -2297,8 +2207,9 @@ class SkillStore:
         when_not_to_use = str(row["when_not_to_use"] or "")
         search_text = str(row["search_text"] or "")
 
-        score = fts_score
-        score += _intent_skill_boost(name, query)
+        # Full-text rank is a retrieval hint; cap it so raw bm25 magnitudes
+        # cannot outvote the card-evidence weights below.
+        score = min(fts_score, 20.0)
         name_terms = _routing_terms(name.replace("-", " "))
         description_terms = _routing_terms(description)
         when_terms = _routing_terms(when_to_use)
@@ -2313,7 +2224,11 @@ class SkillStore:
 
         compact_name = name.lower().replace("-", " ")
         if compact_name and compact_name in query_lower:
-            score += 40.0
+            # Specificity bonus: matching a multi-word name verbatim is far
+            # stronger evidence than a single word that doubles as a common verb.
+            score += 40.0 if len(name_terms) >= 2 else 10.0
+        # Phrase evidence must respect polarity: when_not_to_use lines are
+        # negative trigger surface, so they may never add to the score.
         for phrase in _phrase_lines(search_text):
             if phrase in query_lower:
                 score += 80.0
@@ -2323,6 +2238,13 @@ class SkillStore:
                 phrase_terms = _routing_terms(phrase)
                 if phrase_terms and phrase_terms <= query_terms:
                     score += 30.0
+        for phrase in _phrase_lines(when_not_to_use):
+            if phrase in query_lower:
+                score -= 60.0
+            else:
+                phrase_terms = _routing_terms(phrase)
+                if phrase_terms and phrase_terms <= query_terms:
+                    score -= 25.0
 
         if bool(row["requires_exec"]):
             exec_cues = {"fix", "run", "execute", "inspect", "patch", "calculate", "analyze", "load", "compute"}

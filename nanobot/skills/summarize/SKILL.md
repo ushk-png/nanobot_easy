@@ -41,6 +41,8 @@ Use this skill immediately when the user asks any of:
 
 ## When not to use
 
+- Summarizing a pasted report, memo, article, transcript, or other supplied
+  text with no URL — use `summarize-document`.
 - Use `summarize-document` for pasted text or a supplied document when no
   external CLI extraction is needed.
 

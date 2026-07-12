@@ -17,6 +17,7 @@ metadata:
       - code-review
       - answer-diagnosis
     triggers:
+      - give me a debugging plan
       - debugging plan
       - how should I debug
       - investigation steps

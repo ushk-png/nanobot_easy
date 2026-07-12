@@ -10,6 +10,8 @@ metadata:
     risk_level: low
     requires_exec: false
     triggers:
+      - summarize this meeting
+      - meeting minutes
       - summarize these meeting notes
       - extract action items
       - meeting transcript

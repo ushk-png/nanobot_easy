@@ -10,6 +10,13 @@ metadata:
     risk_level: low
     requires_exec: false
     triggers:
+      - review this spec
+      - review this proposal
+      - review this memo
+      - review this design for risks
+      - review this guide for clarity
+      - review this config for risks
+      - check for contradictions
       - review this document
       - find gaps in this proposal
       - critique this draft

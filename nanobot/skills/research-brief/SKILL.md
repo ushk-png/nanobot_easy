@@ -12,6 +12,8 @@ metadata:
     required_tools:
       - web
     triggers:
+      - find authoritative sources
+      - find current sources
       - research this topic
       - find latest information
       - sourced brief

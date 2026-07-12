@@ -13,6 +13,10 @@ metadata:
     required_tools:
       - exec
     emoji: 🦞
+    triggers:
+      - install this cli utility
+      - install this tool for me
+      - find a skill for this
 ---
 
 # ClawHub

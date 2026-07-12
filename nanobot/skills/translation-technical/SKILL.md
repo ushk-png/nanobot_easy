@@ -14,6 +14,8 @@ metadata:
     risk_level: low
     requires_exec: false
     triggers:
+      - translate this email
+      - translate into Korean
       - translate this technical document
       - translate keeping code terms
       - Korean technical translation

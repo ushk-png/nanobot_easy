@@ -73,9 +73,15 @@ class MemoryStore:
         self._oversize_logged = False  # rate-limit oversized-entry warning
         self._dream_prompt_oversize_logged = False
         self._append_lock = threading.Lock()  # serialize cursor allocation + append
-        self._git = GitStore(workspace, tracked_files=[
-            "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
-        ])
+        self._git = GitStore(
+            workspace,
+            tracked_files=[
+                "SOUL.md", "USER.md", "memory/MEMORY.md", "memory/.dream_cursor",
+            ],
+            # Topic snapshots (memory/topics/<slug>.md) are durable memory and
+            # must ride the same Dream commits.
+            tracked_dirs=["memory/topics"],
+        )
         self._maybe_migrate_legacy_history()
 
     @property

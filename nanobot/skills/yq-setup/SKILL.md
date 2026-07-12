@@ -20,6 +20,7 @@ metadata:
       - exec
       - write_file
     triggers:
+      - set up yq
       - install yq
       - setup yq
       - configure yq for nanobot

@@ -17,6 +17,9 @@ metadata:
       - answer-howto
       - error-message-explain
     triggers:
+      - why is my
+      - why is this
+      - permission denied
       - why is this happening
       - what caused this
       - diagnose this

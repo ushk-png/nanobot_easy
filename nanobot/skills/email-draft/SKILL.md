@@ -30,6 +30,7 @@ metadata:
 
 ## When Not To Use
 
+- Translating an existing message or document — use `translation-technical`.
 - Use `translation-technical` when the main task is translation.
 - Use `meeting-notes` when the input is meeting notes and the user wants actions.
 

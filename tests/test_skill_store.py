@@ -60,6 +60,14 @@ def _write_skill(
     (skill_dir / "SKILL.md").write_text("\n".join(meta_lines), encoding="utf-8")
 
 
+def _approve(store: SkillStore, *names: str, promote: bool = False) -> None:
+    """Run the human approval transition; files always index as draft."""
+    for name in names:
+        store.approve_draft(name)
+        if promote:
+            store.promote(name)
+
+
 def test_skill_store_reindex_loads_skills_relations_and_searches(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
     _write_skill(skills, "alpha", description="Analyze alpha requirements")
@@ -80,14 +88,77 @@ def test_skill_store_reindex_loads_skills_relations_and_searches(tmp_path: Path)
     beta = store.get_skill("beta")
     assert beta is not None
     assert beta["requires_exec"] == 1
-    assert beta["status"] == "candidate"
+    # Workspace files enter as draft and stay out of search until approved.
+    assert beta["status"] == "draft"
+    assert store.search("coding", top_k=3) == []
 
+    _approve(store, "beta")
     matches = store.search("coding", top_k=3)
     assert [match.name for match in matches] == ["beta"]
 
     with sqlite3.connect(result.db_path) as conn:
         rel_count = conn.execute("SELECT COUNT(*) FROM skill_relations").fetchone()[0]
     assert rel_count == 3
+
+
+def test_skill_cards_extract_when_sections_from_body(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(
+        skills,
+        "sectioned",
+        body=(
+            "# Sectioned\n\n"
+            "## When to use (trigger phrases)\n\n"
+            "- summarize this report\n\n"
+            "## When not to use\n\n"
+            "- combining multiple sources\n\n"
+            "## Method\n\n1. Do it.\n"
+        ),
+    )
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    row = store.get_skill("sectioned")
+    assert row is not None
+    assert "summarize this report" in row["when_to_use"]
+    assert "combining multiple sources" in row["when_not_to_use"]
+    assert "Method" not in row["when_to_use"]
+
+
+def test_routing_score_respects_card_polarity(tmp_path: Path) -> None:
+    """when_not_to_use is negative evidence and a lone word is not a phrase.
+
+    Guards against reintroducing hardcoded per-skill boosts: ranking must be
+    derivable from each skill's own card (triggers, when_to_use polarity),
+    so a broad single-verb name cannot capture queries its card disclaims.
+    """
+    skills = tmp_path / "skills"
+    _write_skill(
+        skills,
+        "summarize",
+        description="Summarize URLs, podcasts, and videos with a CLI.",
+        body=(
+            "# Summarize\n\n"
+            "## When not to use\n\n"
+            "- Summarizing a pasted report, memo, or article — use summarize-document.\n"
+        ),
+    )
+    _write_skill(
+        skills,
+        "summarize-document",
+        description="Summarize one supplied document. Triggers: summarize this report.",
+        body=(
+            "# Summarize Document\n\n"
+            "## When to use\n\n"
+            "- summarize this report\n"
+            "- summarize this article\n"
+        ),
+    )
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "summarize", "summarize-document")
+
+    matches = store.search("Summarize this report for me", top_k=2)
+    assert matches and matches[0].name == "summarize-document"
 
 
 def test_skill_store_reindex_loads_scoped_workspace_packages(tmp_path: Path) -> None:
@@ -116,6 +187,7 @@ def test_skill_store_audit_reports_advisory_findings(tmp_path: Path) -> None:
 
     store = SkillStore(tmp_path)
     store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "answer-comparison", "compare-options", "ready", "my")
     report = store.audit_catalog()
 
     assert Path(report.report_path).is_file()
@@ -249,6 +321,26 @@ Check it.
         store.reindex(builtin_dir=tmp_path / "empty_builtin")
 
 
+def test_workspace_skill_cannot_self_declare_status(tmp_path: Path) -> None:
+    """P1 governance: runtime-written files never enter search without approval."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "self-verified", description="Sneaky skill", status="verified")
+    _write_skill(skills, "self-system", description="Sneaky system", status="system")
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    assert store.get_skill("self-verified")["status"] == "draft"
+    assert store.get_skill("self-system")["status"] == "draft"
+    assert store.search("sneaky", top_k=5) == []
+
+    # The registry status survives a rewrite of the file with a new claim.
+    _approve(store, "self-verified")
+    _write_skill(skills, "self-verified", description="Sneaky skill v2", status="system")
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    assert store.get_skill("self-verified")["status"] == "candidate"
+
+
 def test_skill_store_protects_system_status(tmp_path: Path) -> None:
     system_dir = tmp_path / "skills-system"
     _write_skill(system_dir, "composite-task", status="system")
@@ -278,6 +370,8 @@ def test_skill_store_governance_transitions(tmp_path: Path) -> None:
     store.approve_draft("draft-skill")
     assert store.get_skill("draft-skill")["status"] == "candidate"
 
+    _approve(store, "candidate-skill")
+
     _write_skill(skills, "another-draft", status="draft")
     store.reindex(builtin_dir=tmp_path / "empty_builtin", system_dir=system_dir)
     with pytest.raises(ValueError, match="cannot transition"):
@@ -302,6 +396,7 @@ def test_skill_store_classifies_and_applies_skill_updates(tmp_path: Path) -> Non
 
     store = SkillStore(tmp_path)
     store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "editable", promote=True)
 
     skill_path = skills / "editable" / "SKILL.md"
     old_markdown = skill_path.read_text(encoding="utf-8")
@@ -354,7 +449,10 @@ def test_skill_cli_reindex_list_and_system_protection(tmp_path: Path) -> None:
     assert "Promoted skill" in result.stdout
     assert SkillStore(workspace).get_skill("alpha")["status"] == "verified"
 
-    result = runner.invoke(app, ["skill", "deprecate", "systemish", "--workspace", str(workspace)])
+    # A workspace file cannot self-declare system status; it indexes as draft.
+    assert SkillStore(workspace).get_skill("systemish")["status"] == "draft"
+
+    result = runner.invoke(app, ["skill", "deprecate", "composite-task", "--workspace", str(workspace)])
     assert result.exit_code == 1
     assert "system skill" in result.stdout
 
@@ -501,6 +599,7 @@ def test_skill_store_draft_records_duplicate_review_and_requires_differentiation
     )
     store = SkillStore(workspace)
     store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "answer-comparison", promote=True)
 
     draft = store.create_skill_draft(
         name="postgres-mysql-comparison",
@@ -561,6 +660,7 @@ def test_skill_hot_path_and_lifecycle_reports(tmp_path: Path) -> None:
     _write_skill(skills, "bad-router", description="Bad router", status="verified")
     store = SkillStore(workspace)
     store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "stable-helper", "bad-router", promote=True)
     for idx in range(6):
         store.record_trace(
             trace_id=f"stable-{idx}",

@@ -13,6 +13,8 @@ metadata:
       - read_file
       - exec
     triggers:
+      - inspect this spreadsheet
+      - calculate totals
       - analyze this csv
       - summarize this dataset
       - find anomalies
