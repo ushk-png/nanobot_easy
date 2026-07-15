@@ -14,7 +14,7 @@ describe("bootstrap helpers", () => {
     );
   });
 
-  it("overrides the server-provided websocket URL when on dev server port 5173", () => {
+  it("keeps the server-provided websocket URL when on dev server port 5173", () => {
     vi.stubGlobal("window", {
       location: {
         port: "5173",
@@ -22,8 +22,8 @@ describe("bootstrap helpers", () => {
         protocol: "http:",
       },
     });
-    expect(deriveWsUrl("/", "tok", "ws://127.0.0.1:8765/")).toBe(
-      "ws://192.168.1.100:8765/?token=tok",
+    expect(deriveWsUrl("/", "tok", "ws://127.0.0.1:8766/")).toBe(
+      "ws://127.0.0.1:8766/?token=tok",
     );
   });
 
