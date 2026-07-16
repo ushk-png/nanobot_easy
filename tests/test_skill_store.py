@@ -1,4 +1,7 @@
 import sqlite3
+import base64
+import io
+import zipfile
 from pathlib import Path
 
 import pytest
@@ -6,10 +9,17 @@ import yaml
 from typer.testing import CliRunner
 
 from nanobot.cli.commands import app
-from nanobot.skill_store import SkillStore, parse_skill_markdown
+from nanobot.skill_store import (
+    SkillDraftContent,
+    SkillStore,
+    parse_skill_markdown,
+    parse_skill_package_files,
+    parse_skill_package_zip,
+)
 from nanobot.webui.skill_manage_api import (
     installed_tools_payload,
     skill_manage_approve_draft_payload,
+    skill_manage_discard_draft_payload,
     skill_manage_list_payload,
 )
 
@@ -177,6 +187,92 @@ Run demo --version.
 
     assert parsed["fields"]["name"] == "demo-setup"
     assert any("setup skills must declare risk_level=high" in item for item in parsed["validation"]["errors"])
+
+
+def test_parse_skill_package_preserves_attachments_and_routing_cases() -> None:
+    parsed = parse_skill_package_files(
+        [
+            {
+                "path": "pkg/SKILL.md",
+                "content": (
+                    "---\n"
+                    "name: pkg-skill\n"
+                    "description: Package skill.\n"
+                    "metadata:\n"
+                    "  nanobot:\n"
+                    "    category: test.package\n"
+                    "    risk_level: low\n"
+                    "    requires_exec: false\n"
+                    "---\n\n"
+                    "# Package Skill\n\n## Method\n1. Read `templates/out.md`.\n"
+                ),
+            },
+            {"path": "pkg/templates/out.md", "content": "# Output\n"},
+            {
+                "path": "pkg/routing_cases.json",
+                "content": '{"cases":[{"query":"package skill","expected":"pkg-skill"}]}',
+            },
+        ]
+    )
+
+    assert parsed["mode"] == "package"
+    assert parsed["fields"]["name"] == "pkg-skill"
+    assert parsed["package"]["files"][0]["path"] == "templates/out.md"
+    assert parsed["package"]["attachments"][0]["content"] == "# Output\n"
+    assert parsed["package"]["routing_cases"][0]["query"] == "package skill"
+
+
+def test_parse_skill_package_zip() -> None:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        archive.writestr(
+            "pkg/SKILL.md",
+            (
+                "---\n"
+                "name: zipped-skill\n"
+                "description: Zipped skill.\n"
+                "metadata:\n"
+                "  nanobot:\n"
+                "    category: test.package\n"
+                "    risk_level: low\n"
+                "    requires_exec: false\n"
+                "---\n\n"
+                "# Zipped Skill\n\n## Method\n1. Read `examples/input.md`.\n"
+            ),
+        )
+        archive.writestr("pkg/examples/input.md", "input\n")
+
+    parsed = parse_skill_package_zip(base64.b64encode(buffer.getvalue()).decode("ascii"))
+
+    assert parsed["fields"]["name"] == "zipped-skill"
+    assert parsed["package"]["files"][0]["path"] == "examples/input.md"
+
+
+def test_approve_composed_draft_materializes_package_attachments(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    draft = store.create_skill_draft(
+        name="pkg-skill",
+        description="Package skill.",
+        trigger="package skill",
+        method="# Package Skill\n\n## Method\n1. Read `templates/out.md`.\n",
+        category="test.package",
+        content=SkillDraftContent(
+            attachments=[
+                {"path": "templates/out.md", "content": "# Output\n"},
+                {"path": "examples/input.md", "content": "input\n"},
+            ],
+            routing_cases=[{"query": "package skill", "expected": "pkg-skill"}],
+        ),
+    )
+
+    _, row = store.approve_composed_draft(draft.draft_id, system_dir=tmp_path / "empty-system")
+
+    assert row is not None
+    assert row["status"] == "candidate"
+    assert (tmp_path / "skills" / "pkg-skill" / "SKILL.md").is_file()
+    assert (tmp_path / "skills" / "pkg-skill" / "templates" / "out.md").read_text(encoding="utf-8") == "# Output\n"
+    assert (tmp_path / "skills" / "pkg-skill" / "examples" / "input.md").read_text(encoding="utf-8") == "input\n"
+    assert (tmp_path / "skills" / "pkg-skill" / "routing_cases.json").is_file()
 
 
 def test_skill_store_hybrid_search_uses_optional_query_vector(tmp_path: Path) -> None:
@@ -655,6 +751,51 @@ def test_skill_draft_hidden_until_approved(tmp_path: Path) -> None:
     assert [match.name for match in matches] == ["zxq-calibration"]
 
 
+def test_skill_store_discards_composer_draft(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    store = SkillStore(workspace)
+
+    draft = store.create_skill_draft(
+        name="unwanted-draft",
+        description="Not needed after all",
+        trigger="unwanted",
+        method="# Unwanted\n\n## Method\nDo nothing.",
+        category="general",
+    )
+    assert [item.name for item in store.list_skill_drafts()] == ["unwanted-draft"]
+
+    assert store.delete_skill_draft(draft.draft_id) is True
+    assert store.list_skill_drafts() == []
+    assert store.get_skill_draft(draft.draft_id) is None
+    # Never materialized as a file, so there is nothing left on disk to clean up.
+    assert not (workspace / "skills" / "unwanted-draft").exists()
+
+    # Discarding an already-discarded (or unknown) draft id is a no-op, not an error.
+    assert store.delete_skill_draft(draft.draft_id) is False
+    assert store.delete_skill_draft("draft-does-not-exist") is False
+
+
+def test_skill_store_refuses_to_discard_approved_draft(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    store = SkillStore(workspace)
+
+    draft = store.create_skill_draft(
+        name="already-approved",
+        description="Already registered",
+        trigger="already approved",
+        method="# Already Approved\n\n## Method\nDo the thing.",
+        category="general",
+    )
+    store.approve_composed_draft(draft.draft_id, system_dir=tmp_path / "empty-system")
+
+    with pytest.raises(ValueError, match="cannot discard an approved draft"):
+        store.delete_skill_draft(draft.draft_id)
+
+    # The approved draft record and the materialized skill both survive.
+    assert store.get_skill_draft(draft.draft_id) is not None
+    assert store.get_skill("already-approved") is not None
+
+
 def test_skill_store_composed_draft_approve_creates_candidate(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     store = SkillStore(workspace)
@@ -739,6 +880,25 @@ def test_skill_store_draft_records_duplicate_review_and_requires_differentiation
             draft.draft_id,
             approval={"reason": "needed"},
         )
+
+
+def test_skill_manage_discard_draft_payload(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    store = SkillStore(workspace)
+    draft = store.create_skill_draft(
+        name="throwaway-draft",
+        description="Should be discardable",
+        trigger="throwaway",
+        method="# Throwaway\n\n## Method\nNothing.",
+        category="general",
+    )
+
+    payload = skill_manage_discard_draft_payload(workspace, draft.draft_id)
+    assert payload == {"draft_id": draft.draft_id, "deleted": True}
+    assert store.get_skill_draft(draft.draft_id) is None
+
+    with pytest.raises(KeyError):
+        skill_manage_discard_draft_payload(workspace, draft.draft_id)
 
 
 def test_skill_trace_updates_usage_counters(tmp_path: Path) -> None:

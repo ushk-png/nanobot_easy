@@ -13,6 +13,8 @@ from nanobot.skill_store import (
     SkillStore,
     SkillUpdateAssessment,
     parse_skill_markdown,
+    parse_skill_package_files,
+    parse_skill_package_zip,
     row_to_skill_payload,
 )
 
@@ -334,6 +336,46 @@ def skill_manage_import_payload(workspace_path: Path, markdown: str) -> dict[str
     return {"import": parsed}
 
 
+def skill_manage_import_package_payload(
+    workspace_path: Path,
+    files: list[dict[str, Any]],
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    parsed = parse_skill_package_files(files)
+    fields = parsed.get("fields") if isinstance(parsed.get("fields"), dict) else {}
+    name = str(fields.get("name") or "")
+    validation = parsed.get("validation") if isinstance(parsed.get("validation"), dict) else {}
+    errors = [str(item) for item in validation.get("errors", []) if str(item)]
+    warnings = [str(item) for item in validation.get("warnings", []) if str(item)]
+    if name and store.get_skill(name) is not None:
+        errors.append(f"skill '{name}' already exists")
+    if name and (workspace_path / "skills" / name).exists():
+        errors.append(f"skill directory already exists: {name}")
+    parsed["validation"] = {"errors": errors, "warnings": warnings}
+    return {"import": parsed}
+
+
+def skill_manage_import_package_zip_payload(
+    workspace_path: Path,
+    data_b64: str,
+) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+    parsed = parse_skill_package_zip(data_b64)
+    fields = parsed.get("fields") if isinstance(parsed.get("fields"), dict) else {}
+    name = str(fields.get("name") or "")
+    validation = parsed.get("validation") if isinstance(parsed.get("validation"), dict) else {}
+    errors = [str(item) for item in validation.get("errors", []) if str(item)]
+    warnings = [str(item) for item in validation.get("warnings", []) if str(item)]
+    if name and store.get_skill(name) is not None:
+        errors.append(f"skill '{name}' already exists")
+    if name and (workspace_path / "skills" / name).exists():
+        errors.append(f"skill directory already exists: {name}")
+    parsed["validation"] = {"errors": errors, "warnings": warnings}
+    return {"import": parsed}
+
+
 def skill_manage_import_draft_payload(
     workspace_path: Path,
     values: dict[str, Any],
@@ -364,6 +406,7 @@ def skill_manage_import_draft_payload(
             "preserved_method": True,
             "estimated_fields": values.get("estimated_fields") or values.get("estimatedFields") or [],
             "warnings": validation.get("warnings", []),
+            "package_files": values.get("package_files") or values.get("packageFiles") or [],
         },
     }
     trigger = str(values.get("trigger") or values.get("triggers") or "")
@@ -372,6 +415,19 @@ def skill_manage_import_draft_payload(
         {"query": item, "expected": str(values.get("name") or "")}
         for item in triggers[:10]
     ]
+    package_routing_cases = values.get("routing_cases") or values.get("routingCases")
+    if isinstance(package_routing_cases, list):
+        routing_cases = [
+            {
+                "query": str(item.get("query") or ""),
+                "expected": str(item.get("expected") or values.get("name") or ""),
+            }
+            for item in package_routing_cases
+            if isinstance(item, dict) and str(item.get("query") or "").strip()
+        ] or routing_cases
+    package_attachments = values.get("attachments")
+    if not isinstance(package_attachments, list):
+        package_attachments = []
     draft = store.create_skill_draft(
         name=str(values.get("name") or ""),
         description=str(values.get("description") or ""),
@@ -386,7 +442,16 @@ def skill_manage_import_draft_payload(
         install_sources=[str(item) for item in values.get("install_sources", []) if str(item)]
         if isinstance(values.get("install_sources"), list)
         else [],
-        content=SkillDraftContent(method=method, review=review, routing_cases=routing_cases),
+        content=SkillDraftContent(
+            method=method,
+            review=review,
+            routing_cases=routing_cases,
+            attachments=[
+                {"path": str(item.get("path") or ""), "content": str(item.get("content") or "")}
+                for item in package_attachments
+                if isinstance(item, dict)
+            ],
+        ),
     )
     return {"draft": _draft_payload(draft, policy=policy)}
 
@@ -476,6 +541,14 @@ def skill_manage_approve_draft_payload(
         "draft": _draft_payload(draft, policy=policy),
         "skill": row_to_skill_payload(row) if row is not None else None,
     }
+
+
+def skill_manage_discard_draft_payload(workspace_path: Path, draft_id: str) -> dict[str, Any]:
+    store = SkillStore(workspace_path)
+    deleted = store.delete_skill_draft(draft_id)
+    if not deleted:
+        raise KeyError(f"draft not found: {draft_id}")
+    return {"draft_id": draft_id, "deleted": True}
 
 
 def skill_manage_pending_approvals_payload(workspace_path: Path) -> dict[str, Any]:

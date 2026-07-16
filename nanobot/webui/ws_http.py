@@ -83,8 +83,11 @@ from nanobot.webui.skill_manage_api import (
     skill_manage_audit_payload,
     skill_manage_complete_draft,
     skill_manage_detail_payload,
+    skill_manage_discard_draft_payload,
     skill_manage_draft_payload,
     skill_manage_import_draft_payload,
+    skill_manage_import_package_payload,
+    skill_manage_import_package_zip_payload,
     skill_manage_import_payload,
     skill_manage_list_payload,
     skill_manage_routing_test_payload,
@@ -777,6 +780,9 @@ class GatewayHTTPHandler:
         m = re.match(r"^/api/skills/manage/drafts/([^/]+)/approve$", got)
         if m:
             return self._handle_skill_manage_draft_approve(request, m.group(1))
+        m = re.match(r"^/api/skills/manage/drafts/([^/]+)/discard$", got)
+        if m:
+            return self._handle_skill_manage_draft_discard(request, m.group(1))
         m = re.match(r"^/api/skills/manage/drafts/([^/]+)$", got)
         if m:
             return self._handle_skill_manage_draft_detail(request, m.group(1))
@@ -893,6 +899,20 @@ class GatewayHTTPHandler:
                 return _http_error(400, "skill import must be JSON")
         if not isinstance(values, dict):
             return _http_error(400, "skill import must be an object")
+        zip_b64 = values.get("zip_base64") or values.get("zipBase64")
+        if isinstance(zip_b64, str) and zip_b64.strip():
+            try:
+                payload = skill_manage_import_package_zip_payload(self.skills_workspace_path, zip_b64)
+            except ValueError as e:
+                return _http_error(400, str(e))
+            return _http_json_response(payload)
+        files = values.get("files")
+        if isinstance(files, list):
+            try:
+                payload = skill_manage_import_package_payload(self.skills_workspace_path, files)
+            except ValueError as e:
+                return _http_error(400, str(e))
+            return _http_json_response(payload)
         text = values.get("markdown") or values.get("text") or values.get("source_text")
         if not isinstance(text, str) or not text.strip():
             return _http_error(400, "markdown must be a non-empty string")
@@ -1079,6 +1099,20 @@ class GatewayHTTPHandler:
             return _http_error(404, "draft not found")
         except PermissionError as e:
             return _http_error(403, str(e))
+        except ValueError as e:
+            return _http_error(409, str(e))
+        return _http_json_response(payload)
+
+    def _handle_skill_manage_draft_discard(self, request: WsRequest, raw_id: str) -> Response:
+        if error := self._check_skill_manage_access(request):
+            return error
+        draft_id = unquote(raw_id)
+        if not draft_id or "/" in draft_id or "\\" in draft_id:
+            return _http_error(400, "invalid draft id")
+        try:
+            payload = skill_manage_discard_draft_payload(self.skills_workspace_path, draft_id)
+        except KeyError:
+            return _http_error(404, "draft not found")
         except ValueError as e:
             return _http_error(409, str(e))
         return _http_json_response(payload)

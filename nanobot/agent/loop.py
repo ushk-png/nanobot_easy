@@ -27,7 +27,7 @@ from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
-from nanobot.agent.skills import SYSTEM_SKILLS_DIR, _STRIP_SKILL_FRONTMATTER
+from nanobot.agent.skills import _STRIP_SKILL_FRONTMATTER, SYSTEM_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
@@ -73,11 +73,15 @@ from nanobot.session.manager import (
     SessionManager,
     replay_max_messages_for_context,
 )
+from nanobot.session.skill_approval_state import (
+    clear_pending_skill_approval,
+    get_pending_skill_approval,
+    parse_confirmation_reply,
+)
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.helpers import image_placeholder_text, truncate_text_to_tokens
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
-from nanobot.utils.helpers import truncate_text_to_tokens
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
@@ -1536,12 +1540,57 @@ class AgentLoop:
         ctx.pending_summary = pending
         return "ok"
 
+    async def _resolve_pending_skill_confirmation(
+        self, msg: InboundMessage, session: Session, raw: str
+    ) -> OutboundMessage | None:
+        """Deterministically resolve a pending skill-approval yes/no reply.
+
+        Runs before command dispatch and before the LLM turn. Only an exact
+        yes/no reply to a real pending confirmation (set by the
+        ``skill_request_approval`` tool) can approve or cancel a draft here —
+        this never consults the model, so it cannot be triggered by prompt
+        injection or by the model's own guess about user intent.
+        """
+        pending = get_pending_skill_approval(session.metadata)
+        if pending is None:
+            return None
+        reply = parse_confirmation_reply(raw)
+        if reply is None:
+            return None
+        name = str(pending.get("name") or "")
+        clear_pending_skill_approval(session.metadata)
+        self.sessions.save(session)
+        if reply == "no":
+            content = f"Cancelled — `{name}` was not approved."
+        else:
+            from nanobot.webui.skill_manage_api import skill_manage_chat_approve_payload
+
+            policy = getattr(getattr(self.tools_config, "webui_skill_management", None), "red_flags", None)
+            try:
+                result = skill_manage_chat_approve_payload(self.workspace, name, policy=policy)
+            except KeyError:
+                content = f"Could not approve `{name}`: it is no longer pending."
+            except PermissionError:
+                content = (
+                    f"Draft `{name}` has a blocking review flag and cannot be approved from chat. "
+                    "Open the WebUI skill manager to review it in full."
+                )
+            except ValueError as exc:
+                content = f"Could not approve `{name}`: {exc}"
+            else:
+                skill = result.get("skill")
+                status = skill.get("status") if isinstance(skill, dict) else None
+                content = f"Approved `{name}`" + (f" — status is now `{status}`." if status else ".")
+        return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=content)
+
     async def _state_command(self, ctx: TurnContext) -> str:
         raw = ctx.msg.content.strip()
         cmd_ctx = CommandContext(
             msg=ctx.msg, session=ctx.session, key=ctx.session_key, raw=raw, loop=self
         )
-        result = await self.commands.dispatch(cmd_ctx)
+        result = await self._resolve_pending_skill_confirmation(ctx.msg, ctx.session, raw)
+        if result is None:
+            result = await self.commands.dispatch(cmd_ctx)
         if result is not None:
             ctx.outbound = result
             # Shortcut commands skip BUILD and SAVE, so we must persist the

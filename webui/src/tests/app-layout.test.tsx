@@ -594,6 +594,28 @@ describe("App layout", () => {
           description: "Web created skill.",
         },
       },
+      "/api/skills/manage/import": {
+        import: {
+          mode: "frontmatter",
+          fields: {
+            name: "gcalcli-calendar",
+            description: "Manage Google Calendar via gcalcli.",
+            trigger: "check my calendar\nadd calendar event",
+            method: "# gcalcli-calendar\n\n## Method\n1. Call gcalcli.",
+            category: "general",
+            risk_level: "medium",
+            requires_exec: true,
+          },
+          normalized_markdown: "---\nname: gcalcli-calendar\n---\n# gcalcli-calendar",
+          estimated_fields: ["category"],
+          validation: { errors: [], warnings: ["category was not declared; using general."] },
+          preserved_method: true,
+        },
+      },
+      "/api/skills/manage/drafts/draft-ready-card/discard": {
+        draft_id: "draft-ready-card",
+        deleted: true,
+      },
     });
 
     render(<App />);
@@ -618,6 +640,7 @@ describe("App layout", () => {
     expect(await screen.findByText("1/1 passed")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start from scratch instead" }));
     fireEvent.change(await screen.findByPlaceholderText("review-renewal-notes"), {
       target: { value: "web-created" },
     });
@@ -638,6 +661,29 @@ describe("App layout", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Register" }));
     expect(await screen.findByText("Registered web-created.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+    expect(screen.queryByPlaceholderText("review-renewal-notes")).not.toBeInTheDocument();
+    fireEvent.change(
+      await screen.findByPlaceholderText(/Paste a ClawHub SKILL\.md/),
+      { target: { value: "---\nname: gcalcli-calendar\n---\n# gcalcli-calendar" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Import & preview" }));
+    expect(await screen.findByDisplayValue("gcalcli-calendar")).toBeInTheDocument();
+    expect(screen.getByText("estimated")).toBeInTheDocument();
+    expect(screen.getByText("category was not declared; using general.")).toBeInTheDocument();
+    expect(screen.getByText("Method content is verbatim from the pasted source.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByPlaceholderText(/Paste a ClawHub SKILL\.md/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByText("ready-web-draft"));
+    expect(await screen.findByText("Draft ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Register" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.getByRole("button", { name: "Confirm discard" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm discard" }));
+    expect(await screen.findByText("Discarded draft ready-web-draft.")).toBeInTheDocument();
 
     fireEvent.click(screen.getByText("draft-helper"));
     expect(await screen.findByRole("button", { name: /등록/ })).toBeInTheDocument();

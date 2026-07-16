@@ -8,6 +8,7 @@ import type {
   ManagedSkillDetail,
   ManagedSkillDraftApprovePayload,
   ManagedSkillDraftComposeValues,
+  ManagedSkillDraftDiscardPayload,
   ManagedSkillImportPayload,
   ManagedSkillDraftPayload,
   ManagedSkillRoutingTestPayload,
@@ -425,6 +426,40 @@ export async function importManagedSkillText(
   );
 }
 
+export async function importManagedSkillPackage(
+  token: string,
+  files: Array<{ path: string; content: string }>,
+  base: string = "",
+): Promise<ManagedSkillImportPayload> {
+  return request<ManagedSkillImportPayload>(
+    `${base}/api/skills/manage/import`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Import": encodeURIComponent(JSON.stringify({ files })),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function importManagedSkillZip(
+  token: string,
+  zipBase64: string,
+  base: string = "",
+): Promise<ManagedSkillImportPayload> {
+  return request<ManagedSkillImportPayload>(
+    `${base}/api/skills/manage/import`,
+    token,
+    {
+      headers: {
+        "X-Nanobot-Skill-Import": encodeURIComponent(JSON.stringify({ zip_base64: zipBase64 })),
+      },
+    },
+    API_READ_TIMEOUT_MS,
+  );
+}
+
 export async function createImportedManagedSkillDraft(
   token: string,
   values: ManagedSkillDraftComposeValues & {
@@ -476,6 +511,19 @@ export async function approveManagedSkillDraft(
           },
         }
       : undefined,
+    API_READ_TIMEOUT_MS,
+  );
+}
+
+export async function discardManagedSkillDraft(
+  token: string,
+  draftId: string,
+  base: string = "",
+): Promise<ManagedSkillDraftDiscardPayload> {
+  return request<ManagedSkillDraftDiscardPayload>(
+    `${base}/api/skills/manage/drafts/${encodeURIComponent(draftId)}/discard`,
+    token,
+    undefined,
     API_READ_TIMEOUT_MS,
   );
 }

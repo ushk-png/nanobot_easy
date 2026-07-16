@@ -60,14 +60,16 @@ metadata:
 6. Generate a routing test file with ten cases: five that should select the new skill and
    five neighbor cases that should not.
 7. Run `nanobot skill reindex` and `nanobot skill test-routing` when practical.
-8. Tell the user the draft path and ask them to approve it by replying `/skill approve <name>` in
-   this chat (or, from a terminal, `nanobot skill approve <name>`; or via the WebUI skill manager).
+8. Tell the user the draft path, then call `skill_request_approval` with the draft name and ask
+   them to confirm registration in your own words in the same reply. Only their next plain yes/no
+   message approves or cancels it. They can also run `nanobot skill approve <name>` in a terminal
+   or use the WebUI directly.
 
 ## Lifecycle Rules
 
 - Draft skills are not visible to `skill_search`.
-- Candidate/verified promotion is a human action — via the `/skill approve` chat command, the CLI,
-  or the WebUI — never something the agent performs on its own initiative.
+- Candidate/verified promotion is a human action — via `skill_request_approval` plus the user's
+  yes/no reply, the CLI, or the WebUI — never something the agent performs on its own initiative.
 - Minor changes to triggers, description, or failure guidance require trigger differentiation
   review and a version bump.
 - Major changes to Method, required tools, or risk require re-review and reapproval.

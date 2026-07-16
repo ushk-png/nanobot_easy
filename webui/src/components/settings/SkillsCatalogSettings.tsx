@@ -2,9 +2,11 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
 import {
   Archive,
+  ArrowLeft,
   Brain,
   Check,
   CircleAlert,
+  ClipboardPaste,
   Edit3,
   Eye,
   FileText,
@@ -16,6 +18,7 @@ import {
   Save,
   ShieldCheck,
   Terminal,
+  Trash2,
   X,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
@@ -38,11 +41,14 @@ import {
   approveManagedSkillDraft,
   composeManagedSkillDraft,
   createImportedManagedSkillDraft,
+  discardManagedSkillDraft,
   fetchManagedSkillDetail,
   fetchManagedSkillDraft,
   fetchManagedSkills,
   fetchSkillDetail,
   importManagedSkillText,
+  importManagedSkillPackage,
+  importManagedSkillZip,
   runManagedSkillRoutingTest,
   runSkillAudit,
   runManagedSkillStatusAction,
@@ -55,6 +61,7 @@ import type {
   ManagedSkillDraft,
   ManagedSkillDraftGovernanceFlag,
   ManagedSkillImportResult,
+  ManagedSkillPackageFile,
   ManagedSkillRoutingTestPayload,
   ManagedSkillStatus,
   ManagedSkillUpdateAssessment,
@@ -503,6 +510,10 @@ function ManagedSkillsSettings({
           setMessage(`Registered ${name}.`);
           onReload();
         }}
+        onDiscarded={(name) => {
+          setMessage(`Discarded draft ${name}.`);
+          onReload();
+        }}
       />
     </div>
   );
@@ -784,11 +795,13 @@ function SkillCreateWizard({
   onOpenChange,
   initialDraft,
   onRegistered,
+  onDiscarded,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   initialDraft: ManagedSkillDraft | null;
   onRegistered: (name: string) => void;
+  onDiscarded: (name: string) => void;
 }) {
   const { token } = useClient();
   const [name, setName] = useState("");
@@ -796,13 +809,16 @@ function SkillCreateWizard({
   const [trigger, setTrigger] = useState("");
   const [method, setMethod] = useState("");
   const [fullPrompt, setFullPrompt] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<ManagedSkillPackageFile[]>([]);
   const [category, setCategory] = useState("general");
   const [riskLevel, setRiskLevel] = useState("low");
   const [requiresExec, setRequiresExec] = useState(false);
   const [importResult, setImportResult] = useState<ManagedSkillImportResult | null>(null);
   const [importing, setImporting] = useState(false);
+  const [skipImport, setSkipImport] = useState(false);
   const [draft, setDraft] = useState<ManagedSkillDraft | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -813,13 +829,16 @@ function SkillCreateWizard({
     setTrigger("");
     setMethod("");
     setFullPrompt("");
+    setAttachedFiles([]);
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
     setImportResult(null);
     setImporting(false);
+    setSkipImport(false);
     setDraft(initialDraft);
     setOverrideReason("");
+    setConfirmDiscard(false);
     setError(null);
   }, [initialDraft, open]);
 
@@ -829,14 +848,23 @@ function SkillCreateWizard({
     setTrigger("");
     setMethod("");
     setFullPrompt("");
+    setAttachedFiles([]);
     setCategory("general");
     setRiskLevel("low");
     setRequiresExec(false);
     setImportResult(null);
     setImporting(false);
+    setSkipImport(false);
     setDraft(null);
     setOverrideReason("");
+    setConfirmDiscard(false);
     setBusy(false);
+    setError(null);
+  };
+
+  const backToPaste = () => {
+    setImportResult(null);
+    setSkipImport(false);
     setError(null);
   };
 
@@ -901,13 +929,21 @@ function SkillCreateWizard({
         risk_level: riskLevel,
         requires_exec: requiresExec,
       };
-      const payload = importResult
+      const hasAttachments = attachedFiles.length > 0;
+      const payload = importResult || hasAttachments
         ? await createImportedManagedSkillDraft(token, {
             ...values,
-            required_tools: importResult.fields.required_tools,
-            install_sources: importResult.fields.install_sources,
-            validation: importResult.validation,
-            estimated_fields: importResult.estimated_fields,
+            required_tools: importResult?.fields.required_tools,
+            install_sources: importResult?.fields.install_sources,
+            attachments: importResult?.package?.attachments ?? attachedFiles,
+            package_files: importResult?.package?.files ?? attachedFiles.map((file) => ({
+              path: file.path,
+              size: new Blob([file.content]).size,
+              role: inferPackageFileRole(file.path),
+            })),
+            routing_cases: importResult?.package?.routing_cases,
+            validation: importResult?.validation ?? { errors: [], warnings: [] },
+            estimated_fields: importResult?.estimated_fields ?? [],
           })
         : await composeManagedSkillDraft(token, values);
       let nextDraft = payload.draft;
@@ -943,6 +979,26 @@ function SkillCreateWizard({
     }
   };
 
+  const discardDraft = async () => {
+    if (!draft) return;
+    if (!confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await discardManagedSkillDraft(token, draft.draft_id);
+      onDiscarded(draft.name);
+      finishAndClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not discard skill draft.");
+      setConfirmDiscard(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const applyFullPrompt = async () => {
     setImporting(true);
     setError(null);
@@ -973,11 +1029,60 @@ function SkillCreateWizard({
     }
   };
 
+  const applyPackageFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const selected = Array.from(files);
+      const zipOnly = selected.length === 1 && selected[0].name.toLowerCase().endsWith(".zip");
+      let payload;
+      if (zipOnly) {
+        payload = await importManagedSkillZip(token, await readFileAsBase64(selected[0]));
+        setAttachedFiles(payload.import.package?.attachments ?? []);
+      } else {
+        const packageFiles = await readSkillPackageFiles(files);
+        setAttachedFiles(packageFiles.filter((file) => !isManagedPackageFile(file.path)));
+        payload = await importManagedSkillPackage(token, packageFiles);
+      }
+      const parsed = payload.import;
+      setImportResult(parsed);
+      const fields = parsed.fields;
+      if (fields.name) setName(fields.name);
+      if (fields.description) setDescription(fields.description);
+      if (fields.trigger) setTrigger(fields.trigger);
+      if (fields.method) setMethod(fields.method);
+      if (fields.category) setCategory(fields.category);
+      if (fields.risk_level) setRiskLevel(fields.risk_level);
+      if (typeof fields.requires_exec === "boolean") setRequiresExec(fields.requires_exec);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not import skill package.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const attachSupplementalFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setError(null);
+    try {
+      const nextFiles = await readSkillPackageFiles(files);
+      setAttachedFiles((current) => dedupePackageFiles([...current, ...nextFiles.filter((file) => !isManagedPackageFile(file.path))]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not attach skill files.");
+    }
+  };
+
   const canCompose = name.trim().length > 0 && description.trim().length > 0;
   const canApplyFullPrompt = fullPrompt.trim().length > 0 && !busy && !importing && draft === null;
   const importErrors = importResult?.validation.errors ?? [];
   const importWarnings = importResult?.validation.warnings ?? [];
   const estimatedFields = new Set(importResult?.estimated_fields ?? []);
+  // Stage gate: land on the paste screen first; only reveal the editable
+  // review form once something has been imported, or the user explicitly
+  // chose to skip straight to manual entry.
+  const showReview = draft === null && (importResult !== null || skipImport);
+  const showPasteLanding = draft === null && !showReview;
   const draftReady = draft?.status === "ready";
   const draftRunning = draft?.status === "composing";
   const draftFailed = draft?.status === "failed";
@@ -999,297 +1104,449 @@ function SkillCreateWizard({
           <DialogHeader>
             <DialogTitle>New skill</DialogTitle>
             <DialogDescription>
-              Compose a draft, review the generated instructions, then register it as candidate.
+              {showPasteLanding
+                ? "Paste a skill from ClawHub, another agent, or rough notes — nanobot converts it to a draft automatically."
+                : draft
+                  ? "Review the generated instructions, then register it as candidate."
+                  : "Review the converted draft, fix anything estimated, then create it."}
             </DialogDescription>
           </DialogHeader>
         </div>
         <div className="max-h-[calc(min(88vh,54rem)-8rem)] overflow-y-auto px-5 py-4">
-          <div className="grid gap-4 xl:grid-cols-[minmax(17rem,0.9fr)_minmax(22rem,1fr)_minmax(22rem,1.15fr)]">
-            <div className="space-y-3">
-              <LabeledField label="Name">
-                <Input
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  placeholder="review-renewal-notes"
-                  disabled={busy || draft !== null}
-                  className="h-9 rounded-[10px]"
-                />
-                {estimatedFields.has("name") ? <EstimatedBadge /> : null}
-              </LabeledField>
-              <LabeledField label="Description">
-                <Textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  placeholder="Review renewal notes and surface customer risk."
-                  disabled={busy || draft !== null}
-                  className="min-h-[5rem] resize-y rounded-[10px]"
-                />
-                {estimatedFields.has("description") ? <EstimatedBadge /> : null}
-              </LabeledField>
-              <LabeledField label="Trigger utterances">
-                <Textarea
-                  value={trigger}
-                  onChange={(event) => setTrigger(event.target.value)}
-                  placeholder={"review this renewal\ncustomer renewal risk"}
-                  disabled={busy || draft !== null}
-                  className="min-h-[5rem] resize-y rounded-[10px]"
-                />
-              </LabeledField>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <LabeledField label="Category">
+          {showPasteLanding ? (
+            <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 py-6 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <ClipboardPaste className="h-5 w-5" aria-hidden />
+              </div>
+              <Textarea
+                value={fullPrompt}
+                onChange={(event) => setFullPrompt(event.target.value)}
+                placeholder={[
+                  "Paste a ClawHub SKILL.md, another agent's skill file, or rough prompt text.",
+                  "",
+                  "---",
+                  "name: review-renewal-notes",
+                  "description: Review renewal notes and surface customer risk.",
+                  "metadata:",
+                  "  nanobot:",
+                  "    category: business.review",
+                  "    risk_level: low",
+                  "    requires_exec: false",
+                  "---",
+                  "# Method",
+                  "1. Read the input and return concise findings.",
+                ].join("\n")}
+                disabled={busy || importing}
+                spellCheck={false}
+                autoFocus
+                className="min-h-[20rem] w-full resize-y rounded-[14px] text-left font-mono text-[12px] leading-5"
+              />
+              <p className="text-[12px] leading-5 text-muted-foreground">
+                A SKILL.md with frontmatter is parsed deterministically, with no LLM involved. Anything else is
+                normalized by AI into nanobot&apos;s format — estimated fields are marked for your review.
+              </p>
+              <div className="grid w-full gap-2 rounded-[14px] border border-border/45 bg-muted/15 p-3 text-left">
+                <div className="flex items-start gap-2">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <div>
+                    <div className="text-[13px] font-semibold">Import package</div>
+                    <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
+                      Select a skill folder or a set of files containing SKILL.md. Extra templates, examples,
+                      scripts, and references are preserved in the draft and written only after registration.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                    Folder
+                    <input
+                      type="file"
+                      multiple
+                      {...{ webkitdirectory: "" }}
+                      className="sr-only"
+                      disabled={busy || importing}
+                      onChange={(event) => void applyPackageFiles(event.target.files)}
+                    />
+                  </label>
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                    Files
+                    <input
+                      type="file"
+                      multiple
+                      className="sr-only"
+                      disabled={busy || importing}
+                      onChange={(event) => void applyPackageFiles(event.target.files)}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="flex w-full items-center justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSkipImport(true)}
+                  disabled={busy || importing}
+                  className="text-muted-foreground"
+                >
+                  Start from scratch instead
+                </Button>
+                <Button
+                  type="button"
+                  onClick={applyFullPrompt}
+                  disabled={!canApplyFullPrompt}
+                  className="rounded-[10px]"
+                >
+                  {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ClipboardPaste className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                  Import &amp; preview
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-[minmax(20rem,1fr)_minmax(22rem,1.15fr)]">
+              <div className="space-y-3">
+                {importResult ? (
+                  <div className="space-y-2 rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2 text-[12px] leading-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold">
+                        {importResult.mode === "normalized" ? "Normalized by AI" : "Parsed from frontmatter"}
+                      </span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {importResult.mode}
+                      </span>
+                    </div>
+                    <p className={importResult.preserved_method ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300"}>
+                      {importResult.preserved_method
+                        ? "Method content is verbatim from the pasted source."
+                        : "Method may have been rewritten during normalization — review it and the original paste carefully."}
+                    </p>
+                    {importErrors.length ? (
+                      <div className="rounded-[10px] bg-destructive/10 px-2.5 py-2 text-destructive">
+                        {importErrors.map((item) => <div key={item}>{item}</div>)}
+                      </div>
+                    ) : null}
+                    {importWarnings.length ? (
+                      <div className="rounded-[10px] bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
+                        {importWarnings.map((item) => <div key={item}>{item}</div>)}
+                      </div>
+                    ) : null}
+                    {importResult.package?.files?.length ? (
+                      <div className="rounded-[10px] bg-background/60 px-2.5 py-2">
+                        <div className="mb-1 font-medium">Package files</div>
+                        <div className="max-h-24 overflow-y-auto">
+                          {importResult.package.files.map((file) => (
+                            <div key={file.path} className="flex items-center justify-between gap-2 py-0.5 text-muted-foreground">
+                              <span className="min-w-0 truncate">{file.path}</span>
+                              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
+                                {file.role}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <LabeledField label="Name">
                   <Input
-                    value={category}
-                    onChange={(event) => setCategory(event.target.value)}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="review-renewal-notes"
                     disabled={busy || draft !== null}
                     className="h-9 rounded-[10px]"
                   />
-                  {estimatedFields.has("category") ? <EstimatedBadge /> : null}
+                  {estimatedFields.has("name") ? <EstimatedBadge /> : null}
                 </LabeledField>
-                <LabeledField label="Risk">
-                  <select
-                    value={riskLevel}
-                    onChange={(event) => setRiskLevel(event.target.value)}
+                <LabeledField label="Description">
+                  <Textarea
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Review renewal notes and surface customer risk."
                     disabled={busy || draft !== null}
-                    className="h-9 w-full rounded-[10px] border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="low">low</option>
-                    <option value="medium">medium</option>
-                    <option value="high">high</option>
-                  </select>
-                  {estimatedFields.has("risk_level") ? <EstimatedBadge /> : null}
+                    className="min-h-[5rem] resize-y rounded-[10px]"
+                  />
+                  {estimatedFields.has("description") ? <EstimatedBadge /> : null}
+                </LabeledField>
+                <LabeledField label="Trigger utterances">
+                  <Textarea
+                    value={trigger}
+                    onChange={(event) => setTrigger(event.target.value)}
+                    placeholder={"review this renewal\ncustomer renewal risk"}
+                    disabled={busy || draft !== null}
+                    className="min-h-[5rem] resize-y rounded-[10px]"
+                  />
+                </LabeledField>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <LabeledField label="Category">
+                    <Input
+                      value={category}
+                      onChange={(event) => setCategory(event.target.value)}
+                      disabled={busy || draft !== null}
+                      className="h-9 rounded-[10px]"
+                    />
+                    {estimatedFields.has("category") ? <EstimatedBadge /> : null}
+                  </LabeledField>
+                  <LabeledField label="Risk">
+                    <select
+                      value={riskLevel}
+                      onChange={(event) => setRiskLevel(event.target.value)}
+                      disabled={busy || draft !== null}
+                      className="h-9 w-full rounded-[10px] border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                    {estimatedFields.has("risk_level") ? <EstimatedBadge /> : null}
+                  </LabeledField>
+                </div>
+                <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={requiresExec}
+                    onChange={(event) => setRequiresExec(event.target.checked)}
+                    disabled={busy || draft !== null}
+                    className="h-4 w-4"
+                  />
+                  Requires execution tools
+                  {estimatedFields.has("requires_exec") ? <EstimatedBadge /> : null}
+                </label>
+                <LabeledField label="Method draft">
+                  <Textarea
+                    value={method}
+                    onChange={(event) => setMethod(event.target.value)}
+                    placeholder={"# Method\n1. Read the input.\n2. Identify risks.\n3. Return concise findings."}
+                    disabled={busy || draft !== null}
+                    className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
+                  />
+                </LabeledField>
+                <LabeledField label="Supplemental files">
+                  <div className="rounded-[12px] border border-border/45 bg-muted/15 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                        Add files
+                        <input
+                          type="file"
+                          multiple
+                          className="sr-only"
+                          disabled={busy || draft !== null}
+                          onChange={(event) => void attachSupplementalFiles(event.target.files)}
+                        />
+                      </label>
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                        Add folder
+                        <input
+                          type="file"
+                          multiple
+                          {...{ webkitdirectory: "" }}
+                          className="sr-only"
+                          disabled={busy || draft !== null}
+                          onChange={(event) => void attachSupplementalFiles(event.target.files)}
+                        />
+                      </label>
+                      <span className="text-[12px] text-muted-foreground">
+                        {attachedFiles.length} file(s)
+                      </span>
+                    </div>
+                    {attachedFiles.length ? (
+                      <div className="mt-2 max-h-28 overflow-y-auto rounded-[10px] bg-background/60 p-2">
+                        {attachedFiles.map((file) => (
+                          <div key={file.path} className="flex items-center justify-between gap-2 py-1 text-[12px]">
+                            <span className="min-w-0 truncate">{file.path}</span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={busy || draft !== null}
+                              onClick={() => setAttachedFiles((current) => current.filter((item) => item.path !== file.path))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+                        Optional templates, examples, scripts, or references. SKILL.md remains the entry point.
+                      </p>
+                    )}
+                  </div>
                 </LabeledField>
               </div>
-              <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
-                <input
-                  type="checkbox"
-                  checked={requiresExec}
-                  onChange={(event) => setRequiresExec(event.target.checked)}
-                  disabled={busy || draft !== null}
-                  className="h-4 w-4"
-                />
-                Requires execution tools
-                {estimatedFields.has("requires_exec") ? <EstimatedBadge /> : null}
-              </label>
-              <LabeledField label="Method draft">
-                <Textarea
-                  value={method}
-                  onChange={(event) => setMethod(event.target.value)}
-                  placeholder={"# Method\n1. Read the input.\n2. Identify risks.\n3. Return concise findings."}
-                  disabled={busy || draft !== null}
-                  className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
-                />
-              </LabeledField>
-            </div>
-            <div className="space-y-3">
-              <LabeledField label="Smart paste">
-                <Textarea
-                  value={fullPrompt}
-                  onChange={(event) => setFullPrompt(event.target.value)}
-                  placeholder={[
-                    "Paste a ClawHub SKILL.md, another agent's skill file, or rough prompt text.",
-                    "",
-                    "---",
-                    "name: review-renewal-notes",
-                    "description: Review renewal notes and surface customer risk.",
-                    "metadata:",
-                    "  nanobot:",
-                    "    category: business.review",
-                    "    risk_level: low",
-                    "    requires_exec: false",
-                    "---",
-                    "# Method",
-                    "1. Read the input and return concise findings.",
-                  ].join("\n")}
-                  disabled={busy || draft !== null}
-                  spellCheck={false}
-                  className="min-h-[34rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
-                />
-              </LabeledField>
-              <div className="flex items-center justify-between gap-2 rounded-[12px] border border-border/45 bg-muted/20 px-3 py-2">
-                <p className="text-[12px] leading-4 text-muted-foreground">
-                  Import parses frontmatter on the server. Non-standard text is normalized before draft creation.
-                </p>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  onClick={applyFullPrompt}
-                  disabled={!canApplyFullPrompt}
-                  className="h-8 shrink-0 rounded-[9px]"
-                >
-                  {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : null}
-                  Import
-                </Button>
-              </div>
-              {importResult ? (
-                <div className="space-y-2 rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2 text-[12px] leading-5">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">Import preview</span>
-                    <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
-                      {importResult.mode}
-                    </span>
-                  </div>
-                  {importResult.preserved_method ? (
-                    <p className="text-muted-foreground">Method content is preserved for review.</p>
-                  ) : null}
-                  {importErrors.length ? (
-                    <div className="rounded-[10px] bg-destructive/10 px-2.5 py-2 text-destructive">
-                      {importErrors.map((item) => <div key={item}>{item}</div>)}
-                    </div>
-                  ) : null}
-                  {importWarnings.length ? (
-                    <div className="rounded-[10px] bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
-                      {importWarnings.map((item) => <div key={item}>{item}</div>)}
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-            <div className="space-y-3">
-              {draft ? (
-                <>
-                  <div
-                    className={cn(
-                      "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
-                      draftFailed
-                        ? "border-destructive/30 bg-destructive/10"
-                        : draftRunning
-                          ? "border-sky-500/25 bg-sky-500/10"
-                          : "border-emerald-500/25 bg-emerald-500/10",
-                    )}
-                  >
-                    <div
-                      className={cn(
-                        "flex items-center gap-2 font-semibold",
-                        draftFailed
-                          ? "text-destructive"
-                          : draftRunning
-                            ? "text-sky-700 dark:text-sky-300"
-                            : "text-emerald-700 dark:text-emerald-300",
-                      )}
-                    >
-                      {draftRunning ? (
-                        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
-                      ) : draftFailed ? (
-                        <CircleAlert className="h-4 w-4" aria-hidden />
-                      ) : (
-                        <Check className="h-4 w-4" aria-hidden />
-                      )}
-                      {draftRunning ? "Composer running" : draftFailed ? "Composer failed" : "Draft ready"}
-                    </div>
-                    <p className="mt-1 text-muted-foreground">
-                      {draftRunning
-                        ? "Generating the method, review, and routing cases. You can return after the draft is ready."
-                        : draftFailed
-                          ? typeof draft.review.summary === "string"
-                            ? draft.review.summary
-                            : "The draft could not be composed."
-                          : "Review the generated method, routing cases, and governance checks before registration."}
-                    </p>
-                  </div>
-                  {draftReady && (blockingFlags.length || confirmationFlags.length) ? (
+              <div className="space-y-3">
+                {draft ? (
+                  <>
                     <div
                       className={cn(
                         "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
-                        blockingFlags.length
+                        draftFailed
                           ? "border-destructive/30 bg-destructive/10"
-                          : "border-amber-500/30 bg-amber-500/10",
+                          : draftRunning
+                            ? "border-sky-500/25 bg-sky-500/10"
+                            : "border-emerald-500/25 bg-emerald-500/10",
                       )}
                     >
                       <div
                         className={cn(
                           "flex items-center gap-2 font-semibold",
-                          blockingFlags.length
+                          draftFailed
                             ? "text-destructive"
-                            : "text-amber-700 dark:text-amber-300",
+                            : draftRunning
+                              ? "text-sky-700 dark:text-sky-300"
+                              : "text-emerald-700 dark:text-emerald-300",
                         )}
                       >
-                        <CircleAlert className="h-4 w-4" aria-hidden />
-                        {blockingFlags.length ? "Registration blocked" : "Confirmation required"}
+                        {draftRunning ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : draftFailed ? (
+                          <CircleAlert className="h-4 w-4" aria-hidden />
+                        ) : (
+                          <Check className="h-4 w-4" aria-hidden />
+                        )}
+                        {draftRunning ? "Composer running" : draftFailed ? "Composer failed" : "Draft ready"}
                       </div>
-                      <div className="mt-2 space-y-1.5">
-                        {[...blockingFlags, ...confirmationFlags].map((flag, index) => (
-                          <p key={`${flag.kind}:${index}`} className="text-muted-foreground">
-                            {draftGovernanceFlagLabel(flag)}
-                          </p>
-                        ))}
-                      </div>
-                      {needsOverrideReason && !blockingFlags.length ? (
-                        <Textarea
-                          value={overrideReason}
-                          onChange={(event) => setOverrideReason(event.target.value)}
-                          placeholder="Example: Internal-only skill; neighboring trigger overlap is intentional."
-                          disabled={busy}
-                          className="mt-3 min-h-[4.5rem] resize-y rounded-[10px] bg-background"
-                        />
-                      ) : null}
+                      <p className="mt-1 text-muted-foreground">
+                        {draftRunning
+                          ? "Generating the method, review, and routing cases. You can return after the draft is ready."
+                          : draftFailed
+                            ? typeof draft.review.summary === "string"
+                              ? draft.review.summary
+                              : "The draft could not be composed."
+                            : "Review the generated method, routing cases, and governance checks before registration."}
+                      </p>
                     </div>
-                  ) : null}
-                  {draftReady ? (
-                    <>
-                      <DetailSection title="Review">
-                        <pre className="max-h-28 overflow-auto rounded-[12px] bg-muted/35 p-3 text-[12px] leading-5">
-                          {JSON.stringify(draft.review, null, 2)}
-                        </pre>
-                      </DetailSection>
-                      <DetailSection title="Routing cases">
-                        <div className="space-y-1.5">
-                          {draft.routing_cases.map((row) => (
-                            <div key={`${row.query}:${row.expected}`} className="rounded-[10px] bg-muted/30 px-3 py-2 text-[12px]">
-                              <div className="truncate font-medium">{row.query}</div>
-                              <div className="text-muted-foreground">expected {row.expected}</div>
-                            </div>
+                    {draftReady && (blockingFlags.length || confirmationFlags.length) ? (
+                      <div
+                        className={cn(
+                          "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                          blockingFlags.length
+                            ? "border-destructive/30 bg-destructive/10"
+                            : "border-amber-500/30 bg-amber-500/10",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex items-center gap-2 font-semibold",
+                            blockingFlags.length
+                              ? "text-destructive"
+                              : "text-amber-700 dark:text-amber-300",
+                          )}
+                        >
+                          <CircleAlert className="h-4 w-4" aria-hidden />
+                          {blockingFlags.length ? "Registration blocked" : "Confirmation required"}
+                        </div>
+                        <div className="mt-2 space-y-1.5">
+                          {[...blockingFlags, ...confirmationFlags].map((flag, index) => (
+                            <p key={`${flag.kind}:${index}`} className="text-muted-foreground">
+                              {draftGovernanceFlagLabel(flag)}
+                            </p>
                           ))}
                         </div>
-                      </DetailSection>
-                      <DetailSection title="Draft">
-                        <div className="max-h-72 overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
-                          <MarkdownText className="max-w-none text-[13px] leading-6">
-                            {draft.markdown}
-                          </MarkdownText>
-                        </div>
-                      </DetailSection>
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                <DetailSection title="SKILL.md preview">
-                  {importResult?.normalized_markdown ? (
-                    <div className="max-h-[34rem] overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
-                      <MarkdownText className="max-w-none text-[13px] leading-6">
-                        {formatSkillMarkdownForPreview(importResult.normalized_markdown)}
-                      </MarkdownText>
-                    </div>
-                  ) : (
-                    <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
-                      Paste skill text and import it to preview the normalized SKILL.md.
-                    </div>
-                  )}
-                </DetailSection>
-              )}
+                        {needsOverrideReason && !blockingFlags.length ? (
+                          <Textarea
+                            value={overrideReason}
+                            onChange={(event) => setOverrideReason(event.target.value)}
+                            placeholder="Example: Internal-only skill; neighboring trigger overlap is intentional."
+                            disabled={busy}
+                            className="mt-3 min-h-[4.5rem] resize-y rounded-[10px] bg-background"
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {draftReady ? (
+                      <>
+                        <DetailSection title="Review">
+                          <pre className="max-h-28 overflow-auto rounded-[12px] bg-muted/35 p-3 text-[12px] leading-5">
+                            {JSON.stringify(draft.review, null, 2)}
+                          </pre>
+                        </DetailSection>
+                        <DetailSection title="Routing cases">
+                          <div className="space-y-1.5">
+                            {draft.routing_cases.map((row) => (
+                              <div key={`${row.query}:${row.expected}`} className="rounded-[10px] bg-muted/30 px-3 py-2 text-[12px]">
+                                <div className="truncate font-medium">{row.query}</div>
+                                <div className="text-muted-foreground">expected {row.expected}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </DetailSection>
+                        <DetailSection title="Draft">
+                          <div className="max-h-72 overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                            <MarkdownText className="max-w-none text-[13px] leading-6">
+                              {draft.markdown}
+                            </MarkdownText>
+                          </div>
+                        </DetailSection>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <DetailSection title="SKILL.md preview">
+                    {importResult?.normalized_markdown ? (
+                      <div className="max-h-[34rem] overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                        <MarkdownText className="max-w-none text-[13px] leading-6">
+                          {formatSkillMarkdownForPreview(importResult.normalized_markdown)}
+                        </MarkdownText>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
+                        Starting from scratch — fill in the fields, then create the draft.
+                      </div>
+                    )}
+                  </DetailSection>
+                )}
+              </div>
             </div>
-          </div>
+          )}
           {error ? (
             <p className="mt-4 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
               {error}
             </p>
           ) : null}
         </div>
-        <DialogFooter className="border-t border-border/45 px-5 py-4 sm:space-x-0">
-          <Button type="button" variant="outline" onClick={close} disabled={busy}>
-            Cancel
-          </Button>
-          {draft ? (
-            <Button type="button" onClick={approveDraft} disabled={busy || !canRegisterDraft}>
-              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
-              Register
+        <DialogFooter className="border-t border-border/45 px-5 py-4 sm:justify-between sm:space-x-0">
+          <div className="flex items-center gap-2">
+            {showReview ? (
+              <Button type="button" variant="ghost" onClick={backToPaste} disabled={busy}>
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Back
+              </Button>
+            ) : null}
+            {draft ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={discardDraft}
+                  disabled={busy}
+                  className={confirmDiscard ? "text-destructive hover:text-destructive" : "text-muted-foreground"}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  {confirmDiscard ? "Confirm discard" : "Discard"}
+                </Button>
+                {confirmDiscard ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDiscard(false)} disabled={busy}>
+                    Never mind
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={close} disabled={busy}>
+              Cancel
             </Button>
-          ) : (
-            <Button type="button" onClick={composeDraft} disabled={busy || !canCompose || importErrors.length > 0}>
-              {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
-              Create draft
-            </Button>
-          )}
+            {draft ? (
+              <Button type="button" onClick={approveDraft} disabled={busy || !canRegisterDraft || confirmDiscard}>
+                {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                Register
+              </Button>
+            ) : showReview ? (
+              <Button type="button" onClick={composeDraft} disabled={busy || !canCompose || importErrors.length > 0}>
+                {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                Create draft
+              </Button>
+            ) : null}
+          </div>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -2340,6 +2597,75 @@ function formatSkillMarkdownForPreview(markdown: string): string {
   const frontmatter = match[1].trimEnd();
   const body = markdown.slice(match[0].length).replace(/^\s+/, "");
   return ["```yaml", frontmatter, "```", "", body].join("\n");
+}
+
+const MAX_SKILL_PACKAGE_FILES = 80;
+const MAX_SKILL_PACKAGE_FILE_BYTES = 256 * 1024;
+
+async function readSkillPackageFiles(files: FileList): Promise<ManagedSkillPackageFile[]> {
+  if (files.length > MAX_SKILL_PACKAGE_FILES) {
+    throw new Error(`Too many files. Select ${MAX_SKILL_PACKAGE_FILES} or fewer.`);
+  }
+  const result: ManagedSkillPackageFile[] = [];
+  for (const file of Array.from(files)) {
+    if (file.size > MAX_SKILL_PACKAGE_FILE_BYTES) {
+      throw new Error(`${file.name} is too large for skill package import.`);
+    }
+    const relativePath = typeof file.webkitRelativePath === "string" && file.webkitRelativePath
+      ? file.webkitRelativePath
+      : file.name;
+    result.push({
+      path: normalizeBrowserPackagePath(relativePath),
+      content: await file.text(),
+    });
+  }
+  return dedupePackageFiles(result);
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error(`${file.name} is too large for zip package import.`);
+  }
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return window.btoa(binary);
+}
+
+function normalizeBrowserPackagePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function dedupePackageFiles(files: ManagedSkillPackageFile[]): ManagedSkillPackageFile[] {
+  const seen = new Set<string>();
+  const result: ManagedSkillPackageFile[] = [];
+  for (const file of files) {
+    const path = normalizeBrowserPackagePath(file.path);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    result.push({ path, content: file.content });
+  }
+  return result;
+}
+
+function isManagedPackageFile(path: string): boolean {
+  const name = normalizeBrowserPackagePath(path).split("/").pop()?.toLowerCase();
+  return name === "skill.md" || name === "routing_cases.json";
+}
+
+function inferPackageFileRole(path: string): string {
+  const normalized = normalizeBrowserPackagePath(path).toLowerCase();
+  if (normalized.startsWith("templates/")) return "template";
+  if (normalized.startsWith("examples/")) return "example";
+  if (normalized.startsWith("scripts/") || /\.(sh|zsh|py|js|mjs|rb|ps1|bat|cmd)$/.test(normalized)) {
+    return "script";
+  }
+  if (normalized.startsWith("docs/") || normalized.startsWith("references/")) return "reference";
+  if (normalized.endsWith(".json")) return "data";
+  return "reference";
 }
 
 function sleep(ms: number): Promise<void> {

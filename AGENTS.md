@@ -60,6 +60,31 @@ Messages flow through an async `MessageBus` (`nanobot/bus/queue.py`) that decoup
 - Security boundaries: [`.agent/security.md`](.agent/security.md)
 - Common gotchas: [`.agent/gotchas.md`](.agent/gotchas.md)
 
+### `nanobot skill …` workspace auto-discovery
+
+Every `nanobot skill …` subcommand (list, stats, reindex, audit, approve,
+promote, deprecate, test-routing, …) resolves the runtime workspace in this
+order:
+
+1. `--workspace / -w` explicit CLI arg
+2. `NANOBOT_WORKSPACE` environment variable
+3. Auto-discovery: walk up from the current directory (max 6 levels) and
+   accept the first path whose `.skillstore/skillstore.db` exists. Candidates
+   at each level: `./`, `./.local/workspace`, `./.nanobot/workspace`,
+   `./workspace`.
+4. Default: `~/.nanobot/workspace` (nanobot's global default)
+
+The CLI **always** prints the resolved path to stderr on the first line, e.g.
+`nanobot skill: workspace=/…/nanobot_skill/.local/workspace (source=discovered)`.
+If auto-discovery falls back to the default while the current dir looks like a
+project (has `pyproject.toml`, `.git`, or `package.json`) an additional warning
+prompts the user to set `NANOBOT_WORKSPACE` or pass `--workspace`.
+
+**Debugging skill-approval mismatches:** always read the stderr `workspace=…`
+line to confirm the CLI is talking to the same DB the runtime writes to. A
+bare `nanobot skill list` from outside a project targets the default DB and
+will not see drafts pending in a project workspace.
+
 ## Contribution Flow
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for contribution flow and PR guidelines.

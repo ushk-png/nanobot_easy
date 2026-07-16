@@ -2251,16 +2251,151 @@ def plugins_disable(
 skill_app = typer.Typer(help="Manage the skill registry")
 app.add_typer(skill_app, name="skill")
 
+# ---------------------------------------------------------------------------
+# Workspace auto-discovery for ``nanobot skill …`` subcommands
+#
+# Bare ``nanobot skill list`` used to always fall back to the default workspace
+# (``~/.nanobot/workspace``). If the user was standing inside a project with
+# its own runtime workspace (e.g. ``./.local/workspace``) they would see an
+# empty registry and mistake pending drafts as "not approved". The resolver
+# below is applied ONLY to the ``skill`` sub-typer — every other CLI command
+# keeps its original behavior.
+# ---------------------------------------------------------------------------
+
+# Environment variable users can set once per shell to point every subsequent
+# ``nanobot skill`` invocation at a specific runtime workspace.
+_WORKSPACE_ENV_VAR = "NANOBOT_WORKSPACE"
+
+# Bounded upward-walk from ``Path.cwd()``. 6 levels covers "project → cli in a
+# nested subdir" without wandering off into the user's home.
+_WORKSPACE_WALK_MAX_LEVELS = 6
+
+# Candidate paths *relative to a walk level* that identify a runtime workspace.
+# Each candidate is treated as the workspace root iff it exists and contains a
+# ``.skillstore/skillstore.db`` file (the SkillStore marker).
+_WORKSPACE_CANDIDATE_RELATIVES: tuple[str, ...] = (
+    ".",                    # cwd itself has .skillstore/ (some layouts)
+    ".local/workspace",     # nanobot_skill runtime layout
+    ".nanobot/workspace",   # in-repo alternative layout
+    "workspace",            # plain subdir
+)
+
+# Files whose presence marks a level as "a real project", used to decide
+# whether to print a warning when we fall back to the default workspace.
+_PROJECT_ROOT_MARKERS: tuple[str, ...] = (
+    "pyproject.toml", ".git", "package.json",
+)
+
+
+def _looks_like_workspace(candidate: Path) -> bool:
+    """True when ``candidate`` is a directory holding a SkillStore DB.
+
+    We check the concrete DB path (``skillstore_path``) so a stray empty
+    ``.skillstore/`` directory does not trick auto-discovery.
+    """
+    from nanobot.skill_store import skillstore_path
+
+    return candidate.is_dir() and skillstore_path(candidate).is_file()
+
+
+def _walk_up_for_workspace(start: Path) -> Path | None:
+    """Walk ``start`` up to filesystem root looking for a workspace layout.
+
+    Returns the discovered workspace path (already resolved) or ``None`` if
+    nothing plausible was found within ``_WORKSPACE_WALK_MAX_LEVELS`` levels.
+    """
+    current = start.resolve(strict=False)
+    for _ in range(_WORKSPACE_WALK_MAX_LEVELS):
+        for rel in _WORKSPACE_CANDIDATE_RELATIVES:
+            candidate = (current / rel).resolve(strict=False)
+            if _looks_like_workspace(candidate):
+                return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
+def _cwd_looks_like_project(start: Path) -> bool:
+    """Cheap heuristic: is ``start`` inside a repo/package that isn't the workspace?"""
+    current = start.resolve(strict=False)
+    for _ in range(_WORKSPACE_WALK_MAX_LEVELS):
+        for marker in _PROJECT_ROOT_MARKERS:
+            if (current / marker).exists():
+                return True
+        if current.parent == current:
+            break
+        current = current.parent
+    return False
+
+
+def _resolve_skill_workspace(
+    explicit: str | None,
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[str | None, str]:
+    """Return ``(workspace_string_or_None, source_label)`` for skill CLI.
+
+    Priority: explicit ``--workspace`` > ``NANOBOT_WORKSPACE`` env var >
+    upward walk from ``cwd`` looking for a ``.skillstore`` marker > default
+    (``None`` — caller then falls through to the CLI's original default).
+    ``env``/``cwd`` are injected so tests can drive resolution without
+    touching the real process environment or the real filesystem.
+    """
+    env_map = os.environ if env is None else env
+    here = cwd if cwd is not None else Path.cwd()
+
+    if explicit:
+        return explicit, "cli-arg"
+
+    env_value = (env_map.get(_WORKSPACE_ENV_VAR) or "").strip()
+    if env_value:
+        return env_value, "env"
+
+    discovered = _walk_up_for_workspace(here)
+    if discovered is not None:
+        return str(discovered), "discovered"
+
+    return None, "default"
+
+
+def _announce_skill_workspace(source: str, workspace: str | None) -> None:
+    """Emit a stderr line so users always see which DB the CLI is about to use.
+
+    Also warns when we fell back to the default workspace from inside what
+    looks like a project directory — the exact silent-mismatch bug that
+    made bare ``nanobot skill list`` report "not approved" even after the
+    user confirmed the draft.
+    """
+    from nanobot.config.paths import get_workspace_path
+
+    resolved_path = get_workspace_path(workspace)
+    typer.echo(f"nanobot skill: workspace={resolved_path} (source={source})", err=True)
+
+    if source == "default" and _cwd_looks_like_project(Path.cwd()):
+        typer.echo(
+            "Warning: current directory looks like a project but no workspace "
+            "marker was found. Falling back to the default workspace. "
+            f"Set {_WORKSPACE_ENV_VAR} or pass --workspace to target this "
+            "project's skill DB.",
+            err=True,
+        )
+
 
 def _skill_store_for_cli(config: str | None, workspace: str | None):
-    loaded = _load_runtime_config(config, workspace)
+    resolved, source = _resolve_skill_workspace(workspace)
+    _announce_skill_workspace(source, resolved)
+    loaded = _load_runtime_config(config, resolved)
     from nanobot.skill_store import SkillStore
 
     return SkillStore(loaded.workspace_path)
 
 
 def _skill_store_and_config_for_cli(config: str | None, workspace: str | None):
-    loaded = _load_runtime_config(config, workspace)
+    resolved, source = _resolve_skill_workspace(workspace)
+    _announce_skill_workspace(source, resolved)
+    loaded = _load_runtime_config(config, resolved)
     from nanobot.skill_store import SkillStore
 
     return SkillStore(loaded.workspace_path), loaded

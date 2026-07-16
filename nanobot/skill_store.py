@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import contextlib
+import base64
 import hashlib
+import io
 import json
 import math
 import re
 import sqlite3
 import uuid
+import zipfile
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -35,6 +38,21 @@ VALID_STATUSES: set[str] = {
 VALID_RELATIONS: set[str] = {"conflicts", "supersedes", "fallback"}
 DEFAULT_WORKSPACE_STATUS = "draft"
 DEFAULT_BUILTIN_STATUS = "verified"
+_MAX_PACKAGE_FILES = 80
+_MAX_PACKAGE_FILE_BYTES = 256 * 1024
+_MAX_PACKAGE_TOTAL_BYTES = 2 * 1024 * 1024
+_DANGEROUS_PACKAGE_SUFFIXES = {
+    ".bat",
+    ".cmd",
+    ".exe",
+    ".js",
+    ".mjs",
+    ".ps1",
+    ".py",
+    ".rb",
+    ".sh",
+    ".zsh",
+}
 _ROUTING_STOPWORDS = {
     "a",
     "an",
@@ -210,6 +228,7 @@ class SkillDraftContent:
     method: str = ""
     review: dict[str, Any] = field(default_factory=dict)
     routing_cases: list[dict[str, Any]] = field(default_factory=list)
+    attachments: list[dict[str, str]] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -589,6 +608,204 @@ def parse_skill_markdown(content: str, *, source_name: str = "pasted skill") -> 
     }
 
 
+def _normalize_package_relpath(path: str) -> str:
+    raw = str(path or "").replace("\\", "/").strip().lstrip("/")
+    if not raw:
+        raise ValueError("package file path is empty")
+    parts = [part for part in raw.split("/") if part not in {"", "."}]
+    if not parts or any(part == ".." for part in parts):
+        raise ValueError(f"invalid package file path: {path}")
+    if any(part.startswith(".") and part not in {".gitkeep"} for part in parts):
+        # Hidden paths are not needed for skill packages and often contain
+        # editor, VCS, or OS metadata.
+        raise ValueError(f"hidden package paths are not allowed: {path}")
+    return "/".join(parts)
+
+
+def _package_file_text(item: dict[str, Any]) -> str:
+    content = item.get("content")
+    if not isinstance(content, str):
+        raise ValueError("package file content must be text")
+    size = len(content.encode("utf-8"))
+    if size > _MAX_PACKAGE_FILE_BYTES:
+        raise ValueError(f"package file is too large: {item.get('path')}")
+    return content
+
+
+def _package_root_for_skill(paths: list[str]) -> str:
+    skill_paths = [path for path in paths if path.endswith("SKILL.md")]
+    if not skill_paths:
+        raise ValueError("package must include SKILL.md")
+    return min(((path.rsplit("/", 1)[0] if "/" in path else "") for path in skill_paths), key=len)
+
+
+def _strip_package_root(path: str, root: str) -> str:
+    if not root:
+        return path
+    prefix = f"{root}/"
+    if not path.startswith(prefix):
+        raise ValueError(f"package file is outside the SKILL.md root: {path}")
+    return path[len(prefix):]
+
+
+def _attachment_warnings(attachments: list[dict[str, str]]) -> list[str]:
+    warnings: list[str] = []
+    for item in attachments:
+        rel = item["path"]
+        suffix = Path(rel).suffix.lower()
+        if suffix in _DANGEROUS_PACKAGE_SUFFIXES:
+            warnings.append(f"{rel} may execute code; review before registration.")
+    return warnings
+
+
+def parse_skill_package_files(
+    files: list[dict[str, Any]],
+    *,
+    source_name: str = "skill package",
+) -> dict[str, Any]:
+    """Parse a folder/zip-like skill package into the import preview shape.
+
+    The package must contain one ``SKILL.md``. Other text files are preserved as
+    draft attachments and materialized only after human approval.
+    """
+
+    if not files:
+        raise ValueError("package has no files")
+    if len(files) > _MAX_PACKAGE_FILES:
+        raise ValueError(f"package has too many files; max {_MAX_PACKAGE_FILES}")
+
+    normalized: dict[str, str] = {}
+    total_size = 0
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("package files must be objects")
+        rel = _normalize_package_relpath(str(item.get("path") or item.get("name") or ""))
+        if rel in normalized:
+            raise ValueError(f"duplicate package file path: {rel}")
+        content = _package_file_text(item)
+        total_size += len(content.encode("utf-8"))
+        if total_size > _MAX_PACKAGE_TOTAL_BYTES:
+            raise ValueError(f"package is too large; max {_MAX_PACKAGE_TOTAL_BYTES} bytes")
+        normalized[rel] = content
+
+    root = _package_root_for_skill(list(normalized))
+    stripped: dict[str, str] = {}
+    for rel, content in normalized.items():
+        stripped[_strip_package_root(rel, root)] = content
+    if "SKILL.md" not in stripped:
+        raise ValueError("package must include SKILL.md at a single package root")
+
+    parsed = parse_skill_markdown(stripped["SKILL.md"], source_name=f"{source_name}/SKILL.md")
+    routing_cases: list[dict[str, Any]] = []
+    if "routing_cases.json" in stripped:
+        try:
+            raw_cases = json.loads(stripped["routing_cases.json"])
+            if isinstance(raw_cases, dict):
+                raw_cases = raw_cases.get("cases", [])
+            if isinstance(raw_cases, list):
+                routing_cases = [item for item in raw_cases if isinstance(item, dict)]
+        except json.JSONDecodeError:
+            parsed["validation"]["errors"].append("routing_cases.json is not valid JSON")
+
+    attachments = [
+        {"path": rel, "content": content}
+        for rel, content in sorted(stripped.items())
+        if rel not in {"SKILL.md", "routing_cases.json"}
+    ]
+    warnings = list(parsed["validation"].get("warnings", []))
+    warnings.extend(_attachment_warnings(attachments))
+    parsed["validation"]["warnings"] = warnings
+    parsed["mode"] = "package"
+    parsed["package"] = {
+        "root": root,
+        "files": [
+            {
+                "path": item["path"],
+                "size": len(item["content"].encode("utf-8")),
+                "role": _package_file_role(item["path"]),
+            }
+            for item in attachments
+        ],
+        "attachments": attachments,
+        "routing_cases": routing_cases,
+    }
+    return parsed
+
+
+def parse_skill_package_zip(
+    data_b64: str,
+    *,
+    source_name: str = "skill package zip",
+) -> dict[str, Any]:
+    try:
+        raw = base64.b64decode(data_b64, validate=True)
+    except Exception as exc:
+        raise ValueError("zip package must be base64 encoded") from exc
+    if len(raw) > _MAX_PACKAGE_TOTAL_BYTES:
+        raise ValueError(f"zip package is too large; max {_MAX_PACKAGE_TOTAL_BYTES} bytes")
+    files: list[dict[str, Any]] = []
+    try:
+        with zipfile.ZipFile(io.BytesIO(raw)) as archive:
+            for info in archive.infolist():
+                if info.is_dir():
+                    continue
+                if info.file_size > _MAX_PACKAGE_FILE_BYTES:
+                    raise ValueError(f"zip member is too large: {info.filename}")
+                with archive.open(info) as handle:
+                    content = handle.read().decode("utf-8")
+                files.append({"path": info.filename, "content": content})
+    except UnicodeDecodeError as exc:
+        raise ValueError("zip package may contain only UTF-8 text files") from exc
+    except zipfile.BadZipFile as exc:
+        raise ValueError("invalid zip package") from exc
+    return parse_skill_package_files(files, source_name=source_name)
+
+
+def _package_file_role(path: str) -> str:
+    lowered = path.lower()
+    if lowered.startswith("templates/"):
+        return "template"
+    if lowered.startswith("examples/"):
+        return "example"
+    if lowered.startswith("scripts/") or Path(lowered).suffix in _DANGEROUS_PACKAGE_SUFFIXES:
+        return "script"
+    if lowered.startswith("references/") or lowered.startswith("docs/"):
+        return "reference"
+    if lowered.endswith(".json"):
+        return "data"
+    return "reference"
+
+
+def _validated_draft_attachments(raw: Any) -> list[dict[str, str]]:
+    if raw is None:
+        return []
+    if not isinstance(raw, list):
+        raise ValueError("draft attachments must be a list")
+    if len(raw) > _MAX_PACKAGE_FILES:
+        raise ValueError(f"draft has too many attachments; max {_MAX_PACKAGE_FILES}")
+    total_size = 0
+    attachments: list[dict[str, str]] = []
+    seen: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            raise ValueError("draft attachment must be an object")
+        rel = _normalize_package_relpath(str(item.get("path") or ""))
+        if rel in {"SKILL.md", "routing_cases.json"}:
+            raise ValueError(f"draft attachment cannot replace managed file: {rel}")
+        if rel in seen:
+            raise ValueError(f"duplicate draft attachment: {rel}")
+        seen.add(rel)
+        content = str(item.get("content") or "")
+        size = len(content.encode("utf-8"))
+        if size > _MAX_PACKAGE_FILE_BYTES:
+            raise ValueError(f"draft attachment is too large: {rel}")
+        total_size += size
+        if total_size > _MAX_PACKAGE_TOTAL_BYTES:
+            raise ValueError(f"draft attachments are too large; max {_MAX_PACKAGE_TOTAL_BYTES} bytes")
+        attachments.append({"path": rel, "content": content})
+    return attachments
+
+
 def _draft_materials(
     *,
     name: str,
@@ -660,6 +877,12 @@ def _draft_materials(
         "required_tools": required_tools or [],
         "install_sources": install_sources or [],
     }
+    if content and content.attachments:
+        input_json["attachments"] = [
+            {"path": item["path"], "content": item["content"]}
+            for item in content.attachments
+            if item.get("path") and "content" in item
+        ]
     return input_json, markdown, review, routing_cases
 
 
@@ -2146,6 +2369,30 @@ class SkillStore:
             rows = conn.execute(query, params).fetchall()
         return [self._draft_from_row(row) for row in rows]
 
+    def delete_skill_draft(self, draft_id: str) -> bool:
+        """Discard a composer draft that was never materialized as a file.
+
+        This is a plain row delete, not a status transition: an unapproved
+        draft has no file and no registry row, so there is nothing to
+        "reject" in the governance sense (contrast with :meth:`reject_skill`,
+        which marks an existing skill's registry row rejected). An approved
+        draft is the provenance record for a real, registered skill, so it
+        cannot be discarded through this path.
+
+        Returns ``False`` if the draft does not exist (idempotent).
+        """
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT status FROM skill_drafts WHERE draft_id = ?",
+                (draft_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            if row["status"] == "approved":
+                raise ValueError(f"cannot discard an approved draft: {draft_id}")
+            conn.execute("DELETE FROM skill_drafts WHERE draft_id = ?", (draft_id,))
+            return True
+
     def approve_composed_draft(
         self,
         draft_id: str,
@@ -2170,9 +2417,15 @@ class SkillStore:
         routing_file = skill_dir / "routing_cases.json"
         if skill_file.exists() or self.get_skill(name) is not None:
             raise ValueError(f"skill '{name}' already exists")
+        try:
+            input_json = json.loads(row["input_json"] or "{}")
+        except json.JSONDecodeError:
+            input_json = {}
+        attachments = _validated_draft_attachments(input_json.get("attachments"))
 
         skill_dir.mkdir(parents=True, exist_ok=False)
         wrote_skill = False
+        written_attachments: list[Path] = []
         try:
             skill_file.write_text(row["markdown"], encoding="utf-8")
             wrote_skill = True
@@ -2182,6 +2435,12 @@ class SkillStore:
                     json.dumps({"cases": routing_cases}, ensure_ascii=False, indent=2) + "\n",
                     encoding="utf-8",
                 )
+            for attachment in attachments:
+                rel = attachment["path"]
+                target = skill_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(attachment["content"], encoding="utf-8")
+                written_attachments.append(target)
             self.reindex(system_dir=system_dir)
             # Indexing always lands workspace files as draft; this call is the
             # human approval, so promote the registry row explicitly.
@@ -2210,6 +2469,16 @@ class SkillStore:
         except Exception:
             if wrote_skill:
                 with contextlib.suppress(OSError):
+                    for target in reversed(written_attachments):
+                        if target.exists():
+                            target.unlink()
+                    for parent in sorted(
+                        {target.parent for target in written_attachments},
+                        key=lambda item: len(item.parts),
+                        reverse=True,
+                    ):
+                        with contextlib.suppress(OSError):
+                            parent.rmdir()
                     if routing_file.exists():
                         routing_file.unlink()
                     if skill_file.exists():

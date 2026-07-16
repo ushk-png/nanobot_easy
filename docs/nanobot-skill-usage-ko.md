@@ -23,6 +23,16 @@ cd /Users/imkimhk/Project/nanobot_skill
 ./restart-nanobot-skill.sh
 ```
 
+`start-nanobot-skill.sh`는 Telegram 봇 토큰이 설정되어 있으면 시작 전에
+`.local/config.json`의 `channels.telegram.enabled`를 자동으로 `true`로 보정한다.
+따라서 재시작이나 중단 후 재시작 시 Telegram 채널이 실수로 꺼진 채 기동되는
+상황을 막는다. 정말 Telegram 없이 기동해야 하는 임시 상황에서는 다음처럼
+명시적으로 guard를 끌 수 있다.
+
+```bash
+NANOBOT_ENSURE_TELEGRAM=0 ./start-nanobot-skill.sh
+```
+
 로그는 다음 파일에 기록된다.
 
 ```bash
@@ -88,6 +98,14 @@ PYTHONPATH=. .venv/bin/nanobot agent \
 ```bash
 PYTHONPATH=. .venv/bin/nanobot channels status \
   --config .local/config.json
+```
+
+정상 상태에서는 `Telegram`과 `WebSocket`이 모두 활성화되어야 한다. 로그에는
+다음 줄이 보여야 한다.
+
+```text
+✓ Channels enabled: telegram, websocket
+telegram | bot @queen_nanobot connected
 ```
 
 ## 스킬 구조

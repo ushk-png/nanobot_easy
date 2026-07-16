@@ -406,6 +406,11 @@ export interface ManagedSkillDraftApprovePayload {
   skill: ManagedSkill | null;
 }
 
+export interface ManagedSkillDraftDiscardPayload {
+  draft_id: string;
+  deleted: boolean;
+}
+
 export interface ManagedSkillDraftComposeValues {
   name: string;
   description: string;
@@ -416,6 +421,20 @@ export interface ManagedSkillDraftComposeValues {
   requires_exec?: boolean;
   required_tools?: string[];
   install_sources?: string[];
+  attachments?: ManagedSkillPackageFile[];
+  package_files?: ManagedSkillPackageFileMeta[];
+  routing_cases?: ManagedSkillDraftRoutingCase[];
+}
+
+export interface ManagedSkillPackageFile {
+  path: string;
+  content: string;
+}
+
+export interface ManagedSkillPackageFileMeta {
+  path: string;
+  size: number;
+  role: "template" | "example" | "script" | "reference" | "data" | string;
 }
 
 export interface ManagedSkillImportResult {
@@ -429,6 +448,12 @@ export interface ManagedSkillImportResult {
     warnings: string[];
   };
   preserved_method: boolean;
+  package?: {
+    root?: string;
+    files: ManagedSkillPackageFileMeta[];
+    attachments?: ManagedSkillPackageFile[];
+    routing_cases?: ManagedSkillDraftRoutingCase[];
+  };
 }
 
 export interface ManagedSkillImportPayload {

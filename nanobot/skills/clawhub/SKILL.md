@@ -65,8 +65,10 @@ After staging:
 3. If the imported skill is not already compliant, use `skill-composer` to
    convert it into a local draft instead of copying it verbatim.
 4. Generate or verify `routing_cases.json`.
-5. Only after human review, approve through the normal registry path
-   (`nanobot skill approve` or the WebUI draft approval flow).
+5. Only after human review, call `skill_request_approval` with the draft name and ask the user to
+   confirm registration in your own words in the same reply. Only their next plain yes/no message
+   approves or cancels it. They can also run `nanobot skill approve <name>` in a terminal or use
+   the WebUI draft approval flow directly. Never run the approve step yourself.
 
 If the skill controls an external program or service such as a calendar CLI,
 treat it as an executable external-tool proposal until proven otherwise.
