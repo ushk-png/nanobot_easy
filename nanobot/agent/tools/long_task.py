@@ -28,6 +28,7 @@ from nanobot.session.goal_state import (
     GOAL_STATE_KEY,
     discard_legacy_goal_state_key,
     goal_state_raw,
+    objective_requires_user_approval,
     parse_goal_state,
 )
 
@@ -167,6 +168,8 @@ class LongTaskTool(Tool, _GoalToolsMixin):
             "ui_summary": summary,
             "started_at": _iso_now(),
         }
+        if objective_requires_user_approval(goal):
+            blob["requires_user_approval"] = True
         sess.metadata[GOAL_STATE_KEY] = blob
         discard_legacy_goal_state_key(sess.metadata)
         self._sessions.save(sess)

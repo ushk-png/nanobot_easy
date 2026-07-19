@@ -18,6 +18,7 @@ from nanobot.session.turn_continuation import (
     internal_continuation_pending,
     internal_continuation_run_started_at,
     maybe_continue_turn,
+    should_autocontinue_sustained_goal,
     should_finalize_on_max_iterations,
     should_stream_budget_response,
 )
@@ -131,6 +132,53 @@ def test_internal_continuation_requires_budget_boundary_and_queue():
         pending_queue_available=True,
         session_metadata={},
     )
+
+
+def test_active_goal_does_not_autocontinue_over_fresh_status_question():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": "Install and benchmark Cua Driver.",
+            "user_approval_received": True,
+        },
+    }
+
+    assert should_autocontinue_sustained_goal(
+        meta,
+        message_metadata={},
+        user_message="재시작했어?",
+    ) is False
+
+
+def test_active_goal_autocontinues_after_explicit_proceed_reply():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": "Install and benchmark Cua Driver.",
+            "user_approval_received": True,
+        },
+    }
+
+    assert should_autocontinue_sustained_goal(
+        meta,
+        message_metadata={},
+        user_message="진행해줘",
+    ) is True
+
+
+def test_active_goal_autocontinues_for_internal_continuation_slice():
+    meta = {
+        GOAL_STATE_KEY: {
+            "status": "active",
+            "objective": "Install and benchmark Cua Driver.",
+        },
+    }
+
+    assert should_autocontinue_sustained_goal(
+        meta,
+        message_metadata={INTERNAL_CONTINUATION_META: True},
+        user_message="",
+    ) is True
 
 
 def test_save_skip_matches_prefix_when_current_message_merged():

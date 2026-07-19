@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
+from nanobot.agent.loop import AgentLoop, TurnContext, TurnState
 from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import ModelPresetConfig
@@ -105,6 +105,36 @@ async def test_yes_reply_approves_materialized_draft(tmp_path: Path) -> None:
     assert "gcalcli-calendar" in result.content
     assert get_pending_skill_approval(session.metadata) is None
     assert store.get_skill("gcalcli-calendar")["status"] == "candidate"
+
+
+@pytest.mark.asyncio
+async def test_confirmation_shortcut_remains_visible_in_llm_history(tmp_path: Path) -> None:
+    _write_draft_skill(tmp_path, "gcalcli-calendar")
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+
+    loop = _make_loop(tmp_path)
+    session = loop.sessions.get_or_create("cli:direct")
+    set_pending_skill_approval(session.metadata, name="gcalcli-calendar", source="file")
+    ctx = TurnContext(
+        msg=_msg("예"),
+        session_key="cli:direct",
+        state=TurnState.COMMAND,
+        turn_id="test-turn",
+        session=session,
+    )
+
+    event = await loop._state_command(ctx)
+
+    assert event == "shortcut"
+    assert ctx.outbound is not None
+    assert "Approved" in ctx.outbound.content
+    assert session.messages[-2]["role"] == "user"
+    assert session.messages[-2].get("_command") is False
+    assert session.messages[-1]["role"] == "assistant"
+    assert session.messages[-1].get("_command") is False
+    history = session.get_history()
+    assert any(msg["role"] == "assistant" and "Approved" in msg["content"] for msg in history)
 
 
 @pytest.mark.asyncio

@@ -22,6 +22,7 @@ from nanobot.utils.helpers import (
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
     find_legal_message_start,
+    input_token_safety_buffer,
     recent_message_start_index,
     strip_think,
     truncate_text,
@@ -743,7 +744,7 @@ class Consolidator:
 
     _MAX_CONSOLIDATION_ROUNDS = 5
 
-    _SAFETY_BUFFER = 1024  # extra headroom for tokenizer estimation drift
+    _SAFETY_BUFFER = 1024  # test override; runtime uses the larger dynamic buffer below
 
     def __init__(
         self,
@@ -918,7 +919,12 @@ class Consolidator:
     @property
     def _input_token_budget(self) -> int:
         """Available input token budget for consolidation LLM."""
-        return self.context_window_tokens - self.max_completion_tokens - self._SAFETY_BUFFER
+        safety_buffer = (
+            0
+            if self._SAFETY_BUFFER <= 0
+            else max(self._SAFETY_BUFFER, input_token_safety_buffer(self.context_window_tokens))
+        )
+        return self.context_window_tokens - self.max_completion_tokens - safety_buffer
 
     def _truncate_to_token_budget(self, text: str) -> str:
         """Truncate text so it fits within the consolidation LLM's token budget."""

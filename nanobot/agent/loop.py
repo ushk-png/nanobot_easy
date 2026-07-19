@@ -60,11 +60,11 @@ from nanobot.security.workspace_access import (
 )
 from nanobot.session import turn_continuation
 from nanobot.session.automation_turns import automation_history_overrides
+from nanobot.session.conversation_focus import update_conversation_focus
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
+    mark_sustained_goal_user_approval,
     runner_wall_llm_timeout_s,
-    sustained_goal_active,
-    sustained_goal_waits_for_user,
 )
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
 from nanobot.session.keys import UNIFIED_SESSION_KEY, session_key_for_channel
@@ -80,7 +80,11 @@ from nanobot.session.skill_approval_state import (
 )
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
-from nanobot.utils.helpers import image_placeholder_text, truncate_text_to_tokens
+from nanobot.utils.helpers import (
+    image_placeholder_text,
+    input_token_safety_buffer,
+    truncate_text_to_tokens,
+)
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -771,7 +775,11 @@ class AgentLoop:
             reserved_output = int(max_output)
         except (TypeError, ValueError):
             reserved_output = 4096
-        budget = self.context_window_tokens - max(1, reserved_output) - 1024
+        budget = (
+            self.context_window_tokens
+            - max(1, reserved_output)
+            - input_token_safety_buffer(self.context_window_tokens)
+        )
         return budget if budget > 0 else max(128, self.context_window_tokens // 2)
 
     async def _run_agent_loop(
@@ -793,6 +801,7 @@ class AgentLoop:
         run_extra_hooks_for_ephemeral: bool = False,
         hooks: list[AgentHook] | None = None,
         tools: ToolRegistry | None = None,
+        user_message: str | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -950,8 +959,11 @@ class AgentLoop:
                     message_metadata=metadata,
                 ),
                 goal_active_predicate=lambda: (
-                    sustained_goal_active(session.metadata)
-                    and not sustained_goal_waits_for_user(session.metadata)
+                    turn_continuation.should_autocontinue_sustained_goal(
+                        session.metadata,
+                        message_metadata=metadata,
+                        user_message=user_message,
+                    )
                 ) if session is not None else False,
                 goal_continue_message=_goal_continue,
                 finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
@@ -1034,37 +1046,51 @@ class AgentLoop:
                         break
                 if deferred:
                     continue
+                session_for_goal = self.sessions.get_or_create(effective_key)
+                if mark_sustained_goal_user_approval(session_for_goal.metadata, raw):
+                    self.sessions.save(session_for_goal)
+                    logger.info(
+                        "Marked approval-gated sustained goal approved in session {}",
+                        effective_key,
+                    )
                 # If this session already has an active pending queue (i.e. a task
                 # is processing this session), route the message there for mid-turn
                 # injection instead of creating a competing task.
                 if effective_key in self._pending_queues:
-                    # Non-priority commands must not be queued for injection;
-                    # dispatch them directly (same pattern as priority commands).
-                    if self.commands.is_dispatchable_command(raw):
-                        await self._dispatch_command_inline(
-                            msg, effective_key, raw,
-                            self.commands.dispatch,
-                        )
-                        continue
-                    pending_msg = msg
-                    if effective_key != msg.session_key:
-                        pending_msg = dataclasses.replace(
-                            msg,
-                            session_key_override=effective_key,
-                        )
-                    try:
-                        self._pending_queues[effective_key].put_nowait(pending_msg)
-                    except asyncio.QueueFull:
-                        logger.warning(
-                            "Pending queue full for session {}, falling back to queued task",
+                    session_meta = session_for_goal.metadata
+                    if not turn_continuation.should_route_followup_to_pending(session_meta):
+                        logger.info(
+                            "Bypassing pending queue for approval-gated sustained goal in session {}",
                             effective_key,
                         )
                     else:
-                        logger.info(
-                            "Routed follow-up message to pending queue for session {}",
-                            effective_key,
-                        )
-                        continue
+                        # Non-priority commands must not be queued for injection;
+                        # dispatch them directly (same pattern as priority commands).
+                        if self.commands.is_dispatchable_command(raw):
+                            await self._dispatch_command_inline(
+                                msg, effective_key, raw,
+                                self.commands.dispatch,
+                            )
+                            continue
+                        pending_msg = msg
+                        if effective_key != msg.session_key:
+                            pending_msg = dataclasses.replace(
+                                msg,
+                                session_key_override=effective_key,
+                            )
+                        try:
+                            self._pending_queues[effective_key].put_nowait(pending_msg)
+                        except asyncio.QueueFull:
+                            logger.warning(
+                                "Pending queue full for session {}, falling back to queued task",
+                                effective_key,
+                            )
+                        else:
+                            logger.info(
+                                "Routed follow-up message to pending queue for session {}",
+                                effective_key,
+                            )
+                            continue
                 # Compute the effective session key before dispatching
                 # This ensures /stop command can find tasks correctly when unified session is enabled
                 task = asyncio.create_task(self._dispatch(msg))
@@ -1306,6 +1332,15 @@ class AgentLoop:
             "extend_to_user": is_subagent,
         }
         history = session.get_history(**_hist_kwargs)
+        if not is_subagent and isinstance(msg.content, str) and msg.content.strip():
+            update_conversation_focus(
+                session.metadata,
+                user_text=msg.content,
+                history=history,
+                workspace=self.workspace,
+                session_key=key,
+            )
+            self.sessions.save(session)
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
         current_runtime_lines = [] if is_subagent else self._proactive_skill_card_lines(msg, session)
 
@@ -1333,6 +1368,7 @@ class AgentLoop:
             metadata=msg.metadata,
             session_key=key,
             pending_queue=pending_queue,
+            user_message=msg.content,
         )
         wall_done = time.time()
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
@@ -1523,6 +1559,17 @@ class AgentLoop:
         if self._restore_pending_user_turn(ctx.session):
             self.sessions.save(ctx.session)
 
+        if msg.sender_id != "subagent" and isinstance(msg.content, str) and msg.content.strip():
+            recent_history = ctx.session.get_history(max_messages=12, max_tokens=0, extend_to_user=False)
+            update_conversation_focus(
+                ctx.session.metadata,
+                user_text=msg.content,
+                history=recent_history,
+                workspace=self.workspace,
+                session_key=ctx.session_key,
+            )
+            self.sessions.save(ctx.session)
+
         return "ok"
 
     def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
@@ -1589,6 +1636,7 @@ class AgentLoop:
             msg=ctx.msg, session=ctx.session, key=ctx.session_key, raw=raw, loop=self
         )
         result = await self._resolve_pending_skill_confirmation(ctx.msg, ctx.session, raw)
+        is_skill_confirmation = result is not None
         if result is None:
             result = await self.commands.dispatch(cmd_ctx)
         if result is not None:
@@ -1599,11 +1647,12 @@ class AgentLoop:
             # them out of LLM context.  /new is excluded because it
             # intentionally clears the session.
             if cmd_ctx.raw.lower() != "/new":
+                command_hidden = not is_skill_confirmation
                 ctx.user_persisted_early = self._persist_user_message_early(
-                    ctx.msg, ctx.session, _command=True
+                    ctx.msg, ctx.session, _command=command_hidden
                 )
                 ctx.session.add_message(
-                    "assistant", result.content, _command=True
+                    "assistant", result.content, _command=command_hidden
                 )
                 self.sessions.save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)

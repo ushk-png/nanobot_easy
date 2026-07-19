@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from nanobot.agent.context import ContextBuilder
+from nanobot.session.conversation_focus import CONVERSATION_FOCUS_KEY
 from nanobot.session.goal_state import GOAL_STATE_KEY
 
 # ---------------------------------------------------------------------------
@@ -336,6 +337,23 @@ class TestBuildMessages:
         user_msg = str(messages[-1]["content"])
         assert "Goal (active):" in user_msg
         assert "Finish docs migration." in user_msg
+
+    def test_session_metadata_injects_conversation_focus(self, tmp_path):
+        builder = _builder(tmp_path)
+        meta = {
+            CONVERSATION_FOCUS_KEY: {
+                "objective": "PageAgent 관련 설치 제거",
+                "current_intent": "삭제 완료 여부 확인",
+                "last_referents": [{"label": "tools/page-agent", "type": "directory"}],
+                "missing_slots": [],
+                "confidence": {"level": "high", "reason": "직전 작업 확인"},
+            }
+        }
+        messages = builder.build_messages([], "다 수행했어?", session_metadata=meta)
+        user_msg = str(messages[-1]["content"])
+        assert "Conversation Focus Snapshot" in user_msg
+        assert "Objective: PageAgent 관련 설치 제거" in user_msg
+        assert "Likely referent: tools/page-agent" in user_msg
 
     def test_goal_state_does_not_leak_without_session_metadata(self, tmp_path):
         builder = _builder(tmp_path)

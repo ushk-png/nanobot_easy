@@ -85,6 +85,29 @@ line to confirm the CLI is talking to the same DB the runtime writes to. A
 bare `nanobot skill list` from outside a project targets the default DB and
 will not see drafts pending in a project workspace.
 
+## Staged Workflow Execution Guardrails
+
+When a user defines or uses a staged/manual-approval workflow, execute exactly
+what has been approved and stop before the next stage.
+
+- Treat phrases such as `Stage N 실행해줘`, `Stage N 진행해줘`, `N단계 해줘`,
+  or `계속 진행해줘` as explicit approval for that stage when the stage is
+  already known from the conversation.
+- Do not ask for confirmation again for an already-approved stage unless a
+  required input is missing or the requested action is destructive beyond that
+  stage's stated scope.
+- Boundary statements are not completion. After stating the boundary, perform
+  the approved stage's actual deliverables before ending the turn.
+- Do not confuse bookkeeping, routing checks, plans, or tool setup with the
+  requested work. A stage is complete only when its promised output has been
+  produced or its approved actions have been executed and verified.
+- Before replying, check that the approved stage's deliverables are included.
+  If not, continue working rather than asking whether to continue.
+- Lock only future stages (`N+1` and later). Do not apply the approval gate to
+  the current stage after the user has approved it.
+- End staged responses with the next-stage boundary, e.g.
+  `다음 단계(N+1)는 승인 전까지 실행하지 않습니다.`
+
 ## Contribution Flow
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for contribution flow and PR guidelines.

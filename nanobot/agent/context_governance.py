@@ -17,6 +17,7 @@ from nanobot.utils.helpers import (
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
     find_legal_message_start,
+    input_token_safety_buffer,
     maybe_persist_tool_result,
     truncate_text,
 )
@@ -102,7 +103,9 @@ class ContextGovernor:
             provider_max_tokens if isinstance(provider_max_tokens, int) else 4096
         )
         budget = config.context_block_limit or (
-            config.context_window_tokens - max_output - SNIP_SAFETY_BUFFER
+            config.context_window_tokens
+            - max_output
+            - max(SNIP_SAFETY_BUFFER, input_token_safety_buffer(config.context_window_tokens))
         )
         return budget if budget > 0 else 0
 

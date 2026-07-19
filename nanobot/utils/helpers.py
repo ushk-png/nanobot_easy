@@ -18,6 +18,8 @@ from loguru import logger
 
 _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
+_MIN_INPUT_TOKEN_SAFETY_BUFFER = 1024
+_MAX_INPUT_TOKEN_SAFETY_BUFFER = 20_000
 
 
 @lru_cache(maxsize=1)
@@ -68,6 +70,14 @@ def _estimate_tools_tokens(
 
 def _tag_regex(tags: tuple[str, ...]) -> str:
     return rf"(?:{'|'.join(re.escape(tag) for tag in tags)})"
+
+
+def input_token_safety_buffer(context_window_tokens: int | None) -> int:
+    """Headroom reserved before model input reaches the provider context limit."""
+    if not context_window_tokens or context_window_tokens <= 0:
+        return 0
+    dynamic = max(_MIN_INPUT_TOKEN_SAFETY_BUFFER, int(context_window_tokens * 0.10))
+    return min(dynamic, _MAX_INPUT_TOKEN_SAFETY_BUFFER)
 
 
 _THINKING_TAGS = ("think", "thinking", "thought")
@@ -700,8 +710,11 @@ def build_status_content(
     last_out = last_usage.get("completion_tokens", 0)
     cached = last_usage.get("cached_tokens", 0)
     ctx_total = max(context_window_tokens, 0)
-    # Budget mirrors Consolidator formula: ctx_window - max_completion - _SAFETY_BUFFER
-    ctx_budget = max(ctx_total - int(max_completion_tokens) - 1024, 1)
+    # Budget mirrors Consolidator formula: ctx_window - max_completion - safety buffer.
+    ctx_budget = max(
+        ctx_total - int(max_completion_tokens) - input_token_safety_buffer(ctx_total),
+        1,
+    )
     ctx_pct = min(int((context_tokens_estimate / ctx_budget) * 100), 999) if ctx_budget > 0 else 0
     ctx_used_str = (
         f"{context_tokens_estimate // 1000}k"

@@ -1108,6 +1108,82 @@ async def test_run_agent_loop_goal_continue_message_reads_latest_metadata(
 
 
 @pytest.mark.asyncio
+async def test_run_agent_loop_does_not_force_goal_over_status_question(
+    tmp_path: Path,
+) -> None:
+    from nanobot.agent.runner import AgentRunResult
+
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("telegram:goal-status")
+    session.metadata[GOAL_STATE_KEY] = {
+        "status": "active",
+        "objective": "Install and benchmark Cua Driver.",
+        "user_approval_received": True,
+    }
+    seen: dict[str, bool] = {}
+
+    async def fake_run(spec):
+        assert spec.goal_active_predicate is not None
+        seen["autocontinue"] = spec.goal_active_predicate()
+        return AgentRunResult(
+            final_content="restart ok",
+            messages=[{"role": "assistant", "content": "restart ok"}],
+        )
+
+    loop.runner.run = fake_run  # type: ignore[method-assign]
+
+    await loop._run_agent_loop(
+        [],
+        session=session,
+        channel="telegram",
+        chat_id="goal-status",
+        session_key=session.key,
+        metadata={},
+        user_message="재시작했어?",
+    )
+
+    assert seen["autocontinue"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_allows_goal_after_explicit_proceed_reply(
+    tmp_path: Path,
+) -> None:
+    from nanobot.agent.runner import AgentRunResult
+
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("telegram:goal-proceed")
+    session.metadata[GOAL_STATE_KEY] = {
+        "status": "active",
+        "objective": "Install and benchmark Cua Driver.",
+        "user_approval_received": True,
+    }
+    seen: dict[str, bool] = {}
+
+    async def fake_run(spec):
+        assert spec.goal_active_predicate is not None
+        seen["autocontinue"] = spec.goal_active_predicate()
+        return AgentRunResult(
+            final_content="continuing",
+            messages=[{"role": "assistant", "content": "continuing"}],
+        )
+
+    loop.runner.run = fake_run  # type: ignore[method-assign]
+
+    await loop._run_agent_loop(
+        [],
+        session=session,
+        channel="telegram",
+        chat_id="goal-proceed",
+        session_key=session.key,
+        metadata={},
+        user_message="진행해줘",
+    )
+
+    assert seen["autocontinue"] is True
+
+
+@pytest.mark.asyncio
 async def test_process_direct_skip_user_persist_does_not_save_retry_user(
     tmp_path: Path,
 ) -> None:
