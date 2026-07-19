@@ -5,6 +5,8 @@
     {"query": "Debug this stack trace and make the fix.", "expected": "code-debugging"},
     {"query": "Find the regression and update the test.", "expected": "code-debugging"},
     {"query": "Run the failing command and repair the implementation.", "expected": "code-debugging"},
+    {"query": "Add a new export option to this module.", "expected": "code-modify"},
+    {"query": "리팩터링해서 중복 코드를 줄여줘.", "expected": "code-modify"},
     {"query": "Review this diff without editing it.", "expected": "code-review"},
     {"query": "Give me a debugging plan before touching code.", "expected": "debug-procedure"},
     {"query": "Explain this error message.", "expected": "error-message-explain"},

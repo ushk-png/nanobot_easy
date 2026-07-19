@@ -85,7 +85,12 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
     raw = await tool.execute(
         queries=[
             {"query": "A vs B which is better", "category": "answer.compare", "top_k": 3, "wave_no": 1},
-            {"query": "fix this bug and run tests", "category": "coding.fix", "top_k": 3},
+            {
+                "query": "fix this bug and run tests",
+                "intent_summary": "User wants a coding bug fixed and verified with tests.",
+                "category": "coding.fix",
+                "top_k": 3,
+            },
         ]
     )
     payload = json.loads(raw)
@@ -106,8 +111,12 @@ async def test_skill_search_batches_results_and_records_trace(tmp_path: Path) ->
         wave_no = conn.execute(
             "SELECT wave_no FROM traces WHERE wave_no IS NOT NULL ORDER BY ts DESC LIMIT 1"
         ).fetchone()[0]
+        intent_summary = conn.execute(
+            "SELECT intent_summary FROM traces WHERE intent_summary IS NOT NULL ORDER BY ts DESC LIMIT 1"
+        ).fetchone()[0]
     assert count == 2
     assert wave_no == 1
+    assert intent_summary == "User wants a coding bug fixed and verified with tests."
 
 
 @pytest.mark.asyncio
@@ -182,6 +191,7 @@ async def test_skill_decision_records_final_selection_trace(tmp_path: Path) -> N
     raw = await tool.execute(
         decision="hot",
         skill_name="answer-comparison",
+        intent_summary="User wants a direct comparison between two alternatives.",
         rationale="Active Skill card matched a two-option comparison request.",
         wave_no=2,
     )
@@ -189,11 +199,12 @@ async def test_skill_decision_records_final_selection_trace(tmp_path: Path) -> N
 
     with sqlite3.connect(tmp_path / ".skillstore" / "skillstore.db") as conn:
         row = conn.execute(
-            "SELECT selected_skill, selection_reason, notes, wave_no FROM traces ORDER BY ts DESC LIMIT 1"
+            "SELECT selected_skill, selection_reason, intent_summary, notes, wave_no FROM traces ORDER BY ts DESC LIMIT 1"
         ).fetchone()
     assert row == (
         "answer-comparison",
         "hot",
+        "User wants a direct comparison between two alternatives.",
         "Active Skill card matched a two-option comparison request.",
         2,
     )

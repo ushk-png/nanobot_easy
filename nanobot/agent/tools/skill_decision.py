@@ -35,6 +35,13 @@ def _digest_text(text: str, skill_name: str | None = None) -> str:
             "Brief reason based on the user's actual instruction and the selected or rejected skill cards.",
             max_length=800,
         ),
+        intent_summary=StringSchema(
+            "Optional one-sentence summary of the user's intended outcome, target, and key constraints "
+            "at the moment of this routing decision. Keep it under 300 characters and do not include "
+            "hidden reasoning.",
+            max_length=300,
+            nullable=True,
+        ),
         wave_no=IntegerSchema(
             description=(
                 "Composite-task wave number for this routing decision. Set this for subtasks "
@@ -86,6 +93,7 @@ class SkillDecisionTool(Tool, ContextAware):
         decision: str,
         rationale: str,
         skill_name: str | None = None,
+        intent_summary: str | None = None,
         wave_no: int | None = None,
         **_kwargs: Any,
     ) -> str:
@@ -109,6 +117,7 @@ class SkillDecisionTool(Tool, ContextAware):
             trace_id=f"skill_decision:{uuid4().hex}",
             session_key=self._session_key,
             query_digest=_digest_text(rationale or "", selected),
+            intent_summary=(intent_summary or "").strip() or None,
             candidates=[{"name": selected, "match_grade": normalized, "score": None}] if selected else [],
             selected_skill=selected,
             selection_reason=normalized,

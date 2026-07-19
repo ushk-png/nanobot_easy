@@ -5,6 +5,8 @@
     {"query": "List investigation steps to narrow down this bug.", "expected": "debug-procedure"},
     {"query": "Triage this failure before we edit code.", "expected": "debug-procedure"},
     {"query": "Help me narrow down this regression systematically.", "expected": "debug-procedure"},
+    {"query": "이제 계획 말고 직접 코드 수정까지 해줘.", "expected": "code-modify"},
+    {"query": "Implement the proposed refactor in the files.", "expected": "code-modify"},
     {"query": "Actually fix the failing test in the repository.", "expected": "code-debugging"},
     {"query": "Review this diff for bugs.", "expected": "code-review"},
     {"query": "Why is this HTTP request returning 403?", "expected": "answer-diagnosis"},

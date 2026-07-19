@@ -5,6 +5,8 @@
     {"query": "Give me code review comments on this patch.", "expected": "code-review"},
     {"query": "Check this function for security and missing tests.", "expected": "code-review"},
     {"query": "Review this implementation before I merge it.", "expected": "code-review"},
+    {"query": "Refactor this function and update the files directly.", "expected": "code-modify"},
+    {"query": "Implement this UI change in the repository.", "expected": "code-modify"},
     {"query": "Fix the failing unit test in the repo.", "expected": "code-debugging"},
     {"query": "Give me a debugging procedure for this flaky test.", "expected": "debug-procedure"},
     {"query": "Explain this error message.", "expected": "error-message-explain"},

@@ -91,6 +91,13 @@ def _coerce_top_k(value: Any) -> int:
                     "raw sentence verbatim when it is vague or idiomatic; generalize the intent into "
                     "what the user wants done, the target, and the desired output shape."
                 ),
+                intent_summary=StringSchema(
+                    "Optional one-sentence summary of the user's intended outcome, target, and key "
+                    "constraints used to build this routing query. Keep it under 300 characters. "
+                    "Do not include hidden reasoning.",
+                    max_length=300,
+                    nullable=True,
+                ),
                 category=StringSchema("Optional category hint, e.g. document.review", nullable=True),
                 top_k=IntegerSchema(description="Optional max candidates for this query", minimum=1, maximum=_MAX_TOP_K),
                 wave_no=IntegerSchema(
@@ -157,6 +164,7 @@ class SkillSearchTool(Tool, ContextAware):
         for item in queries[:_MAX_BATCH]:
             started = time.perf_counter()
             query = str(item.get("query") or "").strip()
+            intent_summary = str(item.get("intent_summary") or "").strip() or None
             category = item.get("category")
             category = str(category).strip() if category is not None else None
             top_k = _coerce_top_k(item.get("top_k", _DEFAULT_TOP_K))
@@ -170,6 +178,7 @@ class SkillSearchTool(Tool, ContextAware):
             if not query:
                 outputs.append({
                     "query": query,
+                    "intent_summary": intent_summary,
                     "category": category,
                     "wave_no": wave_no,
                     "candidates": [],
@@ -220,6 +229,7 @@ class SkillSearchTool(Tool, ContextAware):
             )
             payload = {
                 "query": query,
+                "intent_summary": intent_summary,
                 "category": category,
                 "wave_no": wave_no,
                 "candidates": candidates,
@@ -231,6 +241,7 @@ class SkillSearchTool(Tool, ContextAware):
                 trace_id=f"skill_search:{uuid4().hex}",
                 session_key=self._session_key,
                 query_digest=_digest_query(query, category),
+                intent_summary=intent_summary,
                 candidates=candidates,
                 selected_skill=None,
                 selection_reason="cold",
