@@ -7,6 +7,18 @@ LOG_DIR="${NANOBOT_LOG_DIR:-$SCRIPT_DIR/.local/logs}"
 PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-skill-gateway.pid}"
 LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-skill-gateway.log}"
 
+is_ancestor_pid() {
+  local needle="$1"
+  local pid="$$"
+  while [[ -n "${pid:-}" && "$pid" != "0" && "$pid" != "1" ]]; do
+    if [[ "$pid" == "$needle" ]]; then
+      return 0
+    fi
+    pid="$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d '[:space:]' || true)"
+  done
+  return 1
+}
+
 if [[ ! -f "$PID_FILE" ]]; then
   echo "nanobot_skill gateway is not running: pid file not found"
   exit 0
@@ -23,6 +35,12 @@ if ! kill -0 "$pid" 2>/dev/null; then
   rm -f "$PID_FILE"
   echo "nanobot_skill gateway is not running: stale pid file removed"
   exit 0
+fi
+
+if [[ "${NANOBOT_ALLOW_SELF_STOP:-0}" != "1" ]] && is_ancestor_pid "$pid"; then
+  echo "refusing to stop nanobot_skill gateway from inside its own process tree" >&2
+  echo "use restart-nanobot-skill.sh, which schedules a detached restart safely" >&2
+  exit 2
 fi
 
 echo "stopping nanobot_skill gateway: pid=$pid"

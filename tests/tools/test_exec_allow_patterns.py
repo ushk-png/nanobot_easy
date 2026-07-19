@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from nanobot.agent.tools.shell import ExecTool
 
 
@@ -87,3 +89,22 @@ def test_allow_patterns_fullmatch_allows_exact_command():
     tool = ExecTool(allow_patterns=[r"rm\s+-rf\s+/tmp/build"])
     result = tool._guard_command("rm -rf /tmp/build", "/tmp")
     assert result is None
+
+
+def test_exec_blocks_killing_current_gateway_pid():
+    """The agent must not kill its own gateway from inside exec."""
+    tool = ExecTool()
+    for command in (
+        f"kill {os.getpid()} && sleep 2 && ./start-nanobot-skill.sh",
+        f"/bin/kill -TERM {os.getpid()}",
+    ):
+        result = tool._guard_command(command, "/tmp")
+        assert result is not None
+        assert "cannot kill the current nanobot gateway" in result
+
+
+def test_exec_blocks_pkill_gateway_processes():
+    tool = ExecTool()
+    result = tool._guard_command("pkill -f 'nanobot gateway'", "/tmp")
+    assert result is not None
+    assert "cannot pkill nanobot/gateway" in result
