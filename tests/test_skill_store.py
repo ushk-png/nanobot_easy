@@ -1,6 +1,6 @@
-import sqlite3
 import base64
 import io
+import sqlite3
 import zipfile
 from pathlib import Path
 
@@ -927,6 +927,26 @@ def test_skill_trace_updates_usage_counters(tmp_path: Path) -> None:
     assert row["success_count"] == 1
     assert row["failure_count"] == 1
     assert row["routing_failure_count"] == 1
+
+
+def test_skill_trace_records_compact_intent_summary(tmp_path: Path) -> None:
+    store = SkillStore(tmp_path)
+    long_summary = "사용자는 " + ("아주 긴 의도 설명 " * 40)
+
+    store.record_trace(
+        trace_id="trace-intent",
+        intent_summary=long_summary,
+        selection_reason="cold",
+    )
+
+    with sqlite3.connect(tmp_path / ".skillstore" / "skillstore.db") as conn:
+        summary = conn.execute(
+            "SELECT intent_summary FROM traces WHERE trace_id = ?",
+            ("trace-intent",),
+        ).fetchone()[0]
+
+    assert summary.startswith("사용자는")
+    assert len(summary) <= 300
 
 
 def test_skill_hot_path_and_lifecycle_reports(tmp_path: Path) -> None:

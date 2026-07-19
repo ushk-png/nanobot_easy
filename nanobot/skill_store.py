@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-import contextlib
 import base64
+import contextlib
 import hashlib
+import hmac
 import io
 import json
 import math
 import re
+import secrets
 import sqlite3
 import uuid
 import zipfile
@@ -182,6 +184,7 @@ class SkillTraceRecord:
     ts: str
     session_key: str | None
     query_digest: str | None
+    intent_summary: str | None
     candidates: list[dict[str, Any]]
     selected_skill: str | None
     selection_reason: str
@@ -191,6 +194,26 @@ class SkillTraceRecord:
     gate_result: str | None
     user_feedback: str | None
     notes: str | None
+
+
+@dataclass(frozen=True)
+class RelayClientRecord:
+    client_id: str
+    tool_name: str
+    key_id: str
+    model_preset: str
+    status: str
+    created_at: str
+    updated_at: str
+    expires_at: str | None = None
+    last_used_at: str | None = None
+    last_used_ip: str | None = None
+
+
+@dataclass(frozen=True)
+class IssuedRelayClient:
+    record: RelayClientRecord
+    token: str
 
 
 @dataclass(frozen=True)
@@ -317,6 +340,77 @@ def skillstore_path(workspace: Path) -> Path:
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def _short_text(text: str, limit: int) -> str:
+    text = re.sub(r"\s+", " ", str(text or "")).strip()
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+_RELAY_TOKEN_PREFIX = "nbrelay"
+_RELAY_HASH_ITERATIONS = 200_000
+
+
+def _relay_secret_hash(secret: str, *, salt: bytes | None = None) -> str:
+    salt = salt or secrets.token_bytes(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256",
+        secret.encode("utf-8"),
+        salt,
+        _RELAY_HASH_ITERATIONS,
+    )
+    return "$".join(
+        (
+            "pbkdf2_sha256",
+            str(_RELAY_HASH_ITERATIONS),
+            base64.urlsafe_b64encode(salt).decode("ascii").rstrip("="),
+            base64.urlsafe_b64encode(digest).decode("ascii").rstrip("="),
+        )
+    )
+
+
+def _b64decode_unpadded(value: str) -> bytes:
+    return base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
+
+
+def _verify_relay_secret(secret: str, verifier: str) -> bool:
+    try:
+        scheme, iterations_text, salt_text, digest_text = verifier.split("$", 3)
+        if scheme != "pbkdf2_sha256":
+            return False
+        iterations = int(iterations_text)
+        salt = _b64decode_unpadded(salt_text)
+        expected = _b64decode_unpadded(digest_text)
+    except Exception:
+        return False
+    actual = hashlib.pbkdf2_hmac("sha256", secret.encode("utf-8"), salt, iterations)
+    return hmac.compare_digest(actual, expected)
+
+
+def parse_relay_token(token: str) -> tuple[str, str] | None:
+    """Return ``(key_id, secret)`` from an opaque relay token."""
+    value = (token or "").strip()
+    prefix = f"{_RELAY_TOKEN_PREFIX}_"
+    if not value.startswith(prefix):
+        return None
+    rest = value[len(prefix):]
+    if "_" not in rest:
+        return None
+    key_id, secret = rest.split("_", 1)
+    if not key_id or not secret:
+        return None
+    return key_id, secret
+
+
+def _safe_relay_client_id(value: str) -> str:
+    client = re.sub(r"[^A-Za-z0-9_.-]+", "-", (value or "").strip()).strip(".-")
+    if not client:
+        raise ValueError("relay client id is required")
+    if len(client) > 80:
+        raise ValueError("relay client id is too long")
+    return client
 
 
 def _json_list(value: Any) -> list[str]:
@@ -1223,6 +1317,7 @@ class SkillStore:
                     ts TEXT NOT NULL,
                     session_key TEXT,
                     query_digest TEXT,
+                    intent_summary TEXT,
                     candidates_json TEXT NOT NULL DEFAULT '[]',
                     selected_skill TEXT,
                     selection_reason TEXT NOT NULL,
@@ -1263,6 +1358,19 @@ class SkillStore:
                     updated_at TEXT NOT NULL,
                     PRIMARY KEY (query_digest, model)
                 );
+                CREATE TABLE IF NOT EXISTS relay_clients (
+                    client_id TEXT PRIMARY KEY,
+                    tool_name TEXT NOT NULL,
+                    key_id TEXT NOT NULL UNIQUE,
+                    secret_hash TEXT NOT NULL,
+                    model_preset TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    expires_at TEXT,
+                    last_used_at TEXT,
+                    last_used_ip TEXT
+                );
                 """
             )
             try:
@@ -1271,6 +1379,10 @@ class SkillStore:
                 pass
             try:
                 conn.execute("ALTER TABLE traces ADD COLUMN duration_ms INTEGER")
+            except sqlite3.OperationalError:
+                pass
+            try:
+                conn.execute("ALTER TABLE traces ADD COLUMN intent_summary TEXT")
             except sqlite3.OperationalError:
                 pass
             try:
@@ -1957,6 +2069,7 @@ class SkillStore:
                     ts=row["ts"],
                     session_key=row["session_key"],
                     query_digest=row["query_digest"],
+                    intent_summary=row["intent_summary"] if "intent_summary" in row.keys() else None,
                     candidates=[item for item in candidates if isinstance(item, dict)],
                     selected_skill=row["selected_skill"],
                     selection_reason=row["selection_reason"],
@@ -2899,6 +3012,167 @@ class SkillStore:
             routing_failure_count=int(row["routing_failure_count"]),
         )
 
+    @staticmethod
+    def _relay_client_from_row(row: sqlite3.Row) -> RelayClientRecord:
+        return RelayClientRecord(
+            client_id=row["client_id"],
+            tool_name=row["tool_name"],
+            key_id=row["key_id"],
+            model_preset=row["model_preset"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            expires_at=row["expires_at"],
+            last_used_at=row["last_used_at"],
+            last_used_ip=row["last_used_ip"],
+        )
+
+    def issue_relay_client(
+        self,
+        *,
+        client_id: str,
+        tool_name: str | None = None,
+        model_preset: str = "default",
+        expires_at: str | None = None,
+        replace: bool = False,
+    ) -> IssuedRelayClient:
+        """Create a relay PSK for one external tool client.
+
+        The returned token is the only copy of the secret. The database stores
+        a PBKDF2 verifier plus a key id so relay auth can verify without
+        retaining raw provider or relay credentials.
+        """
+        client = _safe_relay_client_id(client_id)
+        tool = (tool_name or client).strip() or client
+        preset = (model_preset or "default").strip() or "default"
+        key_id = "rly" + secrets.token_hex(8)
+        secret = secrets.token_urlsafe(32)
+        token = f"{_RELAY_TOKEN_PREFIX}_{key_id}_{secret}"
+        now = _utc_now()
+        with self._connect() as conn:
+            existing = conn.execute(
+                "SELECT status FROM relay_clients WHERE client_id = ?",
+                (client,),
+            ).fetchone()
+            if existing and not replace:
+                raise ValueError(
+                    f"relay client {client!r} already exists; use rotate or revoke first"
+                )
+            if existing and replace:
+                conn.execute(
+                    """
+                    UPDATE relay_clients
+                    SET tool_name = ?, key_id = ?, secret_hash = ?, model_preset = ?,
+                        status = 'active', updated_at = ?, expires_at = ?,
+                        last_used_at = NULL, last_used_ip = NULL
+                    WHERE client_id = ?
+                    """,
+                    (
+                        tool,
+                        key_id,
+                        _relay_secret_hash(secret),
+                        preset,
+                        now,
+                        expires_at,
+                        client,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """
+                    INSERT INTO relay_clients (
+                        client_id, tool_name, key_id, secret_hash, model_preset,
+                        status, created_at, updated_at, expires_at
+                    ) VALUES (?, ?, ?, ?, ?, 'active', ?, ?, ?)
+                    """,
+                    (
+                        client,
+                        tool,
+                        key_id,
+                        _relay_secret_hash(secret),
+                        preset,
+                        now,
+                        now,
+                        expires_at,
+                    ),
+                )
+            row = conn.execute(
+                "SELECT * FROM relay_clients WHERE client_id = ?",
+                (client,),
+            ).fetchone()
+        return IssuedRelayClient(self._relay_client_from_row(row), token)
+
+    def list_relay_clients(self) -> list[RelayClientRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM relay_clients
+                ORDER BY status = 'active' DESC, client_id
+                """
+            ).fetchall()
+        return [self._relay_client_from_row(row) for row in rows]
+
+    def revoke_relay_client(self, client_id: str) -> RelayClientRecord:
+        client = _safe_relay_client_id(client_id)
+        now = _utc_now()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM relay_clients WHERE client_id = ?",
+                (client,),
+            ).fetchone()
+            if row is None:
+                raise KeyError(f"relay client {client!r} not found")
+            conn.execute(
+                """
+                UPDATE relay_clients
+                SET status = 'revoked', updated_at = ?
+                WHERE client_id = ?
+                """,
+                (now, client),
+            )
+            row = conn.execute(
+                "SELECT * FROM relay_clients WHERE client_id = ?",
+                (client,),
+            ).fetchone()
+        return self._relay_client_from_row(row)
+
+    def verify_relay_token(
+        self,
+        token: str,
+        *,
+        remote_ip: str | None = None,
+    ) -> RelayClientRecord | None:
+        parsed = parse_relay_token(token)
+        if parsed is None:
+            return None
+        key_id, secret = parsed
+        now = _utc_now()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM relay_clients WHERE key_id = ?",
+                (key_id,),
+            ).fetchone()
+            if row is None or row["status"] != "active":
+                return None
+            expires_at = row["expires_at"]
+            if expires_at and expires_at <= now:
+                return None
+            if not _verify_relay_secret(secret, row["secret_hash"]):
+                return None
+            conn.execute(
+                """
+                UPDATE relay_clients
+                SET last_used_at = ?, last_used_ip = ?, updated_at = ?
+                WHERE key_id = ?
+                """,
+                (now, remote_ip, now, key_id),
+            )
+            row = conn.execute(
+                "SELECT * FROM relay_clients WHERE key_id = ?",
+                (key_id,),
+            ).fetchone()
+        return self._relay_client_from_row(row)
+
     def record_skill_outcome(
         self,
         name: str,
@@ -2932,6 +3206,7 @@ class SkillStore:
         trace_id: str,
         session_key: str | None = None,
         query_digest: str | None = None,
+        intent_summary: str | None = None,
         candidates: list[dict[str, Any]] | None = None,
         selected_skill: str | None = None,
         selection_reason: str = "none",
@@ -2946,16 +3221,17 @@ class SkillStore:
             conn.execute(
                 """
                 INSERT OR REPLACE INTO traces (
-                    trace_id, ts, session_key, query_digest, candidates_json,
+                    trace_id, ts, session_key, query_digest, intent_summary, candidates_json,
                     selected_skill, selection_reason, executed_by, wave_no,
                     duration_ms, gate_result, user_feedback, notes
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     trace_id,
                     _utc_now(),
                     session_key,
                     query_digest,
+                    _short_text(intent_summary, 300) if intent_summary else None,
                     json.dumps(candidates or [], ensure_ascii=False),
                     selected_skill,
                     selection_reason,

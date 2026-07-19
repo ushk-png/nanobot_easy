@@ -549,3 +549,52 @@ Telegram이 비활성으로 보일 때:
 PYTHONPATH=. .venv/bin/nanobot channels status \
   --config .local/config.json
 ```
+
+## 외부 도구용 LLM Relay
+
+`grok-build`처럼 OpenAI-compatible LLM API를 요구하는 외부 도구는 provider 키를 직접 받지 않는다. nanobot gateway 안의 relay가 도구별 PSK를 확인한 뒤, nanobot에 이미 연결된 provider/OAuth로 요청을 대신 보낸다.
+
+설정 예:
+
+```json
+{
+  "relay": {
+    "enabled": true,
+    "host": "127.0.0.1",
+    "port": 8910
+  }
+}
+```
+
+키 발급:
+
+```bash
+PYTHONPATH=. .venv/bin/nanobot relay issue grok-build \
+  --preset default \
+  --config .local/config.json \
+  --workspace .local/workspace
+```
+
+출력된 `Token`은 한 번만 표시된다. nanobot DB에는 원문 토큰이 저장되지 않고 verifier만 저장된다. 기본적으로 다음 파일도 생성된다.
+
+```text
+.local/workspace/.secrets/relay/grok-build.env
+```
+
+외부 도구에는 다음 값을 사용한다.
+
+```text
+base_url = http://127.0.0.1:8910/v1
+api_key  = <Token 또는 GROKBUILD_PSK>
+model    = nanobot-relay
+```
+
+키 목록/회전/폐기:
+
+```bash
+PYTHONPATH=. .venv/bin/nanobot relay list --config .local/config.json --workspace .local/workspace
+PYTHONPATH=. .venv/bin/nanobot relay rotate grok-build --config .local/config.json --workspace .local/workspace
+PYTHONPATH=. .venv/bin/nanobot relay revoke grok-build --config .local/config.json --workspace .local/workspace
+```
+
+relay는 기존 `/v1/chat/completions` 에이전트 API와 다르다. relay 요청은 AgentLoop, memory, skill, tool 실행으로 들어가지 않고 provider에 직접 전달된다. 따라서 외부 도구가 nanobot의 대화 기억이나 스킬 거버넌스를 우회하지 않으면서도 같은 LLM 연결을 재사용할 수 있다.

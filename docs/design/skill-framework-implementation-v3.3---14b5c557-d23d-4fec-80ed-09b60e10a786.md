@@ -283,6 +283,24 @@ M6 — 통계 가중 랭킹(Phase 2), Hot Path 승격 리포트, 강등 규칙.
 - Phase C — 경량 그래프 RAG: Phase B의 trace에서 "엔티티 JOIN으로 못 푼 관계 질의"가 실제 누적될 때만. 커뮤니티 요약은 생략(MEMORY.md+Dream이 그 역할과 중복) — 로컬 그래프 탐색만 추가하는 축소형(LightRAG류).
 각 단계는 이전 단계 인프라에 편승하며, 진행 여부는 감이 아니라 trace의 회상 실패 데이터로 결정한다. 본격 GraphRAG 전체 도입은 개인 대화 메모리 스케일에서 인덱싱 시 상시 LLM 추출 비용이 회상 품질 향상분을 상회하므로 채택하지 않는다.
 
+## 12. 외부 도구용 LLM Relay
+
+실행형 외부 도구가 LLM 백엔드를 요구할 때 provider의 실제 API key나 OAuth token을 직접 넘기지 않는다. nanobot gateway 안에 별도 `/v1` relay listener를 두고, 외부 도구는 도구별 PSK만 사용한다. 실제 provider 자격증명은 nanobot 프로세스 경계를 벗어나지 않는다.
+
+구현 원칙:
+- 기존 `nanobot/api/server.py`의 `/v1/chat/completions`는 AgentLoop API다. 이 경로는 memory, skills, tools, session을 사용하므로 외부 도구의 raw LLM backend로 쓰지 않는다.
+- relay는 별도 코드 경로(`nanobot/api/relay.py`)에서 provider를 직접 호출한다. 요청은 AgentLoop에 들어가지 않는다.
+- `relay.enabled=true`일 때 gateway 프로세스가 별도 포트(기본 `127.0.0.1:8910`)에 relay를 함께 띄운다. 신규 장기 프로세스는 만들지 않는다.
+- PSK는 `nbrelay_<keyid>_<secret>` 형식으로 발급한다. DB에는 `keyid`와 PBKDF2 verifier만 저장하고 raw secret은 저장하지 않는다.
+- 각 relay client는 model preset에 묶인다. 외부 도구가 임의 provider/model을 선택할 수 없다.
+- 운영 명령은 `nanobot relay issue|list|rotate|revoke|test`로 제공한다. setup 스킬은 이 명령을 호출해 외부 도구 설정 파일 또는 `.secrets/relay/<client>.env`에 PSK를 배치한다.
+
+수용 기준:
+- 인증 없는 `/v1/models`와 `/v1/chat/completions`는 401.
+- 허용 preset 밖의 model 요청은 400.
+- 정상 요청은 provider 직접 호출로 응답하며 tool_calls와 streaming SSE를 OpenAI-compatible 형태로 보존.
+- revoke 후 기존 PSK는 즉시 실패.
+
 ---
 
 ## 부록 A. composite-task SKILL.md 초안

@@ -140,6 +140,18 @@ http://127.0.0.1:18790/health
 
 The bundled WebUI is served by the WebSocket channel, usually on port `8765`, not by the gateway health endpoint.
 
+## LLM Relay
+
+`nanobot relay` manages PSK credentials for external tools that need an OpenAI-compatible LLM backend. The relay is served by `nanobot gateway` when `relay.enabled` is true and calls the configured provider directly, without entering AgentLoop.
+
+| Command | Description |
+|---|---|
+| `nanobot relay issue <client>` | Issue a one-time visible PSK for a tool client and optionally write `.secrets/relay/<client>.env` |
+| `nanobot relay list` | List relay clients without exposing raw secrets |
+| `nanobot relay rotate <client>` | Replace a client's PSK |
+| `nanobot relay revoke <client>` | Revoke a client's PSK |
+| `nanobot relay test <client>` | Show the client's relay URL, model, status, and enablement state |
+
 ## Local Triggers
 
 `nanobot trigger` delivers one local message to a trigger that was created from

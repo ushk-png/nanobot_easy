@@ -72,6 +72,14 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
+PAGEAGENT_ENV_FILE="${PAGEAGENT_ENV_FILE:-$WORKSPACE/.secrets/relay/page-agent.env}"
+if [[ -f "$PAGEAGENT_ENV_FILE" ]]; then
+  set -a
+  # shellcheck disable=SC1090
+  source "$PAGEAGENT_ENV_FILE"
+  set +a
+fi
+
 start_companion_gateways() {
   if [[ "${NANOBOT_START_COMPANIONS:-1}" == "0" ]]; then
     return 0

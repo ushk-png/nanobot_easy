@@ -356,6 +356,26 @@ class ApiConfig(Base):
         )
 
 
+class RelayConfig(Base):
+    """PSK-authenticated direct LLM relay for external tools.
+
+    This is intentionally separate from the agent API. Relay requests call the
+    configured provider directly and do not enter AgentLoop, memory, skills, or
+    nanobot tools.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8910
+    timeout: float = 120.0
+    max_request_bytes: int = Field(
+        default=1024 * 1024,
+        ge=1024,
+        validation_alias=AliasChoices("maxRequestBytes", "max_request_bytes"),
+        serialization_alias="maxRequestBytes",
+    )
+
+
 class GatewayConfig(Base):
     """Gateway/server configuration."""
 
@@ -495,6 +515,7 @@ class Config(BaseSettings):
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    relay: RelayConfig = Field(default_factory=RelayConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
