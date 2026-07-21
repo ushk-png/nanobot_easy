@@ -250,6 +250,8 @@ export interface InstalledExternalTool {
   last_checked_at: string | null;
   path: string;
   source: string;
+  linked_skills?: string;
+  removal_note?: string;
 }
 
 export interface SkillsPayload {

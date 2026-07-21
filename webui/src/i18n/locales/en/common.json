@@ -55,7 +55,7 @@
       "ariaLabel": "Change language"
     },
     "apps": "Apps",
-    "tools": "Tools",
+    "tools": "App Tools",
     "automations": "Automations",
     "skills": {
       "title": "Skills"
@@ -83,7 +83,7 @@
       "advanced": "Security",
       "apps": "Apps",
       "automations": "Automations",
-      "tools": "Tools",
+      "tools": "App Tools",
       "skills": "Skills"
     },
     "sections": {

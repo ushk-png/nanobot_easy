@@ -172,7 +172,7 @@ export function Sidebar(props: SidebarProps) {
         />
         <SidebarActionButton
           collapsed={collapsed}
-          label={t("sidebar.tools", { defaultValue: "Tools" })}
+          label={t("sidebar.tools", { defaultValue: "App Tools" })}
           onClick={props.onOpenTools}
           active={props.activeUtility === "tools"}
           icon={<Wrench className="h-4 w-4" />}

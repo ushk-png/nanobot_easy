@@ -55,7 +55,7 @@
       "ariaLabel": "언어 변경"
     },
     "apps": "앱",
-    "tools": "도구",
+    "tools": "앱 툴",
     "automations": "자동화",
     "skills": {
       "title": "스킬"
@@ -83,7 +83,7 @@
       "mcp": "MCP",
       "apps": "앱",
       "automations": "자동화",
-      "tools": "도구",
+      "tools": "앱 툴",
       "skills": "스킬"
     },
     "sections": {

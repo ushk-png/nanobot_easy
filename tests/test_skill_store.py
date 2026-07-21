@@ -373,6 +373,41 @@ def test_routing_score_respects_card_polarity(tmp_path: Path) -> None:
     assert matches and matches[0].name == "summarize-document"
 
 
+def test_high_risk_exec_gate_requires_domain_evidence(tmp_path: Path) -> None:
+    skills = tmp_path / "skills"
+    _write_skill(
+        skills,
+        "gcalcli-calendar",
+        description=(
+            "Read and update Google Calendar events. Triggers: calendar agenda, "
+            "today schedule, 오늘 구글 캘린더 일정"
+        ),
+        category="calendar.google",
+        risk_level="high",
+        requires_exec=True,
+    )
+    _write_skill(
+        skills,
+        "code-modify",
+        description="Implement, edit, refactor, or create code files in a repository.",
+        category="coding.modify",
+        risk_level="high",
+        requires_exec=True,
+    )
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "gcalcli-calendar", "code-modify")
+
+    assert store.search("오늘 세종시 날씨 알려줘", top_k=3) == []
+    assert store.search("Write a PostgreSQL query using window functions", top_k=3) == []
+
+    calendar_matches = store.search("오늘 구글 캘린더 일정 알려줘", top_k=3)
+    code_matches = store.search("Implement code files in this repository", top_k=3)
+
+    assert calendar_matches and calendar_matches[0].name == "gcalcli-calendar"
+    assert code_matches and code_matches[0].name == "code-modify"
+
+
 def test_skill_store_reindex_loads_scoped_workspace_packages(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
     _write_skill(skills / "@steipete", "obsidian", description="Work with Obsidian vaults")
@@ -426,15 +461,15 @@ def test_skill_store_validates_external_tool_setup_skills(tmp_path: Path) -> Non
 
 ## Install
 
-Clone into `workspace/tools/demo` and create a local venv.
+Clone into `workspace/app-tools/demo` and create a local venv.
 
 ## Verify
 
-Run `workspace/tools/demo/bin/demo --version`.
+Run `workspace/app-tools/demo/bin/demo --version`.
 
 ## Uninstall
 
-Delete `workspace/tools/demo` and remove its row from `workspace/tools/installed.md`.
+Delete `workspace/app-tools/demo` and remove its row from `workspace/app-tools/installed.md`.
 """
     _write_skill(
         skills,
@@ -468,13 +503,13 @@ Delete `workspace/tools/demo` and remove its row from `workspace/tools/installed
     assert store.get_skill("demo-setup")["install_sources_json"] == '["https://github.com/example/demo"]'
 
 
-def test_installed_tools_payload_reads_workspace_ledger(tmp_path: Path) -> None:
-    tools_dir = tmp_path / "tools"
+def test_installed_tools_payload_reads_app_tools_ledger(tmp_path: Path) -> None:
+    tools_dir = tmp_path / "app-tools"
     tools_dir.mkdir()
     (tools_dir / "installed.md").write_text(
-        "| name | description | installed_at | version | status | last_checked_at | path | source |\n"
-        "|---|---|---|---|---|---|---|---|\n"
-        "| yq | YAML query tool | 2026-07-10 | 3.4.3 | running | 2026-07-10T12:00:00Z | tools/yq/.venv/bin/yq | https://pypi.org/project/yq/ |\n",
+        "| name | description | installed_at | version | status | last_checked_at | path | source | linked_skills | removal_note |\n"
+        "|---|---|---|---|---|---|---|---|---|---|\n"
+        "| yq | YAML query tool | 2026-07-10 | 3.4.3 | running | 2026-07-10T12:00:00Z | app-tools/yq/.venv/bin/yq | https://pypi.org/project/yq/ | `yq-usage`; `yq-setup` | Update linked skills before removal. |\n",
         encoding="utf-8",
     )
 
@@ -488,17 +523,33 @@ def test_installed_tools_payload_reads_workspace_ledger(tmp_path: Path) -> None:
             "version": "3.4.3",
             "status": "running",
             "last_checked_at": "2026-07-10T12:00:00Z",
-            "path": "tools/yq/.venv/bin/yq",
+            "path": "app-tools/yq/.venv/bin/yq",
             "source": "https://pypi.org/project/yq/",
+            "linked_skills": "`yq-usage`; `yq-setup`",
+            "removal_note": "Update linked skills before removal.",
         }
     ]
 
 
-def test_skill_manage_list_includes_installed_tools(tmp_path: Path) -> None:
+def test_installed_tools_payload_falls_back_to_legacy_tools_ledger(tmp_path: Path) -> None:
     tools_dir = tmp_path / "tools"
     tools_dir.mkdir()
     (tools_dir / "installed.md").write_text(
-        "| yq | 3.4.3 | tools/yq/.venv/bin/yq | 2026-07-10 | https://pypi.org/project/yq/ |\n",
+        "| legacy | 1.0.0 | tools/legacy/bin/legacy | 2026-07-09 | https://example.com/legacy |\n",
+        encoding="utf-8",
+    )
+
+    payload = installed_tools_payload(tmp_path)
+
+    assert payload[0]["name"] == "legacy"
+    assert payload[0]["path"] == "tools/legacy/bin/legacy"
+
+
+def test_skill_manage_list_includes_installed_tools(tmp_path: Path) -> None:
+    tools_dir = tmp_path / "app-tools"
+    tools_dir.mkdir()
+    (tools_dir / "installed.md").write_text(
+        "| yq | 3.4.3 | app-tools/yq/.venv/bin/yq | 2026-07-10 | https://pypi.org/project/yq/ |\n",
         encoding="utf-8",
     )
 

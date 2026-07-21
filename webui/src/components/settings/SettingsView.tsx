@@ -1911,8 +1911,10 @@ function InstalledToolsSettings({ installedTools }: { installedTools: InstalledE
   return (
     <div className="space-y-4">
       <p className="max-w-[680px] text-[13px] leading-5 text-muted-foreground">
-        Installed external programs are listed from the workspace ledger. Start, stop, update,
-        and removal requests stay in chat so they can route through the matching setup or usage skill.
+        App Tools are external programs installed outside nanobot, including GitHub, Homebrew,
+        npm, pip, or workspace-local installs. They are separate from Agent Tools such as exec,
+        read_file, and run_cli_app. Start, stop, update, and removal requests stay in chat so
+        they can route through the matching setup or usage skill.
       </p>
       <InstalledToolsPanel tools={installedTools} />
     </div>
@@ -1926,7 +1928,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "image", icon: ImageIcon, fallback: "Image" },
   { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },
-  { key: "tools", icon: Wrench, fallback: "Tools" },
+  { key: "tools", icon: Wrench, fallback: "App Tools" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];

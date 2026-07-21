@@ -92,6 +92,89 @@ _ROUTING_STOPWORDS = {
     "which",
     "with",
 }
+_ROUTING_GENERIC_TERMS = {
+    "agent",
+    "app",
+    "automation",
+    "cli",
+    "external",
+    "setup",
+    "skill",
+    "tool",
+    "usage",
+}
+_ROUTING_ACTION_TERMS = {
+    "add",
+    "analyze",
+    "automate",
+    "calculate",
+    "click",
+    "close",
+    "configure",
+    "create",
+    "delete",
+    "diagnose",
+    "edit",
+    "execute",
+    "extract",
+    "fetch",
+    "fix",
+    "implement",
+    "inspect",
+    "install",
+    "list",
+    "load",
+    "modify",
+    "open",
+    "patch",
+    "query",
+    "read",
+    "refactor",
+    "repair",
+    "run",
+    "scroll",
+    "search",
+    "setup",
+    "troubleshoot",
+    "type",
+    "update",
+    "write",
+    "계산",
+    "고쳐",
+    "구현",
+    "닫아",
+    "디버깅",
+    "리팩터링",
+    "만들",
+    "분석",
+    "삭제",
+    "설치",
+    "설정",
+    "수정",
+    "스크롤",
+    "실행",
+    "열고",
+    "알려줘",
+    "입력",
+    "작성",
+    "조사",
+    "찾아",
+    "검색",
+    "추가",
+    "클릭",
+    "확인",
+}
+_ROUTING_DOMAIN_TERMS_BY_PREFIX: tuple[tuple[str, set[str]], ...] = (
+    ("browser.", {"agent-browser", "browser", "chrome", "dom", "page", "ref", "snapshot", "url", "webapp", "브라우저", "웹앱", "페이지"}),
+    ("calendar.", {"appointment", "calendar", "event", "gcalcli", "google", "meeting", "캘린더", "구글", "일정", "회의", "약속"}),
+    ("desktop.", {"app", "chrome", "desktop", "mac", "macos", "screen", "맥", "앱", "창", "화면"}),
+    ("coding.", {"api", "code", "component", "export", "file", "function", "module", "repo", "repository", "test", "코드", "컴포넌트", "파일", "함수"}),
+    ("research.social", {"30", "last30days", "reddit", "social", "x", "최근", "지난", "한달", "사람들", "반응"}),
+    ("skill.registry", {"clawhub", "import", "install", "registry", "skill", "스킬", "설치"}),
+    ("app.tool", {"app", "auth", "cli", "install", "tool", "verify", "도구", "설치", "인증"}),
+    ("external.tool", {"cli", "command", "file", "json", "toml", "tool", "xml", "yaml", "yq", "명령", "파일"}),
+    ("terminal.", {"pane", "session", "terminal", "tmux", "터미널"}),
+)
 
 
 @dataclass(frozen=True)
@@ -451,6 +534,67 @@ def _phrase_lines(text: str) -> list[str]:
         if len(line) >= 8 and " " in line:
             lines.append(line)
     return lines
+
+
+def _domain_terms_for_row(row: sqlite3.Row) -> set[str]:
+    category = str(row["category"] or "").lower()
+    terms: set[str] = set()
+    for prefix, prefix_terms in _ROUTING_DOMAIN_TERMS_BY_PREFIX:
+        if category.startswith(prefix):
+            terms.update(prefix_terms)
+    return terms
+
+
+def _has_routing_cue(query_terms: set[str], cues: set[str]) -> bool:
+    for query_term in query_terms:
+        for cue in cues:
+            if query_term == cue:
+                return True
+            if len(cue) == 1 and re.fullmatch(r"[가-힣]", cue) and cue in query_term:
+                return True
+            if len(query_term) >= 2 and len(cue) >= 2 and (query_term in cue or cue in query_term):
+                return True
+    return False
+
+
+def _passes_high_risk_exec_gate(row: sqlite3.Row, query: str) -> bool:
+    """Cheap pre-filter for high-risk executable skills.
+
+    High-risk executable skills should not win from generic lexical overlap like
+    "today", "analyze", or "write". Let them compete only when the user names
+    the skill/domain directly, or when a domain cue appears together with an
+    operation cue. Medium-risk executable skills keep the historical behavior.
+    """
+    if not bool(row["requires_exec"]) or str(row["risk_level"] or "").lower() != "high":
+        return True
+
+    query_terms = _routing_terms(query)
+    if not query_terms:
+        return False
+
+    name = str(row["name"] or "")
+    category = str(row["category"] or "")
+    explicit_terms = (
+        _routing_terms(name.replace("-", " "))
+        | _routing_terms(category.replace(".", " "))
+    ) - _ROUTING_GENERIC_TERMS
+    if query_terms & explicit_terms:
+        return True
+
+    domain_terms = _domain_terms_for_row(row)
+    if (
+        domain_terms
+        and _has_routing_cue(query_terms, domain_terms)
+        and _has_routing_cue(query_terms, _ROUTING_ACTION_TERMS)
+    ):
+        return True
+
+    query_lower = " ".join(re.findall(r"[a-z0-9][a-z0-9_-]*|[가-힣]{2,}", query.lower()))
+    for phrase in _phrase_lines(str(row["search_text"] or "")):
+        if phrase in query_lower:
+            return True
+
+    return False
 
 
 def _parse_frontmatter(content: str) -> dict[str, Any]:
@@ -2850,6 +2994,7 @@ class SkillStore:
                 """,
                 statuses,
             ).fetchall()
+            rows = [row for row in rows if _passes_high_risk_exec_gate(row, query)]
             ranked = [
                 self._match_from_row(
                     row,

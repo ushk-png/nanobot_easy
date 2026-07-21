@@ -1395,7 +1395,7 @@ function Shell({
     }
     if (view === "tools") {
       document.title = t("app.documentTitle.chat", {
-        title: t("settings.nav.tools", { defaultValue: "Tools" }),
+        title: t("settings.nav.tools", { defaultValue: "App Tools" }),
       });
       return;
     }

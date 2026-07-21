@@ -47,14 +47,20 @@ def _parse_markdown_table_row(line: str) -> list[str] | None:
 
 
 def installed_tools_payload(workspace_path: Path) -> list[dict[str, Any]]:
-    """Parse the read-only external tool ledger.
+    """Parse the read-only App Tools ledger.
+
+    App Tools are external programs installed outside nanobot and managed for
+    the user. They are intentionally distinct from Agent Tools, which are the
+    callable runtime functions available inside the agent loop.
 
     This deliberately does not perform health checks. The ledger may include
     status/last-checked fields written by usage or setup skills, and the WebUI
     only displays those last recorded values.
     """
 
-    path = workspace_path / "tools" / "installed.md"
+    path = workspace_path / "app-tools" / "installed.md"
+    if not path.is_file():
+        path = workspace_path / "tools" / "installed.md"
     if not path.is_file():
         return []
     try:
@@ -89,6 +95,8 @@ def installed_tools_payload(workspace_path: Path) -> list[dict[str, Any]]:
                 "last_checked_at": values.get("last_checked_at") or values.get("last_checked") or None,
                 "path": values.get("path") or values.get("location") or "",
                 "source": values.get("source") or values.get("url") or "",
+                "linked_skills": values.get("linked_skills") or values.get("skills") or "",
+                "removal_note": values.get("removal_note") or values.get("remove_note") or values.get("uninstall_note") or "",
             }
         )
     return rows

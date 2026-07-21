@@ -306,7 +306,7 @@ describe("App layout", () => {
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
     const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
-    const toolsButton = within(sidebar).getByRole("button", { name: "Tools" });
+    const toolsButton = within(sidebar).getByRole("button", { name: "App Tools" });
     const automationsButton = within(sidebar).getByRole("button", { name: "Automations" });
 
     expect(appsButton.compareDocumentPosition(skillsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
@@ -343,16 +343,16 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: "Tools" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "App Tools" }));
 
-    expect(await screen.findByRole("heading", { name: "Tools" })).toBeInTheDocument();
-    expect(screen.getByText("Installed tools")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "App Tools" })).toBeInTheDocument();
+    expect(screen.getByText("Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.")).toBeInTheDocument();
     expect(screen.getByText("YAML query tool")).toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "Tools" })).toHaveAttribute(
+    expect(within(sidebar).getByRole("button", { name: "App Tools" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("Tools · nanobot");
+    expect(document.title).toBe("App Tools · nanobot");
   });
 
   it("opens Skills from the main sidebar", async () => {

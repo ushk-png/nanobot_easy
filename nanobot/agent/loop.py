@@ -1512,9 +1512,16 @@ class AgentLoop:
         turn_latency_ms: int | None = None,
     ) -> OutboundMessage | None:
         """Assemble the final outbound message from turn results."""
-        # MessageTool suppression
+        # MessageTool suppression.  If the model already delivered the same
+        # text to the active chat through the message tool (commonly to attach
+        # media), do not also send the final assistant response as a duplicate.
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             if not had_injections or stop_reason == "empty_final_response":
+                return None
+            normalized_final = final_content.strip()
+            delivered_contents = [c.strip() for c in mt.turn_delivered_contents()]
+            if normalized_final and normalized_final in delivered_contents:
+                logger.info("Suppressing duplicate final response after message tool delivery")
                 return None
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content

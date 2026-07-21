@@ -727,8 +727,8 @@ function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) 
 
 export function InstalledToolsPanel({
   tools,
-  title = "Installed tools",
-  description = "Read-only ledger from workspace/tools/installed.md. Actions stay in chat.",
+  title = "App Tools",
+  description = "Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.",
 }: {
   tools: InstalledExternalTool[];
   title?: string;
@@ -751,19 +751,21 @@ export function InstalledToolsPanel({
       </div>
       <div className="overflow-x-auto rounded-[12px] border border-border/45">
         {tools.length ? (
-          <div className="min-w-[54rem]">
-            <div className="grid grid-cols-[minmax(8rem,1.2fr)_minmax(10rem,1.6fr)_7rem_7rem_7rem_9rem] gap-3 border-b border-border/45 bg-muted/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+          <div className="min-w-[76rem]">
+            <div className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/45 bg-muted/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
               <span>Name</span>
               <span>Description</span>
               <span>Installed</span>
               <span>Version</span>
               <span>Status</span>
               <span>Last check</span>
+              <span>Linked skills</span>
+              <span>Removal note</span>
             </div>
             {tools.map((tool) => (
               <div
                 key={`${tool.name}:${tool.path || tool.source}`}
-                className="grid grid-cols-[minmax(8rem,1.2fr)_minmax(10rem,1.6fr)_7rem_7rem_7rem_9rem] gap-3 border-b border-border/30 px-3 py-2.5 text-[12px] last:border-b-0"
+                className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/30 px-3 py-2.5 text-[12px] last:border-b-0"
               >
                 <span className="min-w-0 truncate font-medium text-foreground" title={tool.path || tool.source}>
                   {tool.name}
@@ -777,12 +779,14 @@ export function InstalledToolsPanel({
                   {installedToolStatusLabel(tool.status)}
                 </span>
                 <span className="truncate text-muted-foreground">{tool.last_checked_at || "Not checked"}</span>
+                <span className="min-w-0 truncate text-muted-foreground" title={tool.linked_skills || ""}>{tool.linked_skills || "-"}</span>
+                <span className="min-w-0 truncate text-muted-foreground" title={tool.removal_note || ""}>{tool.removal_note || "-"}</span>
               </div>
             ))}
           </div>
         ) : (
           <div className="px-3 py-8 text-center text-sm text-muted-foreground">
-            No installed external tools are recorded yet.
+            No App Tools are recorded yet.
           </div>
         )}
       </div>
@@ -1808,7 +1812,7 @@ function ManagedSkillDetailPanel({
               <RelationList title="Conflicts" values={detail?.relations.conflicts_with ?? []} />
               <RelationList title="Supersedes" values={detail?.relations.supersedes ?? []} />
               <RelationList title="Fallback" values={detail?.relations.fallback_to ?? []} />
-              <DetailSection title="Tools">
+              <DetailSection title="Agent Tools">
                 <div className="flex flex-wrap gap-1.5">
                   {skill.required_tools.length ? (
                     skill.required_tools.map((tool) => <Pill key={tool}>{tool}</Pill>)
