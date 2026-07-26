@@ -4,7 +4,7 @@ import httpx
 import pytest
 
 from nanobot.agent.tools.registry import is_tool_error_result
-from nanobot.agent.tools.web import WebSearchTool
+from nanobot.agent.tools.web import WebEvidenceConfig, WebSearchTool
 from nanobot.config.schema import WebSearchConfig
 
 
@@ -13,9 +13,11 @@ def _tool(
     api_key: str = "",
     base_url: str = "",
     user_agent: str | None = None,
+    evidence_config: WebEvidenceConfig | None = None,
 ) -> WebSearchTool:
     return WebSearchTool(
         config=WebSearchConfig(provider=provider, api_key=api_key, base_url=base_url),
+        evidence_config=evidence_config,
         user_agent=user_agent,
     )
 
@@ -64,6 +66,36 @@ async def test_brave_search(monkeypatch):
     result = await tool.execute(query="nanobot", count=1)
     assert "NanoBot" in result
     assert "https://example.com" in result
+    assert "Evidence Packet" not in result
+
+
+@pytest.mark.asyncio
+async def test_brave_search_can_return_evidence_packet(monkeypatch):
+    async def mock_get(self, url, **kw):
+        return _response(json={
+            "web": {
+                "results": [
+                    {
+                        "title": "OpenAI Docs",
+                        "url": "https://platform.openai.com/docs/models",
+                        "description": "Current model documentation",
+                    }
+                ]
+            }
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    tool = _tool(
+        provider="brave",
+        api_key="brave-key",
+        evidence_config=WebEvidenceConfig(enabled=True, mode="packet"),
+    )
+    result = await tool.execute(query="current OpenAI models", count=1)
+
+    assert "# Evidence Packet" in result
+    assert "Answerability: STALE_RISK" in result
+    assert "OpenAI Docs" in result
+    assert "trust=official" in result
 
 
 @pytest.mark.asyncio

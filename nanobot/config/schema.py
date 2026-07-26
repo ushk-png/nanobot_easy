@@ -733,7 +733,12 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
-    from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
+    from nanobot.agent.tools.web import (
+        WebEvidenceConfig,
+        WebFetchConfig,
+        WebSearchConfig,
+        WebToolsConfig,
+    )
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -743,6 +748,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
+    mod.WebEvidenceConfig = WebEvidenceConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
 
