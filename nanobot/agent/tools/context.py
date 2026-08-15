@@ -59,3 +59,4 @@ class ToolContext:
     workspace_sandbox: Any | None = None
     runtime_events: Any | None = None
     subagent_depth: int = 0
+    student_mode: Any | None = None

@@ -150,6 +150,7 @@ async def test_long_task_publishes_goal_state_ws_after_save(tmp_path):
         "active": True,
         "ui_summary": "alpha",
         "objective": "Objective alpha",
+        "waiting_for_user": False,
     }
 
 

@@ -19,6 +19,7 @@ If you find a docs mistake, outdated command, or confusing step, please open an 
 | Operating a long-running bot | [`concepts.md`](./concepts.md) | [`chat-apps.md`](./chat-apps.md), [`webui.md`](./webui.md), and [`deployment.md`](./deployment.md) |
 | Integrating or extending nanobot | [`architecture.md`](./architecture.md) | [`configuration.md`](./configuration.md), [`openai-api.md`](./openai-api.md), [`python-sdk.md`](./python-sdk.md), [`development.md`](./development.md), and [`channel-plugin-guide.md`](./channel-plugin-guide.md) |
 | Using the nanobot_skill fork locally | [`nanobot-skill-usage-ko.md`](./nanobot-skill-usage-ko.md) | Project-local setup, scripts, Telegram, WebUI, and skill registry operations |
+| Designing the student-friendly distribution | [`student-mode-distribution-ko.md`](./student-mode-distribution-ko.md) | Windows-first setup, student/general mode, safe mode, and local study data |
 
 ## Start Here
 

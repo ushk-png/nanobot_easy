@@ -237,6 +237,7 @@ class AgentLoop:
         proactive_card_min_score: int | None = None,
         proactive_method_inline: bool | None = None,
         tools_config: ToolsConfig | None = None,
+        student_mode_config: Any | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
@@ -257,6 +258,7 @@ class AgentLoop:
         self.runtime_events = runtime_events or RuntimeEventBus()
         self.runtime_event_publisher = RuntimeEventPublisher(self.runtime_events)
         self.channels_config = channels_config
+        self.student_mode_config = student_mode_config
         self.restart_mode = restart_mode
         self.provider = provider
         self._provider_snapshot_loader = provider_snapshot_loader
@@ -353,6 +355,7 @@ class AgentLoop:
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
             profiles=subagent_profiles if subagent_profiles is not None else defaults.subagent_profiles,
             max_depth=max_subagent_depth if max_subagent_depth is not None else defaults.max_subagent_depth,
+            student_mode_config=student_mode_config,
         )
         self._unified_session = unified_session
         self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
@@ -473,6 +476,7 @@ class AgentLoop:
             tools_config=config.tools,
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
+            student_mode_config=config.student_mode,
             restart_mode=config.gateway.restart_mode,
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
@@ -582,12 +586,13 @@ class AgentLoop:
             timezone=self.context.timezone or "UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
+            student_mode=self.student_mode_config,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
 
         # MyTool needs runtime state reference — manual registration
-        if self.tools_config.my.enable:
+        if self.tools_config.my.enable and not self.tools_config.safe_mode:
             self.tools.register(
                 MyTool(runtime_state=self, modify_allowed=self.tools_config.my.allow_set)
             )

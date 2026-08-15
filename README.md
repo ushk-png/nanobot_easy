@@ -36,6 +36,12 @@
 
 🐈 **nanobot** is an open-source, ultra-lightweight personal AI agent you can truly own. It keeps the agent core small and readable while giving you the practical pieces for real long-running work: WebUI, chat channels, tools, memory, MCP, model routing, automation, and deployment.
 
+## Student-Friendly Fork Notes
+
+This fork is evolving toward a beginner/student-friendly local distribution. Student-mode learning logs and review queues are stored on the user's computer by default; nanobot does not upload those logs to a separate nanobot server. Model requests may still send relevant conversation content to the AI provider the user connects.
+
+Windows first-run helpers are available as `install.bat` and `start-nanobot.bat`. For the current student-mode design notes, see [학생 친화 배포판 설계 메모](./docs/student-mode-distribution-ko.md).
+
 ## Start Here
 
 | You want to... | Go to |

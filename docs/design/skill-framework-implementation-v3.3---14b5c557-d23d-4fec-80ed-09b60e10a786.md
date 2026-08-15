@@ -1,4 +1,4 @@
-# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.8
+# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.10
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 
 대상 독자: 코드 생성 도구(Claude Code, Codex) 및 구현자.
@@ -10,6 +10,7 @@ v3.4.6 변경: skill_search를 "최종 판정기"가 아니라 후보 탐색기�
 v3.4.7 변경: composite-task 웨이브 실행은 의미 판단이 아니라 절차 보장 영역으로 분리. 웨이브 실행 전 체크포인트, skill_search/skill_decision wave_no 기록, 의존 delegate context 완전성 검증을 추가한다. composite-task 발동 후 하위 작업 실행 단계에서는 메인 직접 실행 경로를 닫고, 메인은 planner/integrator로만 동작하며 모든 하위 작업을 spawn/delegate로 실행한다.
 v3.4.8 변경: v3.4.7의 전면 위임 강제는 지연이 커서 선별 위임으로 완화한다. 절차 보장 대상은 위임 자체가 아니라 ledger/status/wave_no/context/failure 기록이다. low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용하되, exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시에만 spawn/delegate를 강제한다. traces에 duration_ms를 추가해 skill_search/skill_decision/delegate/spawn 구간 시간을 측정한다.
 v3.4.9 변경: topic-recall 폴백을 현실 운영에 맞춰 topics → history.jsonl → sessions 원문 3단계로 개정한다. history.jsonl은 Consolidator가 주제별 요약과 핵심 식별자를 보존하므로 sessions 원문보다 먼저 쓰는 경량 폴백이다. 주제 스냅샷 작성 트리거는 "새 주제 답변 전 직전 미완 주제 기록"으로 명시화한다.
+v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. 설치 시 General/Student mode를 선택하고, Student mode에서는 담임 선생님 경험을 메인으로, 원본 nanobot 기능은 설정·고급 기능 하위 경로로 둔다. 간격 반복은 review-teacher 서브에이전트가 전담하며, safe_mode와 student_learning 전용 도구로 웹 UI의 위험 기능과 학습 데이터 쓰기 범위를 서버 측에서 제한한다.
 
 ---
 
@@ -19,6 +20,7 @@ v3.4.9 변경: topic-recall 폴백을 현실 운영에 맞춰 topics → history
 - 신규 개발 4덩어리: ① Skill Store(sqlite: registry+trace) ② skill_search 툴(배치 지원) ③ Composer 스킬군+CLI ④ delegate 동기 위임 툴. 그 외 신규 산출물: 시스템 스킬 composite-task (코드가 아닌 SKILL.md).
 - 핵심 실행 원칙: 단일 저위험 답변형 스킬은 메인이 직접 실행, 격리 필요 시에만 위임(3.4). 복합 작업에서도 절차 기록은 강제하지만, low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용한다. exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시 spawn/delegate를 사용한다(3.5).
 - 스킬 선택은 별도 파이프라인이 아니라 메인 에이전트 한 턴 안의 선택지다(3.1).
+- 학생 친화 배포판은 별도 포크 아키텍처가 아니라 설치 모드·프로파일·스킬·도구 정책의 조합이다. CLI는 원본 기능을 유지하고, 웹 UI는 Student mode에서 안전한 학습 흐름만 노출한다.
 
 ---
 
@@ -52,6 +54,10 @@ v3.4.9 변경: topic-recall 폴백을 현실 운영에 맞춰 topics → history
 | Task Ledger | tasks.md 규약 (composite-task가 사용) + 기존 timeout/iteration | 코드 최소 |
 | 대화 메모리 | 기존 memory 시스템(sessions/*.jsonl, Consolidator, MEMORY.md, Dream) | 있음 (3.7의 소규모 보강) |
 | 멀티토픽 보강 | topic-recall 스킬 + topics/ 스냅샷 규약 + Consolidator 템플릿 수정 | **신규 #5 (스킬·규약 위주)** |
+| 설치 모드 | Quick Start의 General/Student mode + `config.studentMode` | **신규 #6** |
+| 학생 학습 스킬 | `highschool-study`, `spaced-review` | **신규 #7 (내장 스킬)** |
+| 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** |
+| 웹 UI 안전 모드 | `tools.safeMode` + ToolLoader 차단 정책 | **신규 #9** |
 
 [구현 지시] 위 신규 항목 외의 새 컴포넌트를 만들지 마라. 특히 "Skill Executor", "Intent Router", "Response Composer", "Workflow Engine", "Composite Detector"라는 이름의 별도 모듈 금지 — 이들은 메인 에이전트 루프의 행동 또는 스킬 지시문이지 코드가 아니다.
 
@@ -177,6 +183,40 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 
 [구현 지시] 1·2는 코드가 아니다 — 프롬프트 규칙과 SKILL.md. 3만 memory.py의 템플릿 문자열 수정. memory_search 툴(코드)은 11장 Phase A로 미룬다 — 1~3 운영 후 trace로 필요를 입증한 뒤 붙인다.
 
+### 3.8 학생 친화 설치 모드와 학습 스킬 운용 (v3.4.10)
+
+학생 모드는 기존 nanobot을 대체하는 별도 런타임이 아니다. 설치 온보딩에서 선택되는 설정 묶음이며, 같은 코드베이스에서 다음 두 모드로 동작한다.
+
+| 모드 | 메인 경험 | 서브에이전트 구성 | 웹 UI 노출 |
+|---|---|---|---|
+| General | 원본 nanobot 메인 | `study-coach`, `review-teacher`를 선택적 도움 역할로 제공 | 원본에 가까운 일반 기능 |
+| Student | 담임 선생님 메인 | 원본 nanobot은 설정·고급 기능 하위 경로, `review-teacher`는 간격 반복 전담 | 학습·복습 중심 기능, 위험 기능 숨김 |
+
+**역할 분담**
+- 담임 선생님(`studentMode.coachName`): 학생의 기본 대화 상대. 소크라테스식 힌트, 자료 기반 설명, 학습 로그 기록을 담당한다.
+- 엘르 선생님 또는 복습 선생님(`studentMode.reviewTeacherName`): 간격 반복 학습만 담당한다. 오늘 배운 개념을 복습 큐에 넣고, 매일 1회 due 항목을 꺼내 질문을 만든다.
+- 원본 nanobot 기능: Student mode에서는 “설정·고급 기능” 성격으로 낮춘다. CLI에서는 원본 기능을 유지하되, 웹 UI 세션은 safe_mode 정책을 따른다.
+
+**역할 경계**
+- 에이전트 간 강한 권한 분류 UX는 쓰지 않는다. 사용자가 엘르 선생님에게 일반 질문을 하거나 담임 선생님에게 반복 복습 세부를 물으면 “이건 ○○ 선생님에게 물어보세요” 정도로 안내한다.
+- 다만 실제 도구 권한은 프로파일별 allow-list와 `safe_mode`로 집행한다. 역할극 문구는 편의 UX이고 보안 장치가 아니다.
+
+**반복 학습 구조**
+- 개념마다 cron job을 만들지 않는다. `review-teacher`가 매일 1개의 cron으로 `review_queue.jsonl`에서 `due_date <= today` 항목만 읽는다.
+- 중복 판단 키는 `subject + concept`이다. `date`는 같은 개념의 등록·복습 이력으로 누적한다.
+- 복습 큐 쓰기는 범용 파일 쓰기 도구가 아니라 `student_learning` 툴만 사용한다.
+
+**설치와 첫 실행**
+- Windows를 1순위 배포 대상으로 둔다. 1차 단계는 `install.bat`이 `powershell.exe -ExecutionPolicy Bypass -File scripts/install.ps1`을 호출하는 방식으로 PowerShell 실행 정책 이탈을 줄인다.
+- `start-nanobot.bat`은 설치된 venv, `uv tool run`, PATH의 `nanobot` 순서로 실행 경로를 탐색한다.
+- SmartScreen 경고 대처는 README에 스크린샷 기반으로 설명한다.
+- 언어 선택 화면은 필수가 아니다. 웹 UI는 저장된 언어 설정이 없으면 브라우저/OS locale을 읽고, `ko-*`는 한국어로 시작한다. 사용자는 나중에 설정에서 바꿀 수 있다.
+
+**LLM 연결**
+- OpenAI 연결은 OAuth/로그인 기반 흐름을 우선 검토한다. 오픈소스 클라이언트 특성상 client secret을 숨길 수 없으므로 PKCE 공개 클라이언트 방식을 전제로 한다.
+- OAuth가 막히거나 제공 범위가 부족한 경우를 위해 API key 입력 + 즉시 테스트 호출을 폴백으로 유지한다.
+- 사용액 상한은 이 설계 범위에서 제외한다. 대신 온보딩 문서에는 provider 대시보드에서 직접 사용 한도를 설정하는 방법을 별도 안내할 수 있다.
+
 ---
 
 ## 4. 데이터 명세
@@ -216,6 +256,44 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 
 기존 SubagentProfile + `categories: []`(정보용 매핑 힌트: 예 coding.* ∧ requires_exec → coder). 최종 선택은 LLM, 집행은 allow-list.
 
+### 4.5 학생 모드 config와 로컬 학습 데이터
+
+`config.studentMode`는 설치 모드와 학생 학습 기능의 단일 설정 위치다.
+
+```json
+{
+  "studentMode": {
+    "mode": "general",
+    "coachName": "담임 선생님",
+    "reviewTeacherName": "엘르 선생님",
+    "studyLogPath": "study_log.jsonl",
+    "reviewQueuePath": "review_queue.jsonl",
+    "dailyReviewCronName": "student-mode-daily-review"
+  }
+}
+```
+
+이름은 코드에 하드코딩하지 않는다. `coachName`, `reviewTeacherName`은 i18n과 학교·사용자별 커스터마이징을 위해 설정값으로 둔다.
+
+`config.tools.safeMode`는 웹 UI 학생 세션의 서버 측 안전 정책이다. UI에서 버튼을 숨기는 것과 별개로, 도구 로딩 단계에서 위험 도구를 제외한다.
+
+학습 데이터는 기본적으로 workspace 내부 로컬 파일에만 저장한다.
+
+| 파일 | 목적 | 규칙 |
+|---|---|---|
+| `study_log.jsonl` | 날짜/과목/개념/막힌 지점 기록 | 주간 리포트와 과의존 점검에 사용 |
+| `review_queue.jsonl` | 간격 반복 복습 큐 | dedupe key는 `subject + concept`, 날짜는 이력 필드 |
+
+`student_learning` 툴은 학생 모드에서 허용되는 좁은 쓰기 경로다.
+
+| action | 동작 |
+|---|---|
+| `log_study` | 구조화된 학습 로그를 `study_log.jsonl`에 append |
+| `upsert_review` | `subject + concept` 기준으로 복습 큐 생성 또는 갱신 |
+| `due_reviews` | 특정 날짜까지 만기인 복습 항목 조회 |
+
+학습 데이터 프라이버시는 README 전면에 명시한다. “학습 로그와 복습 큐는 기본적으로 내 컴퓨터에 저장되며, nanobot이 별도 서버로 수집하지 않는다”가 학부모·교사 설명의 핵심 문구다. 단 선택한 LLM provider 호출에는 대화 내용 일부가 전송될 수 있음을 함께 고지한다.
+
 ---
 
 ## 5. Harness
@@ -225,6 +303,8 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 - risk_level 집행 — low: 제한 없음 / medium: exec·shell 없는 프로파일에서만 / high: 전용 restricted 프로파일 또는 실행 거부.
 - 시스템 스킬 디렉토리(skills-system/)는 read-only 마운트 또는 Runtime 파일 도구의 쓰기 범위 밖 경로.
 - 서브에이전트 프롬프트에 composite-task를 포함하지 않는 것을 하네스 회귀 테스트 항목으로 고정.
+- `tools.safeMode=true`인 세션은 `exec`, `write_file`, `edit_file`, `apply_patch`, `write_stdin`, `run_cli_app`, MCP 계열 도구를 ToolLoader에서 제외한다. safe mode는 UI 숨김이 아니라 서버 측 도구 로딩 정책이다.
+- Student mode에서도 필요한 학습 데이터 쓰기는 `student_learning`처럼 범위가 제한된 전용 도구만 허용한다.
 
 ## 6. delegate 툴 [신규 #4]
 
@@ -246,6 +326,11 @@ Phase 1은 코드 없이 규약으로. composite-task가 tasks.md에 하위 작�
 - Execution A/B: 스킬 유무 비교, 차이 없으면 반려.
 - Regression: trace의 routing_failure 건 자동 축적.
 - Harness 회귀: 프로파일별 툴 스냅샷, depth 초과 거부, 서브에이전트 프롬프트에 composite-task 부재 확인.
+- Student mode 회귀: Quick Start에서 General/Student 선택 시 `studentMode.mode`, `tools.safeMode`, `highschool-study`, `study-coach`, `review-teacher` 프로파일이 의도대로 구성되는지 확인.
+- Safe mode 회귀: 위험 도구는 로드되지 않고 `student_learning`은 로드되는지 확인한다.
+- 학습 데이터 회귀: `study_log.jsonl` append, `review_queue.jsonl` upsert, `subject + concept` 중복 판단, `due_reviews` 조회를 테스트한다.
+- 설치 회귀: Windows에서 `install.bat` → `install.ps1`, `start-nanobot.bat` 실행 경로를 수동 smoke test한다. SmartScreen 안내는 README 이미지 절차로 검증한다.
+- WebUI 회귀: 저장된 locale이 없을 때 브라우저/OS locale로 한국어가 선택되는지 확인한다.
 - 수용 시나리오 (시뮬레이션 셋):
   S1 인사/일반지식 → 직접 답변, 검색 0회
   S2 Hot Path 단일 스킬 질문 → 스킬 Method 준수 답변
@@ -262,6 +347,10 @@ Phase 1은 코드 없이 규약으로. composite-task가 tasks.md에 하위 작�
   P1 "스킬로 만들어줘" → Composer 진입 → draft 생성 → approve 전 검색 미노출
   T1 코딩→스케줄→잡담→"아까 코딩 이어서" → topic-recall로 상태 복원 (topics/ 파일 경유)
   T2 topics/ 파일이 없는 과거 주제 복귀 → history.jsonl 경량 폴백 또는 필요 시 sessions jsonl 재구성 경로 동작
+  ST1 Student mode 설치 → 담임 선생님이 기본 경험, 원본 nanobot은 설정·고급 기능 경로로 이동
+  ST2 General mode 설치 → 원본 nanobot이 기본 경험, 담임/복습 선생님은 서브에이전트로 제공
+  ST3 복습 등록 → review-teacher가 매일 1개 cron과 review queue로 due 항목만 처리
+  ST4 safe mode 세션에서 셸/파일쓰기 요청 → 서버 측에서 도구 부재 또는 차단으로 실패하고 안전한 대안을 안내
 
 ## 10. 구현 마일스톤 (수용 기준)
 
@@ -272,10 +361,14 @@ M3 — delegate 툴. 수용: 동기 왕복 + 게이트 error 재위임.
 M4 — 수동 스킬 15~20개 + **composite-task 작성** + **topic-recall 작성 + 주제 스냅샷 규약 + Consolidator 템플릿 수정(3.7)** + Routing Test 러너. 수용: 라우팅 정확도 ≥90%, C1~C5, T1~T2.
 M5 — Composer 스킬군 + approve CLI + 생명주기. 수용: P1 E2E.
 M6 — 통계 가중 랭킹(Phase 2), Hot Path 승격 리포트, 강등 규칙.
+M7 — Student mode 배포 흐름. 수용: Windows `install.bat`/`start-nanobot.bat`, Quick Start 모드 선택, `highschool-study`/`spaced-review`, `student_learning`, safe mode, locale 자동 선택이 ST1~ST4를 통과한다.
 
 ## 11. 미결 사항
 
-임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝).
+임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝) / OpenAI OAuth 가능 범위와 PKCE 등록 방식 / Windows 설치 파일 서명·SmartScreen 이탈률 / 학생 모드 자동 게시 재개 조건.
+
+**업스트림 기준점**
+원본 nanobot을 그대로 따라갈 수 있을 정도로 변경량이 작지 않다. 따라서 “업스트림 전체 동기화”가 아니라 “기준 커밋을 기록하고 필요한 변경만 선별 반영”하는 전략을 쓴다. 기준 커밋/버전, 원저작자, 라이선스 표기는 README와 릴리스 노트에 고정한다. 이후 업스트림 diff는 provider·보안 패치·버그픽스처럼 이 포크에 필요한 항목만 검토해 가져온다.
 
 **메모리 검색 로드맵 (M6 이후, 단계별 필요 입증 후 진행)**:
 - Phase A — history.jsonl 벡터 인덱싱 + `memory_search` 툴. M1의 sqlite-vec 인프라 재사용. 단일 홉 회상("~얘기 어디까지 했지") 커버.

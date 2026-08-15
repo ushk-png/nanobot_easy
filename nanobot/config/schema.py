@@ -204,6 +204,17 @@ class AgentsConfig(Base):
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
 
 
+class StudentModeConfig(Base):
+    """Beginner/student distribution mode settings."""
+
+    mode: Literal["general", "student"] = "general"
+    coach_name: str = Field(default="담임 선생님", min_length=1)
+    review_teacher_name: str = Field(default="엘르 선생님", min_length=1)
+    study_log_path: str = "study_log.jsonl"
+    review_queue_path: str = "review_queue.jsonl"
+    daily_review_cron_name: str = "student-mode-daily-review"
+
+
 class ProviderConfig(Base):
     """LLM provider configuration."""
 
@@ -478,6 +489,10 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
+    safe_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("safeMode", "safe_mode"),
+    )  # server-side policy intent for beginner/student surfaces; CLI keeps existing defaults
     restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
     webui_allow_local_service_access: bool = Field(
         default=True,
@@ -511,6 +526,11 @@ class Config(BaseSettings):
     """Root configuration for nanobot."""
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    student_mode: StudentModeConfig = Field(
+        default_factory=StudentModeConfig,
+        validation_alias=AliasChoices("studentMode", "student_mode"),
+        serialization_alias="studentMode",
+    )
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)

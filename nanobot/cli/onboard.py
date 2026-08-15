@@ -23,7 +23,7 @@ from nanobot.cli.models import (
     get_model_suggestions,
 )
 from nanobot.config.loader import get_config_path, load_config
-from nanobot.config.schema import Config, ModelPresetConfig
+from nanobot.config.schema import Config, ModelPresetConfig, SubagentProfile
 
 console = Console()
 
@@ -76,7 +76,7 @@ _QUICK_START_CUSTOM_PROVIDER_CHOICE = "Other OpenAI-compatible"
 
 _CLEAR_CHOICE = "Clear value"
 _QUICK_START_MENU_CHOICE = "[Q] Quick Start"
-_QUICK_START_STEPS = ("Provider setup", "WebSocket channel", "Review")
+_QUICK_START_STEPS = ("Install mode", "Provider setup", "WebSocket channel", "Review")
 _QUICK_START_ENDPOINT_CHOICES: dict[str, tuple[_QuickStartEndpointChoice, ...]] = {
     "zhipu": (
         _QuickStartEndpointChoice("Standard API", "https://open.bigmodel.cn/api/paas/v4"),
@@ -102,6 +102,8 @@ _QUICK_START_ENDPOINT_CHOICES: dict[str, tuple[_QuickStartEndpointChoice, ...]] 
         _QuickStartEndpointChoice("Token Plan", "https://token-plan-sgp.xiaomimimo.com/v1"),
     ),
 }
+_STUDY_COACH_PROFILE = "study-coach"
+_REVIEW_TEACHER_PROFILE = "review-teacher"
 
 # Low-contrast terminal palette inspired by JetBrains Darcula/Islands.
 _UI_ACCENT = "#6B9BFA"
@@ -1555,6 +1557,71 @@ def _set_primary_quick_start_preset(config: Config, provider_name: str, model: s
     _sync_preset_cache(config)
 
 
+def _configure_quick_start_mode(config: Config) -> bool | object:
+    """Configure the beginner/student distribution mode."""
+    _show_quick_start_progress(1)
+    choices = {
+        "General mode - keep the regular nanobot as the main agent": "general",
+        "Student mode - make the teacher experience the default": "student",
+    }
+    answer = _select_with_back(
+        "How should nanobot start by default?",
+        list(choices) + ["<- Back"],
+        default="General mode - keep the regular nanobot as the main agent",
+    )
+    if answer is _BACK_PRESSED or answer is None or answer == "<- Back":
+        return _BACK_PRESSED
+    assert isinstance(answer, str)
+    mode = choices[answer]
+    config.student_mode.mode = mode
+    profiles = config.agents.defaults.subagent_profiles
+    profiles.setdefault(
+        _REVIEW_TEACHER_PROFILE,
+        SubagentProfile(
+            description=(
+                "Configured review teacher persona for spaced repetition, review queue "
+                "updates, and daily due review checks."
+            ),
+            when_to_use=[
+                "The user asks to register spaced repetition.",
+                "A daily review cron checks due review items.",
+                "The task is only about review queue maintenance.",
+            ],
+            when_not_to_use=[
+                "The user asks for broad study planning.",
+                "The user asks for provider, WebUI, or installation settings.",
+            ],
+            tools=["read_file", "student_learning", "cron"],
+            skills=["spaced-review"],
+            temperature=0.2,
+        ),
+    )
+    if mode == "student":
+        config.tools.safe_mode = True
+        if "highschool-study" not in config.agents.defaults.skills:
+            config.agents.defaults.skills.append("highschool-study")
+        console.print("[green]Student mode selected. WebUI safe mode will be enabled.[/green]")
+    else:
+        profiles.setdefault(
+            _STUDY_COACH_PROFILE,
+            SubagentProfile(
+                description="Configured study coach persona for high-school study guidance.",
+                when_to_use=[
+                    "The user asks for teacher mode.",
+                    "The user asks for study help, problem solving, or study summaries.",
+                ],
+                when_not_to_use=[
+                    "The user asks for general nanobot configuration.",
+                    "The user asks for non-study coding or system tasks.",
+                ],
+                skills=["highschool-study"],
+                temperature=0.2,
+            ),
+        )
+        console.print("[green]General mode selected. CLI and regular agent defaults are unchanged.[/green]")
+    return True
+
+
 def _show_quick_start_progress(active_step: int) -> None:
     """Render a compact step tracker for Quick Start."""
     parts = []
@@ -1659,7 +1726,7 @@ def _select_quick_start_api_base(
 def _configure_quick_start_provider(config: Config) -> bool | object:
     """Configure the beginner path from provider credentials and model."""
     while True:
-        _show_quick_start_progress(1)
+        _show_quick_start_progress(2)
 
         provider_choices = _get_quick_start_provider_choices()
         answer = _select_with_back(
@@ -1736,7 +1803,7 @@ def _configure_quick_start_provider(config: Config) -> bool | object:
 
 def _enable_quick_start_websocket_defaults(config: Config) -> bool:
     """Enable local WebUI with the default WebSocket settings."""
-    _show_quick_start_progress(2)
+    _show_quick_start_progress(3)
     console.print(
         f"[{_UI_ACCENT}]Quick Start will enable the WebSocket channel for the local WebUI.[/]"
     )
@@ -1781,7 +1848,7 @@ def _enable_quick_start_websocket_defaults(config: Config) -> bool:
 
 def _show_quick_start_summary(config: Config) -> None:
     """Show the small summary users need before returning to the menu."""
-    _show_quick_start_progress(3)
+    _show_quick_start_progress(4)
     preset = config.model_presets.get("primary")
     provider_label = "AI provider"
     has_api_key = True
@@ -1802,6 +1869,8 @@ def _show_quick_start_summary(config: Config) -> None:
     rows = [
         ("Status", status),
         ("Next", next_step),
+        ("Install mode", config.student_mode.mode),
+        ("Safe mode", "enabled" if config.tools.safe_mode else "disabled"),
         ("WebSocket channel", "enabled"),
         ("Open", "http://127.0.0.1:8765"),
     ]
@@ -1816,6 +1885,12 @@ def _configure_quick_start(config: Config) -> bool:
         "Choose provider endpoint, add credentials and model, then enable the local WebUI channel.",
     )
     draft = config.model_copy(deep=True)
+    mode_result = _configure_quick_start_mode(draft)
+    if mode_result is _BACK_PRESSED:
+        return False
+    if not mode_result:
+        _pause()
+        return False
     provider_result = _configure_quick_start_provider(draft)
     if provider_result is _BACK_PRESSED:
         return False

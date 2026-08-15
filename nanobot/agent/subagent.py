@@ -99,6 +99,7 @@ class SubagentManager:
         llm_wall_timeout_for_session: Callable[[str | None], float | None] | None = None,
         profiles: dict[str, SubagentProfile] | None = None,
         max_depth: int = 2,
+        student_mode_config: Any | None = None,
     ):
         defaults = AgentDefaults()
         self.provider = provider
@@ -126,6 +127,7 @@ class SubagentManager:
         )
         self.profiles = profiles or {}
         self.max_depth = max_depth
+        self.student_mode_config = student_mode_config
         self.runner = AgentRunner(provider)
         self._llm_wall_timeout_for_session = llm_wall_timeout_for_session
         self._running_tasks: dict[str, asyncio.Task[None]] = {}
@@ -162,6 +164,7 @@ class SubagentManager:
                 workspace=root,
             ),
             subagent_depth=depth,
+            student_mode=self.student_mode_config,
         )
         ToolLoader().load(ctx, registry, scope="subagent")
 

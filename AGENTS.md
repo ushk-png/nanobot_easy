@@ -85,6 +85,29 @@ line to confirm the CLI is talking to the same DB the runtime writes to. A
 bare `nanobot skill list` from outside a project targets the default DB and
 will not see drafts pending in a project workspace.
 
+## Execution Continuity Guardrails
+
+When a user asks for execution against a concrete target, do not stop after
+planning, routing, bookkeeping, or skill selection. Routing is not completion.
+
+- Treat requests such as `테스트해줘`, `확인해줘`, `찾아줘`, `고쳐줘`, `실행해줘`,
+  `보여줘`, or a message that includes a concrete URL/path/file/ID as execution
+  requests when the context implies work should be performed.
+- After selecting a skill for an execution request, continue in the same turn to
+  the first applicable verification or execution tool call, unless explicit
+  approval is required for a risky side effect.
+- A response that only says what will be done, records `skill_decision`, starts a
+  goal, or checks routing is incomplete unless the user's request was only to
+  plan or explain.
+- Before ending the turn, verify that one of the task's concrete done states was
+  reached: successful result, clearly labeled approximate/best-effort result, or
+  a blocker that states what was attempted and what input/permission is missing.
+- For each execution-capable skill, keep a skill-specific Done Criteria section
+  when the completion state is not obvious.
+- If a tool fails, retry once with a different practical approach when safe; if
+  still blocked, report the attempts and next required input instead of silently
+  stopping.
+
 ## Staged Workflow Execution Guardrails
 
 When a user defines or uses a staged/manual-approval workflow, execute exactly
