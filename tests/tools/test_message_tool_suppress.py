@@ -20,6 +20,16 @@ def _make_loop(tmp_path: Path) -> AgentLoop:
     return AgentLoop(bus=bus, provider=provider, workspace=tmp_path, model="test-model")
 
 
+def _message_args(**kwargs: str) -> dict[str, object]:
+    return {
+        **kwargs,
+        "intent_summary": "Send an explicit test message",
+        "target": f"{kwargs.get('channel', '')}:{kwargs.get('chat_id', '')}",
+        "scope": "once",
+        "reversible": False,
+    }
+
+
 class TestMessageToolSuppressLogic:
     """Final reply suppressed only when message tool sends to the same target."""
 
@@ -28,7 +38,7 @@ class TestMessageToolSuppressLogic:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
             id="call1", name="message",
-            arguments={"content": "Hello", "channel": "feishu", "chat_id": "chat123"},
+            arguments=_message_args(content="Hello", channel="feishu", chat_id="chat123"),
         )
         calls = iter([
             LLMResponse(content="", tool_calls=[tool_call]),
@@ -53,7 +63,7 @@ class TestMessageToolSuppressLogic:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
             id="call1", name="message",
-            arguments={"content": "Email content", "channel": "email", "chat_id": "user@example.com"},
+            arguments=_message_args(content="Email content", channel="email", chat_id="user@example.com"),
         )
         calls = iter([
             LLMResponse(content="", tool_calls=[tool_call]),
@@ -94,7 +104,7 @@ class TestMessageToolSuppressLogic:
         loop = _make_loop(tmp_path)
         tool_call = ToolCallRequest(
             id="call1", name="message",
-            arguments={"content": "Tool reply", "channel": "feishu", "chat_id": "chat123"},
+            arguments=_message_args(content="Tool reply", channel="feishu", chat_id="chat123"),
         )
         calls = iter([
             LLMResponse(content="First answer", tool_calls=[]),
