@@ -1,0 +1,12 @@
+- id: Q001
+  question: "registry.py에서 intent metadata 적용했던 내용 알려줘."
+  gold_event_ids: []
+  type: artifact
+  lang: ko
+  memory_required: true
+- id: Q002
+  question: "전에 nanobot 메모리 구조 검토했던 내용이 뭐였지?"
+  gold_event_ids: []
+  type: state
+  lang: ko
+  memory_required: true

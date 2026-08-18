@@ -28,6 +28,8 @@ from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
 from nanobot.agent.skills import _STRIP_SKILL_FRONTMATTER, SYSTEM_SKILLS_DIR
+from nanobot.memory.event_store import MEMORY_TOOL_NAMES, ConversationEventStore
+from nanobot.memory.models import MemoryScope, RawEvent
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
@@ -162,6 +164,11 @@ class TurnContext:
     turn_latency_ms: int | None = None
 
     trace: list[StateTraceEntry] = field(default_factory=list)
+
+
+def _extract_memory_result_query(content: str) -> str | None:
+    match = re.search(r"^query:\s*(.+)$", content, flags=re.MULTILINE)
+    return match.group(1).strip() if match else None
 
 
 class AgentLoop:
@@ -334,6 +341,8 @@ class AgentLoop:
             disabled_skills=disabled_skills,
             hot_path_skills=self.hot_path_skills,
         )
+        self.conversation_memory = ConversationEventStore(workspace)
+        self._memory_workspace_id = str(Path(workspace).expanduser().resolve())
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         # One file-read/write tracker per logical session. The tool registry is
@@ -680,6 +689,109 @@ class AgentLoop:
             session_key=session_key,
         )
 
+    def _memory_scope_for_message(self, msg: InboundMessage) -> MemoryScope:
+        metadata = msg.metadata if isinstance(msg.metadata, dict) else {}
+        owner_id = str(metadata.get("memory_owner_id") or msg.chat_id or msg.sender_id or "local")
+        agent_id = metadata.get("memory_agent_id") or metadata.get("agent_id")
+        return MemoryScope.from_runtime(
+            owner_id=owner_id,
+            workspace_id=self._memory_workspace_id,
+            agent_id=str(agent_id) if agent_id else None,
+        )
+
+    def _memory_event_type_for_message(self, message: dict[str, Any]) -> str:
+        role = message.get("role")
+        if role == "user":
+            return "USER_MESSAGE"
+        if role == "assistant":
+            return "TOOL_CALL" if message.get("tool_calls") else "ASSISTANT_MESSAGE"
+        if role == "tool":
+            return "TOOL_RESULT"
+        if role == "system":
+            return "SYSTEM_EVENT"
+        return "SYSTEM_EVENT"
+
+    def _memory_content_for_message(self, message: dict[str, Any]) -> str:
+        return "" if self._is_memory_tool_result_message(message) else self._message_content_as_text(message)
+
+    @staticmethod
+    def _message_content_as_text(message: dict[str, Any]) -> str:
+        content = message.get("content")
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict) and isinstance(item.get("text"), str):
+                    parts.append(item["text"])
+                elif isinstance(item, dict) and item.get("type") == "image_url":
+                    parts.append("[image]")
+            return "\n".join(parts)
+        return "" if content is None else str(content)
+
+    @staticmethod
+    def _is_memory_tool_result_message(message: dict[str, Any]) -> bool:
+        return message.get("role") == "tool" and str(message.get("name") or "") in MEMORY_TOOL_NAMES
+
+    @staticmethod
+    def _memory_tool_result_metadata(message: dict[str, Any], content: str) -> dict[str, Any]:
+        event_ids = sorted(set(re.findall(r"\[([^\]\n]+)\]", content)))[:200]
+        return {
+            "memory_tool_result": True,
+            "query": _extract_memory_result_query(content),
+            "returned_event_ids": event_ids,
+            "count": len(event_ids),
+            "content_hash": ConversationEventStore._hash_content(content),
+            "content_redaction_reason": "memory_tool_result_not_raw_memory",
+        }
+
+    def _memory_events_from_session_messages(
+        self,
+        *,
+        msg: InboundMessage,
+        session: Session,
+        messages: list[dict[str, Any]],
+        start_index: int,
+    ) -> list[RawEvent]:
+        scope = self._memory_scope_for_message(msg)
+        events: list[RawEvent] = []
+        for offset, message in enumerate(messages[start_index:], start=start_index + 1):
+            content = self._memory_content_for_message(message)
+            is_memory_tool_result = self._is_memory_tool_result_message(message)
+            if not content and not message.get("tool_calls") and not is_memory_tool_result:
+                continue
+            event_type = self._memory_event_type_for_message(message)
+            actor = str(message.get("role") or "unknown")
+            ts = str(message.get("timestamp") or ConversationEventStore.now_ts())
+            metadata = {
+                key: value
+                for key, value in message.items()
+                if key not in {"role", "content", "timestamp"}
+            }
+            if is_memory_tool_result:
+                metadata.update(self._memory_tool_result_metadata(message, self._message_content_as_text(message)))
+            parent_event_id = None
+            if event_type == "TOOL_RESULT" and message.get("tool_call_id"):
+                parent_event_id = str(message.get("tool_call_id"))
+            event_id = str(message.get("memory_event_id") or f"{session.key}:{offset}")
+            events.append(RawEvent(
+                event_id=event_id,
+                owner_id=scope.owner_id,
+                workspace_id=scope.workspace_ids[0],
+                agent_id=scope.agent_ids[0],
+                conversation_id=session.key,
+                session_id=session.key,
+                sequence=offset,
+                ts=ts,
+                actor=actor,
+                event_type=event_type,
+                content=None if is_memory_tool_result else content,
+                metadata_json=ConversationEventStore._json_dumps(metadata),
+                parent_event_id=parent_event_id,
+                content_hash=None if is_memory_tool_result else ConversationEventStore._hash_content(content),
+            ))
+        return events
+
     def _persist_user_message_early(
         self,
         msg: InboundMessage,
@@ -702,7 +814,16 @@ class AgentLoop:
             if text_override is not None:
                 text = text_override
             extra.update(automation_extra)
+            before_count = len(session.messages)
             session.add_message("user", text, **extra)
+            self.conversation_memory.insert_events(
+                self._memory_events_from_session_messages(
+                    msg=msg,
+                    session=session,
+                    messages=session.messages,
+                    start_index=before_count,
+                )
+            )
             self._mark_pending_user_turn(session)
             self.sessions.save(session)
             return True
@@ -1913,6 +2034,7 @@ class AgentLoop:
         self._save_turn(
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
+            inbound_message=ctx.msg,
         )
         self._runtime_events().record_turn_latency(
             ctx.session_key,
@@ -2001,6 +2123,7 @@ class AgentLoop:
         skip: int,
         *,
         turn_latency_ms: int | None = None,
+        inbound_message: InboundMessage | None = None,
     ) -> None:
         """Save new-turn messages into session, truncating large tool results."""
         from datetime import datetime
@@ -2012,6 +2135,7 @@ class AgentLoop:
             for tc in m.get("tool_calls") or []
             if isinstance(tc, dict) and tc.get("id")
         }
+        memory_start_index = len(session.messages)
         last_assistant_idx: int | None = None
         for m in messages[skip:]:
             entry = dict(m)
@@ -2076,6 +2200,15 @@ class AgentLoop:
                 )
         if turn_latency_ms is not None and last_assistant_idx is not None:
             session.messages[last_assistant_idx]["latency_ms"] = int(turn_latency_ms)
+        if inbound_message is not None:
+            self.conversation_memory.insert_events(
+                self._memory_events_from_session_messages(
+                    msg=inbound_message,
+                    session=session,
+                    messages=session.messages,
+                    start_index=memory_start_index,
+                )
+            )
         session.updated_at = datetime.now()
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:

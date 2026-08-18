@@ -14,6 +14,7 @@ INTENT_METADATA_REQUIRED_TOOLS = frozenset((
     "apply_patch",
     "edit_file",
     "exec",
+    "forget_memory_events",
     "message",
     "run_cli_app",
     "skill_request_approval",
