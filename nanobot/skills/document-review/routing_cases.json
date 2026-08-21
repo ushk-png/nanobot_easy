@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Review this document for risks and omissions.", "expected": "document-review"},
+    {"query": "Find gaps in this proposal.", "expected": "document-review"},
+    {"query": "Critique this draft before I send it.", "expected": "document-review"},
+    {"query": "Check this spec for contradictions.", "expected": "document-review"},
+    {"query": "Review this policy for unclear claims.", "expected": "document-review"},
+    {"query": "Summarize this document in bullets.", "expected": "summarize-document"},
+    {"query": "Extract action items from this meeting note.", "expected": "meeting-notes"},
+    {"query": "Draft an email based on this proposal.", "expected": "email-draft"},
+    {"query": "Translate this technical spec.", "expected": "translation-technical"},
+    {"query": "Synthesize these three docs.", "expected": "research-synthesis"}
+  ]
+}

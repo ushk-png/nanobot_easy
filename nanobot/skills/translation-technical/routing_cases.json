@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Translate this technical document into Korean.", "expected": "translation-technical"},
+    {"query": "Translate this API spec but keep code terms unchanged.", "expected": "translation-technical"},
+    {"query": "Make an English version of this Korean engineering note.", "expected": "translation-technical"},
+    {"query": "Translate this release note preserving command names.", "expected": "translation-technical"},
+    {"query": "Korean technical translation for the text below.", "expected": "translation-technical"},
+    {"query": "Summarize this technical document.", "expected": "summarize-document"},
+    {"query": "Draft an email explaining this incident.", "expected": "email-draft"},
+    {"query": "Review this translated spec for clarity.", "expected": "document-review"},
+    {"query": "Explain this error message.", "expected": "error-message-explain"},
+    {"query": "Compare these two API styles.", "expected": "answer-comparison"}
+  ]
+}

@@ -1,6 +1,17 @@
 ---
 name: image-generation
 description: Generate images and iteratively edit saved image artifacts.
+metadata:
+  nanobot:
+    id: builtin-image-generation
+    version: 1.0.0
+    status: verified
+    category: media.image
+    risk_level: medium
+    requires_exec: false
+    required_tools:
+      - generate_image
+      - message
 ---
 
 # Image Generation

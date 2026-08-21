@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
 import os
+import re
 import time
 from contextlib import AsyncExitStack, nullcontext, suppress
 from dataclasses import dataclass, field
@@ -25,6 +27,7 @@ from nanobot.agent.hook import AgentHook, CompositeHook
 from nanobot.agent.memory import Consolidator
 from nanobot.agent.progress_hook import AgentProgressHook
 from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRunSpec
+from nanobot.agent.skills import _STRIP_SKILL_FRONTMATTER, SYSTEM_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
@@ -57,10 +60,11 @@ from nanobot.security.workspace_access import (
 )
 from nanobot.session import turn_continuation
 from nanobot.session.automation_turns import automation_history_overrides
+from nanobot.session.conversation_focus import update_conversation_focus
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
+    mark_sustained_goal_user_approval,
     runner_wall_llm_timeout_s,
-    sustained_goal_active,
 )
 from nanobot.session.history_visibility import HIDDEN_HISTORY_META
 from nanobot.session.keys import UNIFIED_SESSION_KEY, session_key_for_channel
@@ -69,9 +73,18 @@ from nanobot.session.manager import (
     SessionManager,
     replay_max_messages_for_context,
 )
+from nanobot.session.skill_approval_state import (
+    clear_pending_skill_approval,
+    get_pending_skill_approval,
+    parse_confirmation_reply,
+)
 from nanobot.triggers.local_turns import LocalTriggerTurnCoordinator
 from nanobot.utils.document import extract_documents, reference_non_image_attachments
-from nanobot.utils.helpers import image_placeholder_text
+from nanobot.utils.helpers import (
+    image_placeholder_text,
+    input_token_safety_buffer,
+    truncate_text_to_tokens,
+)
 from nanobot.utils.helpers import truncate_text as truncate_text_fn
 from nanobot.utils.image_generation_intent import image_generation_prompt
 from nanobot.utils.llm_runtime import LLMRuntime
@@ -86,6 +99,7 @@ if TYPE_CHECKING:
         ToolsConfig,
     )
     from nanobot.cron.service import CronService
+    from nanobot.skill_store import SkillSearchMatch
 
 class TurnState(Enum):
     RESTORE = auto()
@@ -199,6 +213,8 @@ class AgentLoop:
         model: str | None = None,
         max_iterations: int | None = None,
         max_concurrent_subagents: int | None = None,
+        subagent_profiles: dict[str, Any] | None = None,
+        max_subagent_depth: int | None = None,
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
         max_tool_result_chars: int | None = None,
@@ -216,7 +232,12 @@ class AgentLoop:
         hooks: list[AgentHook] | None = None,
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
+        hot_path_skills: list[str] | None = None,
+        proactive_skill_cards: bool | None = None,
+        proactive_card_min_score: int | None = None,
+        proactive_method_inline: bool | None = None,
         tools_config: ToolsConfig | None = None,
+        student_mode_config: Any | None = None,
         image_generation_provider_config: ProviderConfig | None = None,
         image_generation_provider_configs: dict[str, ProviderConfig] | None = None,
         provider_snapshot_loader: Callable[..., ProviderSnapshot] | None = None,
@@ -237,6 +258,7 @@ class AgentLoop:
         self.runtime_events = runtime_events or RuntimeEventBus()
         self.runtime_event_publisher = RuntimeEventPublisher(self.runtime_events)
         self.channels_config = channels_config
+        self.student_mode_config = student_mode_config
         self.restart_mode = restart_mode
         self.provider = provider
         self._provider_snapshot_loader = provider_snapshot_loader
@@ -285,7 +307,33 @@ class AgentLoop:
         self._last_usage: dict[str, int] = {}
         self._extra_hooks: list[AgentHook] = hooks or []
 
-        self.context = ContextBuilder(workspace, timezone=timezone, disabled_skills=disabled_skills)
+        self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
+        self.proactive_skill_cards = (
+            proactive_skill_cards
+            if proactive_skill_cards is not None
+            else defaults.proactive_skill_cards
+        )
+        self.proactive_card_min_score = (
+            proactive_card_min_score
+            if proactive_card_min_score is not None
+            else defaults.proactive_card_min_score
+        )
+        self.proactive_method_inline = (
+            proactive_method_inline
+            if proactive_method_inline is not None
+            else defaults.proactive_method_inline
+        )
+        from nanobot.skill_store import SkillStore
+
+        self.skill_store = SkillStore(workspace)
+        with suppress(Exception):
+            self.skill_store.ensure_index(system_dir=SYSTEM_SKILLS_DIR)
+        self.context = ContextBuilder(
+            workspace,
+            timezone=timezone,
+            disabled_skills=disabled_skills,
+            hot_path_skills=self.hot_path_skills,
+        )
         self.sessions = session_manager or SessionManager(workspace)
         self.tools = ToolRegistry()
         # One file-read/write tracker per logical session. The tool registry is
@@ -305,6 +353,9 @@ class AgentLoop:
             max_concurrent_subagents=max_concurrent_subagents,
             fail_on_tool_error=fail_on_tool_error,
             llm_wall_timeout_for_session=lambda sk: runner_wall_llm_timeout_s(self.sessions, sk),
+            profiles=subagent_profiles if subagent_profiles is not None else defaults.subagent_profiles,
+            max_depth=max_subagent_depth if max_subagent_depth is not None else defaults.max_subagent_depth,
+            student_mode_config=student_mode_config,
         )
         self._unified_session = unified_session
         self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
@@ -402,6 +453,8 @@ class AgentLoop:
             model=model,
             max_iterations=defaults.max_tool_iterations,
             max_concurrent_subagents=defaults.max_concurrent_subagents,
+            subagent_profiles=defaults.subagent_profiles,
+            max_subagent_depth=defaults.max_subagent_depth,
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
             max_tool_result_chars=defaults.max_tool_result_chars,
@@ -414,11 +467,16 @@ class AgentLoop:
             timezone=defaults.timezone,
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
+            hot_path_skills=defaults.skills,
+            proactive_skill_cards=defaults.proactive_skill_cards,
+            proactive_card_min_score=defaults.proactive_card_min_score,
+            proactive_method_inline=defaults.proactive_method_inline,
             session_ttl_minutes=defaults.session_ttl_minutes,
             consolidation_ratio=defaults.consolidation_ratio,
             tools_config=config.tools,
             model_presets=preset_helpers.configured_model_presets(config),
             model_preset=defaults.model_preset,
+            student_mode_config=config.student_mode,
             restart_mode=config.gateway.restart_mode,
             provider_snapshot_loader=provider_snapshot_loader,
             preset_snapshot_loader=preset_snapshot_loader,
@@ -528,12 +586,13 @@ class AgentLoop:
             timezone=self.context.timezone or "UTC",
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
+            student_mode=self.student_mode_config,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
 
         # MyTool needs runtime state reference — manual registration
-        if self.tools_config.my.enable:
+        if self.tools_config.my.enable and not self.tools_config.safe_mode:
             self.tools.register(
                 MyTool(runtime_state=self, modify_allowed=self.tools_config.my.allow_set)
             )
@@ -659,6 +718,7 @@ class AgentLoop:
     ) -> list[dict[str, Any]]:
         """Build the initial message list for the LLM turn."""
         scope = self.workspace_scopes.for_message(msg, session.metadata)
+        current_runtime_lines = self._proactive_skill_card_lines(msg, session)
         return self.context.build_messages(
             history=history,
             current_message=image_generation_prompt(msg.content, msg.metadata),
@@ -671,6 +731,7 @@ class AgentLoop:
             workspace=scope.project_path,
             runtime_state=self,
             inbound_message=msg,
+            current_runtime_lines=current_runtime_lines,
             include_memory_recent_history=include_memory_recent_history,
             session_key=session.key,
             unified_session=self._unified_session,
@@ -719,7 +780,11 @@ class AgentLoop:
             reserved_output = int(max_output)
         except (TypeError, ValueError):
             reserved_output = 4096
-        budget = self.context_window_tokens - max(1, reserved_output) - 1024
+        budget = (
+            self.context_window_tokens
+            - max(1, reserved_output)
+            - input_token_safety_buffer(self.context_window_tokens)
+        )
         return budget if budget > 0 else max(128, self.context_window_tokens // 2)
 
     async def _run_agent_loop(
@@ -741,6 +806,7 @@ class AgentLoop:
         run_extra_hooks_for_ephemeral: bool = False,
         hooks: list[AgentHook] | None = None,
         tools: ToolRegistry | None = None,
+        user_message: str | None = None,
     ) -> tuple[str | None, list[str], list[dict], str, bool]:
         """Run the agent iteration loop.
 
@@ -897,7 +963,13 @@ class AgentLoop:
                     metadata=session_metadata,
                     message_metadata=metadata,
                 ),
-                goal_active_predicate=lambda: sustained_goal_active(session.metadata) if session is not None else False,
+                goal_active_predicate=lambda: (
+                    turn_continuation.should_autocontinue_sustained_goal(
+                        session.metadata,
+                        message_metadata=metadata,
+                        user_message=user_message,
+                    )
+                ) if session is not None else False,
                 goal_continue_message=_goal_continue,
                 finalize_on_max_iterations=turn_continuation.should_finalize_on_max_iterations(
                     pending_queue_available=pending_queue is not None and session is not None,
@@ -979,37 +1051,51 @@ class AgentLoop:
                         break
                 if deferred:
                     continue
+                session_for_goal = self.sessions.get_or_create(effective_key)
+                if mark_sustained_goal_user_approval(session_for_goal.metadata, raw):
+                    self.sessions.save(session_for_goal)
+                    logger.info(
+                        "Marked approval-gated sustained goal approved in session {}",
+                        effective_key,
+                    )
                 # If this session already has an active pending queue (i.e. a task
                 # is processing this session), route the message there for mid-turn
                 # injection instead of creating a competing task.
                 if effective_key in self._pending_queues:
-                    # Non-priority commands must not be queued for injection;
-                    # dispatch them directly (same pattern as priority commands).
-                    if self.commands.is_dispatchable_command(raw):
-                        await self._dispatch_command_inline(
-                            msg, effective_key, raw,
-                            self.commands.dispatch,
-                        )
-                        continue
-                    pending_msg = msg
-                    if effective_key != msg.session_key:
-                        pending_msg = dataclasses.replace(
-                            msg,
-                            session_key_override=effective_key,
-                        )
-                    try:
-                        self._pending_queues[effective_key].put_nowait(pending_msg)
-                    except asyncio.QueueFull:
-                        logger.warning(
-                            "Pending queue full for session {}, falling back to queued task",
+                    session_meta = session_for_goal.metadata
+                    if not turn_continuation.should_route_followup_to_pending(session_meta):
+                        logger.info(
+                            "Bypassing pending queue for approval-gated sustained goal in session {}",
                             effective_key,
                         )
                     else:
-                        logger.info(
-                            "Routed follow-up message to pending queue for session {}",
-                            effective_key,
-                        )
-                        continue
+                        # Non-priority commands must not be queued for injection;
+                        # dispatch them directly (same pattern as priority commands).
+                        if self.commands.is_dispatchable_command(raw):
+                            await self._dispatch_command_inline(
+                                msg, effective_key, raw,
+                                self.commands.dispatch,
+                            )
+                            continue
+                        pending_msg = msg
+                        if effective_key != msg.session_key:
+                            pending_msg = dataclasses.replace(
+                                msg,
+                                session_key_override=effective_key,
+                            )
+                        try:
+                            self._pending_queues[effective_key].put_nowait(pending_msg)
+                        except asyncio.QueueFull:
+                            logger.warning(
+                                "Pending queue full for session {}, falling back to queued task",
+                                effective_key,
+                            )
+                        else:
+                            logger.info(
+                                "Routed follow-up message to pending queue for session {}",
+                                effective_key,
+                            )
+                            continue
                 # Compute the effective session key before dispatching
                 # This ensures /stop command can find tasks correctly when unified session is enabled
                 task = asyncio.create_task(self._dispatch(msg))
@@ -1251,7 +1337,17 @@ class AgentLoop:
             "extend_to_user": is_subagent,
         }
         history = session.get_history(**_hist_kwargs)
+        if not is_subagent and isinstance(msg.content, str) and msg.content.strip():
+            update_conversation_focus(
+                session.metadata,
+                user_text=msg.content,
+                history=history,
+                workspace=self.workspace,
+                session_key=key,
+            )
+            self.sessions.save(session)
         workspace_scope = self.workspace_scopes.for_message(msg, session.metadata)
+        current_runtime_lines = [] if is_subagent else self._proactive_skill_card_lines(msg, session)
 
         messages = self.context.build_messages(
             history=history,
@@ -1268,6 +1364,7 @@ class AgentLoop:
             skip_runtime_lines=is_subagent,
             session_key=key,
             unified_session=self._unified_session,
+            current_runtime_lines=current_runtime_lines,
         )
         t_wall = time.time()
         final_content, _, all_msgs, stop_reason, _ = await self._run_agent_loop(
@@ -1276,6 +1373,7 @@ class AgentLoop:
             metadata=msg.metadata,
             session_key=key,
             pending_queue=pending_queue,
+            user_message=msg.content,
         )
         wall_done = time.time()
         latency_ms = max(0, int((wall_done - t_wall) * 1000))
@@ -1419,9 +1517,16 @@ class AgentLoop:
         turn_latency_ms: int | None = None,
     ) -> OutboundMessage | None:
         """Assemble the final outbound message from turn results."""
-        # MessageTool suppression
+        # MessageTool suppression.  If the model already delivered the same
+        # text to the active chat through the message tool (commonly to attach
+        # media), do not also send the final assistant response as a duplicate.
         if (mt := self.tools.get("message")) and isinstance(mt, MessageTool) and mt._sent_in_turn:
             if not had_injections or stop_reason == "empty_final_response":
+                return None
+            normalized_final = final_content.strip()
+            delivered_contents = [c.strip() for c in mt.turn_delivered_contents()]
+            if normalized_final and normalized_final in delivered_contents:
+                logger.info("Suppressing duplicate final response after message tool delivery")
                 return None
 
         preview = final_content[:120] + "..." if len(final_content) > 120 else final_content
@@ -1466,6 +1571,17 @@ class AgentLoop:
         if self._restore_pending_user_turn(ctx.session):
             self.sessions.save(ctx.session)
 
+        if msg.sender_id != "subagent" and isinstance(msg.content, str) and msg.content.strip():
+            recent_history = ctx.session.get_history(max_messages=12, max_tokens=0, extend_to_user=False)
+            update_conversation_focus(
+                ctx.session.metadata,
+                user_text=msg.content,
+                history=recent_history,
+                workspace=self.workspace,
+                session_key=ctx.session_key,
+            )
+            self.sessions.save(ctx.session)
+
         return "ok"
 
     def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
@@ -1483,12 +1599,58 @@ class AgentLoop:
         ctx.pending_summary = pending
         return "ok"
 
+    async def _resolve_pending_skill_confirmation(
+        self, msg: InboundMessage, session: Session, raw: str
+    ) -> OutboundMessage | None:
+        """Deterministically resolve a pending skill-approval yes/no reply.
+
+        Runs before command dispatch and before the LLM turn. Only an exact
+        yes/no reply to a real pending confirmation (set by the
+        ``skill_request_approval`` tool) can approve or cancel a draft here —
+        this never consults the model, so it cannot be triggered by prompt
+        injection or by the model's own guess about user intent.
+        """
+        pending = get_pending_skill_approval(session.metadata)
+        if pending is None:
+            return None
+        reply = parse_confirmation_reply(raw)
+        if reply is None:
+            return None
+        name = str(pending.get("name") or "")
+        clear_pending_skill_approval(session.metadata)
+        self.sessions.save(session)
+        if reply == "no":
+            content = f"Cancelled — `{name}` was not approved."
+        else:
+            from nanobot.webui.skill_manage_api import skill_manage_chat_approve_payload
+
+            policy = getattr(getattr(self.tools_config, "webui_skill_management", None), "red_flags", None)
+            try:
+                result = skill_manage_chat_approve_payload(self.workspace, name, policy=policy)
+            except KeyError:
+                content = f"Could not approve `{name}`: it is no longer pending."
+            except PermissionError:
+                content = (
+                    f"Draft `{name}` has a blocking review flag and cannot be approved from chat. "
+                    "Open the WebUI skill manager to review it in full."
+                )
+            except ValueError as exc:
+                content = f"Could not approve `{name}`: {exc}"
+            else:
+                skill = result.get("skill")
+                status = skill.get("status") if isinstance(skill, dict) else None
+                content = f"Approved `{name}`" + (f" — status is now `{status}`." if status else ".")
+        return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id, content=content)
+
     async def _state_command(self, ctx: TurnContext) -> str:
         raw = ctx.msg.content.strip()
         cmd_ctx = CommandContext(
             msg=ctx.msg, session=ctx.session, key=ctx.session_key, raw=raw, loop=self
         )
-        result = await self.commands.dispatch(cmd_ctx)
+        result = await self._resolve_pending_skill_confirmation(ctx.msg, ctx.session, raw)
+        is_skill_confirmation = result is not None
+        if result is None:
+            result = await self.commands.dispatch(cmd_ctx)
         if result is not None:
             ctx.outbound = result
             # Shortcut commands skip BUILD and SAVE, so we must persist the
@@ -1497,11 +1659,12 @@ class AgentLoop:
             # them out of LLM context.  /new is excluded because it
             # intentionally clears the session.
             if cmd_ctx.raw.lower() != "/new":
+                command_hidden = not is_skill_confirmation
                 ctx.user_persisted_early = self._persist_user_message_early(
-                    ctx.msg, ctx.session, _command=True
+                    ctx.msg, ctx.session, _command=command_hidden
                 )
                 ctx.session.add_message(
-                    "assistant", result.content, _command=True
+                    "assistant", result.content, _command=command_hidden
                 )
                 self.sessions.save(ctx.session)
                 self._clear_pending_user_turn(ctx.session)
@@ -1553,6 +1716,147 @@ class AgentLoop:
             ctx.on_retry_wait = await self._build_retry_wait_callback(ctx.msg)
 
         return "ok"
+
+    def _proactive_skill_card_lines(self, msg: InboundMessage, session: Session) -> list[str]:
+        if not self.proactive_skill_cards:
+            return []
+        text = self._user_request_text(msg.content)
+        if not text:
+            return []
+        try:
+            started = time.perf_counter()
+            matches = self.skill_store.search(text, top_k=3, min_status=("candidate", "verified"))
+            candidates = self._proactive_candidate_payloads(matches)
+            if not candidates:
+                return []
+            top_score = float(candidates[0]["score"])
+            if top_score < float(self.proactive_card_min_score):
+                return []
+            block = self._format_proactive_skill_cards(candidates)
+            trace_raw = f"{session.key}\n{text}".encode("utf-8")
+            self.skill_store.record_trace(
+                trace_id=f"proactive_skill_cards:{hashlib.sha256(trace_raw).hexdigest()[:24]}",
+                session_key=session.key,
+                query_digest=hashlib.sha256(text.encode("utf-8")).hexdigest()[:24],
+                candidates=candidates,
+                selected_skill=None,
+                selection_reason="cold",
+                executed_by="main",
+                duration_ms=max(0, int((time.perf_counter() - started) * 1000)),
+                notes="proactive",
+            )
+            return block.splitlines()
+        except Exception as exc:
+            logger.debug("Skipping proactive skill cards: {}", exc)
+            return []
+
+    def _proactive_candidate_payloads(self, matches: list[SkillSearchMatch]) -> list[dict[str, Any]]:
+        if not matches:
+            return []
+        relations = self.skill_store.relations_for_names(match.name for match in matches)
+        candidates: list[dict[str, Any]] = []
+        for match in matches:
+            score = max(0.0, min(100.0, float(match.score) + match.stats_weight))
+            rel = relations.get(match.name, {})
+            candidates.append({
+                "name": match.name,
+                "description": match.description,
+                "when_to_use": match.when_to_use,
+                "when_not_to_use": match.when_not_to_use,
+                "risk_level": match.risk_level,
+                "requires_exec": match.requires_exec,
+                "category": match.category,
+                "status": match.status,
+                "score": round(score, 2),
+                "match_grade": self._proactive_match_grade(score),
+                "conflicts_with": rel.get("conflicts_with", []),
+                "supersedes": rel.get("supersedes", []),
+                "fallback_to": rel.get("fallback_to", []),
+                "path": match.path,
+            })
+        candidates.sort(key=lambda row: float(row["score"]), reverse=True)
+        return candidates[:3]
+
+    def _format_proactive_skill_cards(self, candidates: list[dict[str, Any]]) -> str:
+        lines = [
+            ContextBuilder._SKILL_CANDIDATES_TAG,
+            "These are retrieval hints only. Apply a card only if it fits the user's direct request; otherwise ignore it.",
+        ]
+        inline_method_for = self._proactive_inline_method_candidate(candidates)
+        for idx, candidate in enumerate(candidates, start=1):
+            name = str(candidate["name"])
+            lines.append(
+                f"{idx}. {name} | score={candidate['score']} ({candidate['match_grade']}) "
+                f"| risk={candidate['risk_level']} | exec={str(candidate['requires_exec']).lower()}"
+            )
+            lines.append(f"   description: {self._one_line(candidate.get('description'))}")
+            use = self._one_line(candidate.get("when_to_use")) or "not specified"
+            not_use = self._one_line(candidate.get("when_not_to_use")) or "not specified"
+            lines.append(f"   use/not: use={use}; not={not_use}")
+            lines.append(f"   path: {candidate.get('path')}")
+            if inline_method_for == name:
+                method = self._read_skill_method(candidate.get("path"))
+                if method:
+                    lines.append("   Method excerpt — apply only if the card truly fits:")
+                    for method_line in method.splitlines():
+                        lines.append(f"   {method_line}")
+        lines.append(ContextBuilder._SKILL_CANDIDATES_END)
+        return "\n".join(lines)
+
+    def _proactive_inline_method_candidate(self, candidates: list[dict[str, Any]]) -> str | None:
+        if not self.proactive_method_inline or not candidates:
+            return None
+        first = candidates[0]
+        first_score = float(first.get("score") or 0.0)
+        if first_score < 70.0:
+            return None
+        if len(candidates) > 1 and first_score - float(candidates[1].get("score") or 0.0) < 20.0:
+            return None
+        if first.get("conflicts_with"):
+            return None
+        return str(first.get("name") or "") or None
+
+    @staticmethod
+    def _proactive_match_grade(score: float) -> str:
+        if score >= 70:
+            return "strong"
+        if score >= 35:
+            return "moderate"
+        return "weak"
+
+    @staticmethod
+    def _one_line(value: Any, *, max_chars: int = 180) -> str:
+        text = re.sub(r"\s+", " ", str(value or "")).strip()
+        if len(text) <= max_chars:
+            return text
+        return text[: max_chars - 1].rstrip() + "…"
+
+    @staticmethod
+    def _read_skill_method(path: Any) -> str | None:
+        if not path:
+            return None
+        skill_path = Path(str(path))
+        skill_file = skill_path if skill_path.name == "SKILL.md" else skill_path / "SKILL.md"
+        try:
+            markdown = skill_file.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        body = _STRIP_SKILL_FRONTMATTER.sub("", markdown, count=1).strip()
+        match = re.search(r"(?ims)^##\s+Method\s*$([\s\S]*?)(?=^##\s+|\Z)", body)
+        if match:
+            method = match.group(1).strip()
+        else:
+            method = body
+        return truncate_text_to_tokens(method, 1_500).strip() or None
+
+    @staticmethod
+    def _user_request_text(message: str) -> str:
+        """Return the user-authored prompt before extracted attachment text."""
+        text = (message or "").strip()
+        marker = "\n\n[File:"
+        if marker in text:
+            return text.split(marker, 1)[0].strip()
+        return text
 
     async def _state_run(self, ctx: TurnContext) -> str:
         if ctx.visible_run_started_at is None:
@@ -1664,7 +1968,11 @@ class AgentLoop:
                 drop_runtime
                 and block.get("type") == "text"
                 and isinstance(block.get("text"), str)
-                and block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+                and (
+                    block["text"].startswith(ContextBuilder._RUNTIME_CONTEXT_TAG)
+                    or block["text"].startswith(ContextBuilder._RECENT_MEMORY_TAG)
+                    or block["text"].startswith(ContextBuilder._SKILL_CANDIDATES_TAG)
+                )
             ):
                 continue
 
@@ -1731,10 +2039,23 @@ class AgentLoop:
                         ]
                     entry["content"] = filtered
             elif role == "user":
-                if isinstance(content, str) and ContextBuilder._RUNTIME_CONTEXT_TAG in content:
-                    # Strip the runtime-context block appended at the end.
-                    tag_pos = content.find(ContextBuilder._RUNTIME_CONTEXT_TAG)
-                    before = content[:tag_pos].rstrip("\n ")
+                if isinstance(content, str):
+                    volatile_positions = [
+                        pos
+                        for tag in (
+                            ContextBuilder._RECENT_MEMORY_TAG,
+                            ContextBuilder._SKILL_CANDIDATES_TAG,
+                            ContextBuilder._RUNTIME_CONTEXT_TAG,
+                        )
+                        if (pos := content.find(tag)) >= 0
+                    ]
+                    if volatile_positions:
+                        before = content[:min(volatile_positions)].rstrip("\n ")
+                    else:
+                        before = None
+                else:
+                    before = None
+                if before is not None:
                     if before:
                         entry["content"] = before
                     else:

@@ -16,6 +16,22 @@ _SKIP_MODULES = frozenset({
     "file_state", "sandbox", "mcp", "__init__", "runtime_state",
 })
 
+_SAFE_MODE_BLOCKED_TOOLS = frozenset({
+    "apply_patch",
+    "edit_file",
+    "exec",
+    "list_exec_sessions",
+    "run_cli_app",
+    "write_file",
+    "write_stdin",
+})
+_SAFE_MODE_BLOCKED_PREFIXES = ("mcp_",)
+
+
+def is_safe_mode_blocked_tool(name: str) -> bool:
+    """Return whether *name* is hidden from beginner/student safe mode."""
+    return name in _SAFE_MODE_BLOCKED_TOOLS or name.startswith(_SAFE_MODE_BLOCKED_PREFIXES)
+
 
 class ToolLoader:
     def __init__(self, package: Any = None, *, test_classes: list[type[Tool]] | None = None):
@@ -86,6 +102,7 @@ class ToolLoader:
     def load(self, ctx: Any, registry: ToolRegistry, *, scope: str = "core") -> list[str]:
         registered: list[str] = []
         builtin_names: set[str] = set()
+        safe_mode = bool(getattr(getattr(ctx, "config", None), "safe_mode", False))
         sources = [(self.discover(), False), (self._discover_plugins().values(), True)]
         for source, is_plugin_source in sources:
             for tool_cls in source:
@@ -98,6 +115,9 @@ class ToolLoader:
                     tool = tool_cls.create(ctx)
                     if is_plugin_source:
                         tool = _LegacyErrorPrefixTool(tool)
+                    if safe_mode and is_safe_mode_blocked_tool(tool.name):
+                        logger.info("Safe mode skipped tool: {}", tool.name)
+                        continue
                     if registry.has(tool.name):
                         if is_plugin_source and tool.name in builtin_names:
                             logger.warning(

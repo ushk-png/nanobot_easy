@@ -1,15 +1,140 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { TFunction } from "i18next";
-import { Brain, Check, CircleAlert, KeyRound, Loader2, Terminal } from "lucide-react";
+import {
+  Archive,
+  ArrowLeft,
+  Brain,
+  Check,
+  CircleAlert,
+  ClipboardPaste,
+  Edit3,
+  Eye,
+  FileText,
+  KeyRound,
+  Loader2,
+  PlayCircle,
+  Plus,
+  Search,
+  Save,
+  ShieldCheck,
+  Terminal,
+  Trash2,
+  X,
+} from "lucide-react";
 import { useTranslation } from "react-i18next";
 
+import { MarkdownText } from "@/components/MarkdownText";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
-import { fetchSkillDetail } from "@/lib/api";
-import type { SkillDetail, SkillSummary } from "@/lib/types";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  ApiError,
+  approveManagedSkillDraft,
+  composeManagedSkillDraft,
+  createImportedManagedSkillDraft,
+  discardManagedSkillDraft,
+  fetchManagedSkillDetail,
+  fetchManagedSkillDraft,
+  fetchManagedSkills,
+  fetchSkillDetail,
+  importManagedSkillText,
+  importManagedSkillPackage,
+  importManagedSkillZip,
+  runManagedSkillRoutingTest,
+  runSkillAudit,
+  runManagedSkillStatusAction,
+  updateManagedSkillMarkdown,
+} from "@/lib/api";
+import type {
+  InstalledExternalTool,
+  ManagedSkill,
+  ManagedSkillDetail,
+  ManagedSkillDraft,
+  ManagedSkillDraftGovernanceFlag,
+  ManagedSkillImportResult,
+  ManagedSkillPackageFile,
+  ManagedSkillRoutingTestPayload,
+  ManagedSkillStatus,
+  ManagedSkillUpdateAssessment,
+  SkillAuditReport,
+  SkillDetail,
+  SkillSummary,
+} from "@/lib/types";
 import { cn } from "@/lib/utils";
 import { useClient } from "@/providers/ClientProvider";
 
+const DRAFT_POLL_INTERVAL_MS = 1_000;
+const DRAFT_POLL_ATTEMPTS = 90;
+
 export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
+  const { token } = useClient();
+  const [managedPayload, setManagedPayload] = useState<{
+    skills: ManagedSkill[];
+    drafts: ManagedSkillDraft[];
+    statusCounts: Partial<Record<ManagedSkillStatus, number>>;
+  } | null>(null);
+  const [manageUnavailable, setManageUnavailable] = useState(false);
+  const [manageLoading, setManageLoading] = useState(true);
+
+  const reloadManagedSkills = () => {
+    setManageLoading(true);
+    fetchManagedSkills(token)
+      .then((payload) => {
+        setManagedPayload({
+          skills: payload.skills,
+          drafts: payload.drafts ?? [],
+          statusCounts: payload.status_counts,
+        });
+        setManageUnavailable(false);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+          setManageUnavailable(true);
+          return;
+        }
+        setManageUnavailable(true);
+      })
+      .finally(() => setManageLoading(false));
+  };
+
+  useEffect(() => {
+    reloadManagedSkills();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  if (!manageUnavailable && managedPayload) {
+    return (
+      <ManagedSkillsSettings
+        skills={managedPayload.skills}
+        drafts={managedPayload.drafts}
+        statusCounts={managedPayload.statusCounts}
+        onReload={reloadManagedSkills}
+      />
+    );
+  }
+
+  if (manageLoading && !manageUnavailable) {
+    return (
+      <div className="flex min-h-[20rem] items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+        Loading skill registry...
+      </div>
+    );
+  }
+
+  return <ReadOnlySkillsCatalog skills={skills} />;
+}
+
+function ReadOnlySkillsCatalog({ skills }: { skills: SkillSummary[] }) {
   const { t } = useTranslation();
   const availableCount = skills.filter((skill) => skill.available).length;
   const [selectedSkill, setSelectedSkill] = useState<SkillSummary | null>(null);
@@ -57,6 +182,8 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
         )}
       </section>
 
+      <ReadOnlyOperationalSkillsPanel skills={skills} />
+
       <SkillDetailSheet
         skill={selectedSkill}
         open={selectedSkill !== null}
@@ -66,6 +193,2028 @@ export function SkillsCatalogSettings({ skills }: { skills: SkillSummary[] }) {
       />
     </div>
   );
+}
+
+const MANAGED_STATUS_ORDER: ManagedSkillStatus[] = [
+  "candidate",
+  "verified",
+  "deprecated",
+  "rejected",
+  "system",
+];
+
+function ManagedSkillsSettings({
+  skills,
+  drafts,
+  statusCounts,
+  onReload,
+}: {
+  skills: ManagedSkill[];
+  drafts: ManagedSkillDraft[];
+  statusCounts: Partial<Record<ManagedSkillStatus, number>>;
+  onReload: () => void;
+}) {
+  const { token } = useClient();
+  const [query, setQuery] = useState("");
+  const [selectedName, setSelectedName] = useState<string | null>(
+    () => skills.find((skill) => skill.status !== "draft")?.name ?? skills[0]?.name ?? null,
+  );
+  const [statusFilter, setStatusFilter] = useState<ManagedSkillStatus | "all">("all");
+  const [detail, setDetail] = useState<ManagedSkillDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [actionBusy, setActionBusy] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
+  const [initialCreateDraft, setInitialCreateDraft] = useState<ManagedSkillDraft | null>(null);
+  const [audit, setAudit] = useState<SkillAuditReport | null>(null);
+  const [auditBusy, setAuditBusy] = useState(false);
+
+  const registryDrafts = useMemo(
+    () => skills.filter((skill) => skill.status === "draft"),
+    [skills],
+  );
+  const operationalSkills = useMemo(
+    () => skills.filter((skill) => skill.status !== "draft"),
+    [skills],
+  );
+  const filteredSkills = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    return operationalSkills.filter((skill) => {
+      if (statusFilter !== "all" && skill.status !== statusFilter) return false;
+      if (!normalized) return true;
+      return [skill.name, skill.description, skill.category]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized);
+    });
+  }, [operationalSkills, query, statusFilter]);
+  const selectedSkill = skills.find((skill) => skill.name === selectedName) ?? filteredSkills[0] ?? registryDrafts[0] ?? null;
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setSelectedName(null);
+      return;
+    }
+    if (!skills.some((skill) => skill.name === selectedName)) {
+      setSelectedName(selectedSkill.name);
+    }
+  }, [selectedName, selectedSkill, skills]);
+
+  useEffect(() => {
+    if (!selectedSkill) {
+      setDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetail(null);
+    fetchManagedSkillDetail(token, selectedSkill.name)
+      .then((payload) => {
+        if (!cancelled) setDetail(payload);
+      })
+      .catch(() => {
+        if (!cancelled) setDetail(null);
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSkill, token]);
+
+  const runAction = async (
+    skill: ManagedSkill,
+    action: "approve" | "promote" | "deprecate" | "reject",
+  ) => {
+    setActionBusy(`${skill.name}:${action}`);
+    setMessage(null);
+    try {
+      const payload = await runManagedSkillStatusAction(token, skill.name, action);
+      setSelectedName(payload.skill.name);
+      setMessage(statusActionMessage(action, payload.skill.status));
+      onReload();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill status update failed.");
+    } finally {
+      setActionBusy(null);
+    }
+  };
+
+  const moveSelection = (delta: number) => {
+    const currentIndex = filteredSkills.findIndex((skill) => skill.name === selectedName);
+    const next = filteredSkills[Math.max(0, Math.min(filteredSkills.length - 1, currentIndex + delta))];
+    if (next) setSelectedName(next.name);
+  };
+
+  const runAudit = async () => {
+    setAuditBusy(true);
+    setMessage(null);
+    try {
+      const payload = await runSkillAudit(token);
+      setAudit(payload.audit);
+      setMessage(
+        payload.audit.summary.attention
+          ? `Audit found ${payload.audit.summary.attention} item(s) needing attention.`
+          : "Audit completed with no attention findings.",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Skill audit failed.");
+    } finally {
+      setAuditBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex min-h-[min(72vh,48rem)] flex-col gap-4">
+      <section className="flex flex-col gap-3 border-b border-border/45 pb-4 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <p className="max-w-[760px] text-[13px] leading-5 text-muted-foreground">
+            Registry-backed skill management. Drafts are separated from operational skills so registration decisions stay visually distinct.
+          </p>
+          {message ? (
+            <p className="mt-2 text-[12px] font-medium text-muted-foreground">{message}</p>
+          ) : null}
+        </div>
+        <div className="flex flex-col gap-2 sm:items-end">
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              onClick={runAudit}
+              disabled={auditBusy}
+              className="h-9 rounded-[10px]"
+            >
+              {auditBusy ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : (
+                <CircleAlert className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              )}
+              Run audit
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => {
+                setInitialCreateDraft(null);
+                setCreateOpen(true);
+              }}
+              className="h-9 rounded-[10px]"
+            >
+              <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+              New skill
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-right sm:flex">
+            <MetricPill label="draft" value={statusCounts.draft ?? 0} />
+            <MetricPill label="candidate" value={statusCounts.candidate ?? 0} />
+            <MetricPill label="verified" value={statusCounts.verified ?? 0} />
+          </div>
+        </div>
+      </section>
+
+      {audit ? <SkillAuditAttentionPanel audit={audit} /> : null}
+
+      <OperationalSkillsPanel skills={operationalSkills} />
+
+      {drafts.length || registryDrafts.length ? (
+        <section className="rounded-[18px] border border-amber-500/20 bg-amber-500/[0.055] p-3">
+          <div className="mb-2 flex items-center justify-between">
+            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+              Inbox
+            </h2>
+            <span className="text-[12px] text-muted-foreground">{drafts.length + registryDrafts.length}</span>
+          </div>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {drafts.map((draft) => (
+              <button
+                key={draft.draft_id}
+                type="button"
+                onClick={() => {
+                  setInitialCreateDraft(draft);
+                  setCreateOpen(true);
+                }}
+                className="min-w-[15rem] rounded-[12px] border border-amber-500/20 bg-background/55 px-3 py-2 text-left transition-colors hover:bg-background/80"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-semibold">{draft.name}</span>
+                  <DraftStatusBadge status={draft.status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                  {draftInboxSummary(draft)}
+                </p>
+              </button>
+            ))}
+            {registryDrafts.map((skill) => (
+              <button
+                key={skill.name}
+                type="button"
+                onClick={() => setSelectedName(skill.name)}
+                className={cn(
+                  "min-w-[15rem] rounded-[12px] border px-3 py-2 text-left transition-colors",
+                  selectedName === skill.name
+                    ? "border-amber-500/60 bg-background"
+                    : "border-amber-500/20 bg-background/55 hover:bg-background/80",
+                )}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="truncate text-[13px] font-semibold">{skill.name}</span>
+                  <StatusBadge status={skill.status} />
+                </div>
+                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                  {skill.description || "Waiting for registration review."}
+                </p>
+              </button>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="grid min-h-0 flex-1 gap-4 overflow-x-auto pb-1 lg:grid-cols-[minmax(20rem,24rem)_minmax(54rem,1fr)]">
+        <section className="min-h-0 rounded-[18px] border border-border/50 bg-background/45">
+          <div className="border-b border-border/45 p-3">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+              <Input
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search skills"
+                className="h-9 rounded-[10px] pl-9 text-[13px]"
+              />
+            </div>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              <StatusFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>
+                All
+              </StatusFilterButton>
+              {MANAGED_STATUS_ORDER.map((status) => (
+                <StatusFilterButton
+                  key={status}
+                  active={statusFilter === status}
+                  onClick={() => setStatusFilter(status)}
+                >
+                  {status}
+                </StatusFilterButton>
+              ))}
+            </div>
+          </div>
+          <div
+            className="max-h-[min(60vh,38rem)] overflow-y-auto p-2"
+            tabIndex={0}
+            onKeyDown={(event) => {
+              if (event.key === "ArrowDown") {
+                event.preventDefault();
+                moveSelection(1);
+              } else if (event.key === "ArrowUp") {
+                event.preventDefault();
+                moveSelection(-1);
+              }
+            }}
+          >
+            {filteredSkills.length ? (
+              filteredSkills.map((skill) => (
+                <ManagedSkillRow
+                  key={skill.name}
+                  skill={skill}
+                  selected={selectedName === skill.name}
+                  onSelect={() => setSelectedName(skill.name)}
+                />
+              ))
+            ) : (
+              <div className="px-3 py-10 text-center text-sm text-muted-foreground">
+                No skills match this view.
+              </div>
+            )}
+          </div>
+        </section>
+
+        <ManagedSkillDetailPanel
+          detail={detail}
+          fallbackSkill={selectedSkill}
+          loading={detailLoading}
+          actionBusy={actionBusy}
+          onAction={runAction}
+          onUpdated={(name) => {
+            setSelectedName(name);
+            setMessage("Skill instructions saved.");
+            onReload();
+          }}
+        />
+      </div>
+      <SkillCreateWizard
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        initialDraft={initialCreateDraft}
+        onRegistered={(name) => {
+          setSelectedName(name);
+          setMessage(`Registered ${name}.`);
+          onReload();
+        }}
+        onDiscarded={(name) => {
+          setMessage(`Discarded draft ${name}.`);
+          onReload();
+        }}
+      />
+    </div>
+  );
+}
+
+function ManagedSkillRow({
+  skill,
+  selected,
+  onSelect,
+}: {
+  skill: ManagedSkill;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const successTone = successRateTone(skill.success_rate);
+  const usageWidth = Math.min(100, Math.max(8, skill.usage_count * 8));
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className={cn(
+        "mb-1 flex w-full min-w-0 items-center gap-3 rounded-[12px] px-2.5 py-2.5 text-left transition-colors",
+        selected ? "bg-muted shadow-sm" : "hover:bg-muted/55",
+      )}
+    >
+      <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", successTone)} title={successRateTitle(skill.success_rate)} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-[13px] font-semibold leading-5 text-foreground">{skill.name}</span>
+          <StatusBadge status={skill.status} />
+        </div>
+        <p className="line-clamp-1 text-[12px] leading-4 text-muted-foreground">
+          {skill.category || skill.description || "Uncategorized"}
+        </p>
+        <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
+          <div className="h-full rounded-full bg-foreground/35" style={{ width: `${usageWidth}%` }} />
+        </div>
+      </div>
+      {skill.requires_exec ? (
+        <Terminal className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-label="Requires execution" />
+      ) : null}
+    </button>
+  );
+}
+
+function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
+  const attention = audit.attention.slice(0, 6);
+  return (
+    <section className="rounded-[18px] border border-amber-500/25 bg-amber-500/[0.055] p-3">
+      <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <div className="flex items-center gap-2">
+            <CircleAlert className="h-4 w-4 text-amber-600 dark:text-amber-300" aria-hidden />
+            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+              Needs attention
+            </h2>
+          </div>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Advisory audit only. No skill status was changed.
+          </p>
+        </div>
+        <div className="text-left text-[12px] text-muted-foreground sm:text-right">
+          <div>{audit.summary.attention} attention · {audit.summary.reference} reference</div>
+          <div className="max-w-[22rem] truncate" title={audit.report_path}>
+            {audit.report_path}
+          </div>
+        </div>
+      </div>
+      {attention.length ? (
+        <div className="space-y-2">
+          {attention.map((item, index) => (
+            <div
+              key={`${item.code}:${index}`}
+              className="rounded-[12px] border border-amber-500/20 bg-background/60 px-3 py-2"
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill>{item.code}</Pill>
+                <span className="min-w-0 truncate text-[13px] font-semibold">
+                  {item.skill_names.join(", ")}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px] leading-4 text-muted-foreground">{item.message}</p>
+              {item.cluster_keys?.length ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                  Keys: {item.cluster_keys.join(", ")}
+                </p>
+              ) : null}
+            </div>
+          ))}
+          {audit.attention.length > attention.length ? (
+            <div className="px-1 text-[12px] text-muted-foreground">
+              {audit.attention.length - attention.length} more attention finding(s) are in the report file.
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="rounded-[12px] border border-border/40 bg-background/55 px-3 py-3 text-[13px] text-muted-foreground">
+          No attention findings. Reference findings remain in the report file.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
+  const operational = skills.filter((skill) => isOperationalSkillStatus(skill.status));
+  const [statusFilter, setStatusFilter] = useState<"all" | "system" | "verified" | "candidate">("all");
+  const filtered = operational.filter((skill) => statusFilter === "all" || skill.status === statusFilter);
+  const countFor = (status: "system" | "verified" | "candidate") =>
+    operational.filter((skill) => skill.status === status).length;
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            Installed skills
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Operational skills currently available to the agent.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {operational.length}
+        </span>
+      </div>
+      <div className="mb-3 flex flex-wrap gap-1.5">
+        <StatusFilterButton active={statusFilter === "all"} onClick={() => setStatusFilter("all")}>
+          All {operational.length}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "system"} onClick={() => setStatusFilter("system")}>
+          System {countFor("system")}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "verified"} onClick={() => setStatusFilter("verified")}>
+          Verified {countFor("verified")}
+        </StatusFilterButton>
+        <StatusFilterButton active={statusFilter === "candidate"} onClick={() => setStatusFilter("candidate")}>
+          Candidate {countFor("candidate")}
+        </StatusFilterButton>
+      </div>
+      {operational.length ? (
+        <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {filtered.map((skill) => (
+              <div key={skill.name} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
+                  <StatusBadge status={skill.status} />
+                </div>
+                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                  {skill.category || skill.description || "Uncategorized"}
+                </p>
+              </div>
+            ))}
+          </div>
+          {!filtered.length ? (
+            <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+              No skills match this status.
+            </div>
+          ) : null}
+        </div>
+      ) : (
+        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+          No operational skills are installed yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) {
+  const available = skills.filter((skill) => skill.available);
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            Installed skills
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            Skills currently available to the agent in this workspace.
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {available.length}
+        </span>
+      </div>
+      {available.length ? (
+        <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
+          <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+            {available.map((skill) => (
+              <div key={`${skill.source}:${skill.name}`} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+                <div className="flex min-w-0 items-center gap-2">
+                  <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
+                  <Pill>{skill.source}</Pill>
+                </div>
+                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                  {skill.description || "No description."}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+          No operational skills are installed yet.
+        </div>
+      )}
+    </section>
+  );
+}
+
+export function InstalledToolsPanel({
+  tools,
+  title = "App Tools",
+  description = "Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.",
+}: {
+  tools: InstalledExternalTool[];
+  title?: string;
+  description?: string;
+}) {
+  return (
+    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+      <div className="mb-3 flex items-center justify-between">
+        <div>
+          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+            {title}
+          </h2>
+          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+            {description}
+          </p>
+        </div>
+        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          {tools.length}
+        </span>
+      </div>
+      <div className="overflow-x-auto rounded-[12px] border border-border/45">
+        {tools.length ? (
+          <div className="min-w-[76rem]">
+            <div className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/45 bg-muted/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
+              <span>Name</span>
+              <span>Description</span>
+              <span>Installed</span>
+              <span>Version</span>
+              <span>Status</span>
+              <span>Last check</span>
+              <span>Linked skills</span>
+              <span>Removal note</span>
+            </div>
+            {tools.map((tool) => (
+              <div
+                key={`${tool.name}:${tool.path || tool.source}`}
+                className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/30 px-3 py-2.5 text-[12px] last:border-b-0"
+              >
+                <span className="min-w-0 truncate font-medium text-foreground" title={tool.path || tool.source}>
+                  {tool.name}
+                </span>
+                <span className="min-w-0 truncate text-muted-foreground">
+                  {tool.description || tool.source || tool.path || "-"}
+                </span>
+                <span className="truncate text-muted-foreground">{tool.installed_at || "-"}</span>
+                <span className="truncate text-muted-foreground">{tool.version || "-"}</span>
+                <span className={cn("truncate font-medium", installedToolStatusTone(tool.status))}>
+                  {installedToolStatusLabel(tool.status)}
+                </span>
+                <span className="truncate text-muted-foreground">{tool.last_checked_at || "Not checked"}</span>
+                <span className="min-w-0 truncate text-muted-foreground" title={tool.linked_skills || ""}>{tool.linked_skills || "-"}</span>
+                <span className="min-w-0 truncate text-muted-foreground" title={tool.removal_note || ""}>{tool.removal_note || "-"}</span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-3 py-8 text-center text-sm text-muted-foreground">
+            No App Tools are recorded yet.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function SkillCreateWizard({
+  open,
+  onOpenChange,
+  initialDraft,
+  onRegistered,
+  onDiscarded,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  initialDraft: ManagedSkillDraft | null;
+  onRegistered: (name: string) => void;
+  onDiscarded: (name: string) => void;
+}) {
+  const { token } = useClient();
+  const [name, setName] = useState("");
+  const [description, setDescription] = useState("");
+  const [trigger, setTrigger] = useState("");
+  const [method, setMethod] = useState("");
+  const [fullPrompt, setFullPrompt] = useState("");
+  const [attachedFiles, setAttachedFiles] = useState<ManagedSkillPackageFile[]>([]);
+  const [category, setCategory] = useState("general");
+  const [riskLevel, setRiskLevel] = useState("low");
+  const [requiresExec, setRequiresExec] = useState(false);
+  const [importResult, setImportResult] = useState<ManagedSkillImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [skipImport, setSkipImport] = useState(false);
+  const [draft, setDraft] = useState<ManagedSkillDraft | null>(null);
+  const [overrideReason, setOverrideReason] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || !initialDraft) return;
+    setName(initialDraft.name);
+    setDescription("");
+    setTrigger("");
+    setMethod("");
+    setFullPrompt("");
+    setAttachedFiles([]);
+    setCategory("general");
+    setRiskLevel("low");
+    setRequiresExec(false);
+    setImportResult(null);
+    setImporting(false);
+    setSkipImport(false);
+    setDraft(initialDraft);
+    setOverrideReason("");
+    setConfirmDiscard(false);
+    setError(null);
+  }, [initialDraft, open]);
+
+  const reset = () => {
+    setName("");
+    setDescription("");
+    setTrigger("");
+    setMethod("");
+    setFullPrompt("");
+    setAttachedFiles([]);
+    setCategory("general");
+    setRiskLevel("low");
+    setRequiresExec(false);
+    setImportResult(null);
+    setImporting(false);
+    setSkipImport(false);
+    setDraft(null);
+    setOverrideReason("");
+    setConfirmDiscard(false);
+    setBusy(false);
+    setError(null);
+  };
+
+  const backToPaste = () => {
+    setImportResult(null);
+    setSkipImport(false);
+    setError(null);
+  };
+
+  const close = () => {
+    if (busy) return;
+    onOpenChange(false);
+    reset();
+  };
+
+  const finishAndClose = () => {
+    onOpenChange(false);
+    reset();
+  };
+
+  const pollDraft = async (startingDraft: ManagedSkillDraft): Promise<ManagedSkillDraft> => {
+    let nextDraft = startingDraft;
+    for (let attempt = 0; attempt < DRAFT_POLL_ATTEMPTS && nextDraft.status === "composing"; attempt += 1) {
+      if (attempt > 0) {
+        await sleep(DRAFT_POLL_INTERVAL_MS);
+      }
+      nextDraft = (await fetchManagedSkillDraft(token, nextDraft.draft_id)).draft;
+      setDraft(nextDraft);
+    }
+    return nextDraft;
+  };
+
+  useEffect(() => {
+    if (!open || busy || draft?.status !== "composing") return;
+    let cancelled = false;
+    setBusy(true);
+    pollDraft(draft)
+      .then((nextDraft) => {
+        if (cancelled) return;
+        if (nextDraft.status === "composing") {
+          setError("Composer is still running. Close this dialog and return to the draft later.");
+        } else if (nextDraft.status === "failed") {
+          setError("Composer failed. Adjust the request and compose again.");
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : "Could not refresh skill draft.");
+      })
+      .finally(() => {
+        if (!cancelled) setBusy(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy, draft?.draft_id, draft?.status, open, token]);
+
+  const composeDraft = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const values = {
+        name,
+        description,
+        trigger,
+        method,
+        category,
+        risk_level: riskLevel,
+        requires_exec: requiresExec,
+      };
+      const hasAttachments = attachedFiles.length > 0;
+      const payload = importResult || hasAttachments
+        ? await createImportedManagedSkillDraft(token, {
+            ...values,
+            required_tools: importResult?.fields.required_tools,
+            install_sources: importResult?.fields.install_sources,
+            attachments: importResult?.package?.attachments ?? attachedFiles,
+            package_files: importResult?.package?.files ?? attachedFiles.map((file) => ({
+              path: file.path,
+              size: new Blob([file.content]).size,
+              role: inferPackageFileRole(file.path),
+            })),
+            routing_cases: importResult?.package?.routing_cases,
+            validation: importResult?.validation ?? { errors: [], warnings: [] },
+            estimated_fields: importResult?.estimated_fields ?? [],
+          })
+        : await composeManagedSkillDraft(token, values);
+      let nextDraft = payload.draft;
+      setDraft(nextDraft);
+      setOverrideReason("");
+      if (nextDraft.status === "composing") {
+        nextDraft = await pollDraft(nextDraft);
+        if (nextDraft.status === "composing") {
+          setError("Composer is still running. Close this dialog and return to the draft later.");
+        } else if (nextDraft.status === "failed") {
+          setError("Composer failed. Adjust the request and compose again.");
+        }
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not compose skill draft.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const approveDraft = async () => {
+    if (!draft) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const payload = await approveManagedSkillDraft(token, draft.draft_id, { reason: overrideReason });
+      onRegistered(payload.skill?.name ?? draft.name);
+      finishAndClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not register skill draft.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const discardDraft = async () => {
+    if (!draft) return;
+    if (!confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await discardManagedSkillDraft(token, draft.draft_id);
+      onDiscarded(draft.name);
+      finishAndClose();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not discard skill draft.");
+      setConfirmDiscard(false);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyFullPrompt = async () => {
+    setImporting(true);
+    setError(null);
+    try {
+      const payload = await importManagedSkillText(token, fullPrompt);
+      const parsed = payload.import;
+      setImportResult(parsed);
+      const fields = parsed.fields;
+      if (fields.name) setName(fields.name);
+      if (fields.description) setDescription(fields.description);
+      if (fields.trigger) setTrigger(fields.trigger);
+      if (fields.method) setMethod(fields.method);
+      if (fields.category) setCategory(fields.category);
+      if (fields.risk_level) setRiskLevel(fields.risk_level);
+      if (typeof fields.requires_exec === "boolean") setRequiresExec(fields.requires_exec);
+    } catch (err) {
+      const parsed = parseSkillFullPrompt(fullPrompt);
+      if (parsed.name) setName(parsed.name);
+      if (parsed.description) setDescription(parsed.description);
+      if (parsed.trigger) setTrigger(parsed.trigger);
+      if (parsed.method) setMethod(parsed.method);
+      if (parsed.category) setCategory(parsed.category);
+      if (parsed.risk_level) setRiskLevel(parsed.risk_level);
+      if (parsed.requires_exec !== null) setRequiresExec(parsed.requires_exec);
+      setError(err instanceof Error ? err.message : "Could not import skill text.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const applyPackageFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setImporting(true);
+    setError(null);
+    try {
+      const selected = Array.from(files);
+      const zipOnly = selected.length === 1 && selected[0].name.toLowerCase().endsWith(".zip");
+      let payload;
+      if (zipOnly) {
+        payload = await importManagedSkillZip(token, await readFileAsBase64(selected[0]));
+        setAttachedFiles(payload.import.package?.attachments ?? []);
+      } else {
+        const packageFiles = await readSkillPackageFiles(files);
+        setAttachedFiles(packageFiles.filter((file) => !isManagedPackageFile(file.path)));
+        payload = await importManagedSkillPackage(token, packageFiles);
+      }
+      const parsed = payload.import;
+      setImportResult(parsed);
+      const fields = parsed.fields;
+      if (fields.name) setName(fields.name);
+      if (fields.description) setDescription(fields.description);
+      if (fields.trigger) setTrigger(fields.trigger);
+      if (fields.method) setMethod(fields.method);
+      if (fields.category) setCategory(fields.category);
+      if (fields.risk_level) setRiskLevel(fields.risk_level);
+      if (typeof fields.requires_exec === "boolean") setRequiresExec(fields.requires_exec);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not import skill package.");
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const attachSupplementalFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0) return;
+    setError(null);
+    try {
+      const nextFiles = await readSkillPackageFiles(files);
+      setAttachedFiles((current) => dedupePackageFiles([...current, ...nextFiles.filter((file) => !isManagedPackageFile(file.path))]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not attach skill files.");
+    }
+  };
+
+  const canCompose = name.trim().length > 0 && description.trim().length > 0;
+  const canApplyFullPrompt = fullPrompt.trim().length > 0 && !busy && !importing && draft === null;
+  const importErrors = importResult?.validation.errors ?? [];
+  const importWarnings = importResult?.validation.warnings ?? [];
+  const estimatedFields = new Set(importResult?.estimated_fields ?? []);
+  // Stage gate: land on the paste screen first; only reveal the editable
+  // review form once something has been imported, or the user explicitly
+  // chose to skip straight to manual entry.
+  const showReview = draft === null && (importResult !== null || skipImport);
+  const showPasteLanding = draft === null && !showReview;
+  const draftReady = draft?.status === "ready";
+  const draftRunning = draft?.status === "composing";
+  const draftFailed = draft?.status === "failed";
+  const governance = draft?.governance;
+  const blockingFlags = governance?.blocking ?? [];
+  const confirmationFlags = governance?.confirmations ?? [];
+  const needsOverrideReason = Boolean(governance?.requires_confirmation);
+  const canRegisterDraft = Boolean(
+    draft
+      && draftReady
+      && !governance?.blocked
+      && (!needsOverrideReason || overrideReason.trim().length > 0),
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={(next) => (!next ? close() : onOpenChange(true))}>
+      <DialogContent className="max-h-[min(90vh,58rem)] max-w-[92rem] overflow-hidden rounded-[22px] border-border/70 bg-popover p-0 shadow-2xl">
+        <div className="border-b border-border/45 px-5 py-4">
+          <DialogHeader>
+            <DialogTitle>New skill</DialogTitle>
+            <DialogDescription>
+              {showPasteLanding
+                ? "Paste a skill from ClawHub, another agent, or rough notes — nanobot converts it to a draft automatically."
+                : draft
+                  ? "Review the generated instructions, then register it as candidate."
+                  : "Review the converted draft, fix anything estimated, then create it."}
+            </DialogDescription>
+          </DialogHeader>
+        </div>
+        <div className="max-h-[calc(min(88vh,54rem)-8rem)] overflow-y-auto px-5 py-4">
+          {showPasteLanding ? (
+            <div className="mx-auto flex max-w-2xl flex-col items-center gap-4 py-6 text-center">
+              <div className="flex h-11 w-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <ClipboardPaste className="h-5 w-5" aria-hidden />
+              </div>
+              <Textarea
+                value={fullPrompt}
+                onChange={(event) => setFullPrompt(event.target.value)}
+                placeholder={[
+                  "Paste a ClawHub SKILL.md, another agent's skill file, or rough prompt text.",
+                  "",
+                  "---",
+                  "name: review-renewal-notes",
+                  "description: Review renewal notes and surface customer risk.",
+                  "metadata:",
+                  "  nanobot:",
+                  "    category: business.review",
+                  "    risk_level: low",
+                  "    requires_exec: false",
+                  "---",
+                  "# Method",
+                  "1. Read the input and return concise findings.",
+                ].join("\n")}
+                disabled={busy || importing}
+                spellCheck={false}
+                autoFocus
+                className="min-h-[20rem] w-full resize-y rounded-[14px] text-left font-mono text-[12px] leading-5"
+              />
+              <p className="text-[12px] leading-5 text-muted-foreground">
+                A SKILL.md with frontmatter is parsed deterministically, with no LLM involved. Anything else is
+                normalized by AI into nanobot&apos;s format — estimated fields are marked for your review.
+              </p>
+              <div className="grid w-full gap-2 rounded-[14px] border border-border/45 bg-muted/15 p-3 text-left">
+                <div className="flex items-start gap-2">
+                  <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
+                  <div>
+                    <div className="text-[13px] font-semibold">Import package</div>
+                    <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
+                      Select a skill folder or a set of files containing SKILL.md. Extra templates, examples,
+                      scripts, and references are preserved in the draft and written only after registration.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                    Folder
+                    <input
+                      type="file"
+                      multiple
+                      {...{ webkitdirectory: "" }}
+                      className="sr-only"
+                      disabled={busy || importing}
+                      onChange={(event) => void applyPackageFiles(event.target.files)}
+                    />
+                  </label>
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                    Files
+                    <input
+                      type="file"
+                      multiple
+                      className="sr-only"
+                      disabled={busy || importing}
+                      onChange={(event) => void applyPackageFiles(event.target.files)}
+                    />
+                  </label>
+                </div>
+              </div>
+              <div className="flex w-full items-center justify-between gap-3">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setSkipImport(true)}
+                  disabled={busy || importing}
+                  className="text-muted-foreground"
+                >
+                  Start from scratch instead
+                </Button>
+                <Button
+                  type="button"
+                  onClick={applyFullPrompt}
+                  disabled={!canApplyFullPrompt}
+                  className="rounded-[10px]"
+                >
+                  {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ClipboardPaste className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                  Import &amp; preview
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 xl:grid-cols-[minmax(20rem,1fr)_minmax(22rem,1.15fr)]">
+              <div className="space-y-3">
+                {importResult ? (
+                  <div className="space-y-2 rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2 text-[12px] leading-5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-semibold">
+                        {importResult.mode === "normalized" ? "Normalized by AI" : "Parsed from frontmatter"}
+                      </span>
+                      <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                        {importResult.mode}
+                      </span>
+                    </div>
+                    <p className={importResult.preserved_method ? "text-muted-foreground" : "text-amber-700 dark:text-amber-300"}>
+                      {importResult.preserved_method
+                        ? "Method content is verbatim from the pasted source."
+                        : "Method may have been rewritten during normalization — review it and the original paste carefully."}
+                    </p>
+                    {importErrors.length ? (
+                      <div className="rounded-[10px] bg-destructive/10 px-2.5 py-2 text-destructive">
+                        {importErrors.map((item) => <div key={item}>{item}</div>)}
+                      </div>
+                    ) : null}
+                    {importWarnings.length ? (
+                      <div className="rounded-[10px] bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
+                        {importWarnings.map((item) => <div key={item}>{item}</div>)}
+                      </div>
+                    ) : null}
+                    {importResult.package?.files?.length ? (
+                      <div className="rounded-[10px] bg-background/60 px-2.5 py-2">
+                        <div className="mb-1 font-medium">Package files</div>
+                        <div className="max-h-24 overflow-y-auto">
+                          {importResult.package.files.map((file) => (
+                            <div key={file.path} className="flex items-center justify-between gap-2 py-0.5 text-muted-foreground">
+                              <span className="min-w-0 truncate">{file.path}</span>
+                              <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px]">
+                                {file.role}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+                <LabeledField label="Name">
+                  <Input
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    placeholder="review-renewal-notes"
+                    disabled={busy || draft !== null}
+                    className="h-9 rounded-[10px]"
+                  />
+                  {estimatedFields.has("name") ? <EstimatedBadge /> : null}
+                </LabeledField>
+                <LabeledField label="Description">
+                  <Textarea
+                    value={description}
+                    onChange={(event) => setDescription(event.target.value)}
+                    placeholder="Review renewal notes and surface customer risk."
+                    disabled={busy || draft !== null}
+                    className="min-h-[5rem] resize-y rounded-[10px]"
+                  />
+                  {estimatedFields.has("description") ? <EstimatedBadge /> : null}
+                </LabeledField>
+                <LabeledField label="Trigger utterances">
+                  <Textarea
+                    value={trigger}
+                    onChange={(event) => setTrigger(event.target.value)}
+                    placeholder={"review this renewal\ncustomer renewal risk"}
+                    disabled={busy || draft !== null}
+                    className="min-h-[5rem] resize-y rounded-[10px]"
+                  />
+                </LabeledField>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <LabeledField label="Category">
+                    <Input
+                      value={category}
+                      onChange={(event) => setCategory(event.target.value)}
+                      disabled={busy || draft !== null}
+                      className="h-9 rounded-[10px]"
+                    />
+                    {estimatedFields.has("category") ? <EstimatedBadge /> : null}
+                  </LabeledField>
+                  <LabeledField label="Risk">
+                    <select
+                      value={riskLevel}
+                      onChange={(event) => setRiskLevel(event.target.value)}
+                      disabled={busy || draft !== null}
+                      className="h-9 w-full rounded-[10px] border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="low">low</option>
+                      <option value="medium">medium</option>
+                      <option value="high">high</option>
+                    </select>
+                    {estimatedFields.has("risk_level") ? <EstimatedBadge /> : null}
+                  </LabeledField>
+                </div>
+                <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
+                  <input
+                    type="checkbox"
+                    checked={requiresExec}
+                    onChange={(event) => setRequiresExec(event.target.checked)}
+                    disabled={busy || draft !== null}
+                    className="h-4 w-4"
+                  />
+                  Requires execution tools
+                  {estimatedFields.has("requires_exec") ? <EstimatedBadge /> : null}
+                </label>
+                <LabeledField label="Method draft">
+                  <Textarea
+                    value={method}
+                    onChange={(event) => setMethod(event.target.value)}
+                    placeholder={"# Method\n1. Read the input.\n2. Identify risks.\n3. Return concise findings."}
+                    disabled={busy || draft !== null}
+                    className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
+                  />
+                </LabeledField>
+                <LabeledField label="Supplemental files">
+                  <div className="rounded-[12px] border border-border/45 bg-muted/15 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                        Add files
+                        <input
+                          type="file"
+                          multiple
+                          className="sr-only"
+                          disabled={busy || draft !== null}
+                          onChange={(event) => void attachSupplementalFiles(event.target.files)}
+                        />
+                      </label>
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                        Add folder
+                        <input
+                          type="file"
+                          multiple
+                          {...{ webkitdirectory: "" }}
+                          className="sr-only"
+                          disabled={busy || draft !== null}
+                          onChange={(event) => void attachSupplementalFiles(event.target.files)}
+                        />
+                      </label>
+                      <span className="text-[12px] text-muted-foreground">
+                        {attachedFiles.length} file(s)
+                      </span>
+                    </div>
+                    {attachedFiles.length ? (
+                      <div className="mt-2 max-h-28 overflow-y-auto rounded-[10px] bg-background/60 p-2">
+                        {attachedFiles.map((file) => (
+                          <div key={file.path} className="flex items-center justify-between gap-2 py-1 text-[12px]">
+                            <span className="min-w-0 truncate">{file.path}</span>
+                            <button
+                              type="button"
+                              className="shrink-0 text-muted-foreground hover:text-destructive"
+                              disabled={busy || draft !== null}
+                              onClick={() => setAttachedFiles((current) => current.filter((item) => item.path !== file.path))}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+                        Optional templates, examples, scripts, or references. SKILL.md remains the entry point.
+                      </p>
+                    )}
+                  </div>
+                </LabeledField>
+              </div>
+              <div className="space-y-3">
+                {draft ? (
+                  <>
+                    <div
+                      className={cn(
+                        "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                        draftFailed
+                          ? "border-destructive/30 bg-destructive/10"
+                          : draftRunning
+                            ? "border-sky-500/25 bg-sky-500/10"
+                            : "border-emerald-500/25 bg-emerald-500/10",
+                      )}
+                    >
+                      <div
+                        className={cn(
+                          "flex items-center gap-2 font-semibold",
+                          draftFailed
+                            ? "text-destructive"
+                            : draftRunning
+                              ? "text-sky-700 dark:text-sky-300"
+                              : "text-emerald-700 dark:text-emerald-300",
+                        )}
+                      >
+                        {draftRunning ? (
+                          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+                        ) : draftFailed ? (
+                          <CircleAlert className="h-4 w-4" aria-hidden />
+                        ) : (
+                          <Check className="h-4 w-4" aria-hidden />
+                        )}
+                        {draftRunning ? "Composer running" : draftFailed ? "Composer failed" : "Draft ready"}
+                      </div>
+                      <p className="mt-1 text-muted-foreground">
+                        {draftRunning
+                          ? "Generating the method, review, and routing cases. You can return after the draft is ready."
+                          : draftFailed
+                            ? typeof draft.review.summary === "string"
+                              ? draft.review.summary
+                              : "The draft could not be composed."
+                            : "Review the generated method, routing cases, and governance checks before registration."}
+                      </p>
+                    </div>
+                    {draftReady && (blockingFlags.length || confirmationFlags.length) ? (
+                      <div
+                        className={cn(
+                          "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                          blockingFlags.length
+                            ? "border-destructive/30 bg-destructive/10"
+                            : "border-amber-500/30 bg-amber-500/10",
+                        )}
+                      >
+                        <div
+                          className={cn(
+                            "flex items-center gap-2 font-semibold",
+                            blockingFlags.length
+                              ? "text-destructive"
+                              : "text-amber-700 dark:text-amber-300",
+                          )}
+                        >
+                          <CircleAlert className="h-4 w-4" aria-hidden />
+                          {blockingFlags.length ? "Registration blocked" : "Confirmation required"}
+                        </div>
+                        <div className="mt-2 space-y-1.5">
+                          {[...blockingFlags, ...confirmationFlags].map((flag, index) => (
+                            <p key={`${flag.kind}:${index}`} className="text-muted-foreground">
+                              {draftGovernanceFlagLabel(flag)}
+                            </p>
+                          ))}
+                        </div>
+                        {needsOverrideReason && !blockingFlags.length ? (
+                          <Textarea
+                            value={overrideReason}
+                            onChange={(event) => setOverrideReason(event.target.value)}
+                            placeholder="Example: Internal-only skill; neighboring trigger overlap is intentional."
+                            disabled={busy}
+                            className="mt-3 min-h-[4.5rem] resize-y rounded-[10px] bg-background"
+                          />
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {draftReady ? (
+                      <>
+                        <DetailSection title="Review">
+                          <pre className="max-h-28 overflow-auto rounded-[12px] bg-muted/35 p-3 text-[12px] leading-5">
+                            {JSON.stringify(draft.review, null, 2)}
+                          </pre>
+                        </DetailSection>
+                        <DetailSection title="Routing cases">
+                          <div className="space-y-1.5">
+                            {draft.routing_cases.map((row) => (
+                              <div key={`${row.query}:${row.expected}`} className="rounded-[10px] bg-muted/30 px-3 py-2 text-[12px]">
+                                <div className="truncate font-medium">{row.query}</div>
+                                <div className="text-muted-foreground">expected {row.expected}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </DetailSection>
+                        <DetailSection title="Draft">
+                          <div className="max-h-72 overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                            <MarkdownText className="max-w-none text-[13px] leading-6">
+                              {draft.markdown}
+                            </MarkdownText>
+                          </div>
+                        </DetailSection>
+                      </>
+                    ) : null}
+                  </>
+                ) : (
+                  <DetailSection title="SKILL.md preview">
+                    {importResult?.normalized_markdown ? (
+                      <div className="max-h-[34rem] overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                        <MarkdownText className="max-w-none text-[13px] leading-6">
+                          {formatSkillMarkdownForPreview(importResult.normalized_markdown)}
+                        </MarkdownText>
+                      </div>
+                    ) : (
+                      <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
+                        Starting from scratch — fill in the fields, then create the draft.
+                      </div>
+                    )}
+                  </DetailSection>
+                )}
+              </div>
+            </div>
+          )}
+          {error ? (
+            <p className="mt-4 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+              {error}
+            </p>
+          ) : null}
+        </div>
+        <DialogFooter className="border-t border-border/45 px-5 py-4 sm:justify-between sm:space-x-0">
+          <div className="flex items-center gap-2">
+            {showReview ? (
+              <Button type="button" variant="ghost" onClick={backToPaste} disabled={busy}>
+                <ArrowLeft className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                Back
+              </Button>
+            ) : null}
+            {draft ? (
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={discardDraft}
+                  disabled={busy}
+                  className={confirmDiscard ? "text-destructive hover:text-destructive" : "text-muted-foreground"}
+                >
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" aria-hidden />
+                  {confirmDiscard ? "Confirm discard" : "Discard"}
+                </Button>
+                {confirmDiscard ? (
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setConfirmDiscard(false)} disabled={busy}>
+                    Never mind
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <Button type="button" variant="outline" onClick={close} disabled={busy}>
+              Cancel
+            </Button>
+            {draft ? (
+              <Button type="button" onClick={approveDraft} disabled={busy || !canRegisterDraft || confirmDiscard}>
+                {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                Register
+              </Button>
+            ) : showReview ? (
+              <Button type="button" onClick={composeDraft} disabled={busy || !canCompose || importErrors.length > 0}>
+                {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+                Create draft
+              </Button>
+            ) : null}
+          </div>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function LabeledField({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block space-y-1.5">
+      <span className="text-[12px] font-semibold text-muted-foreground">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+function EstimatedBadge() {
+  return (
+    <span className="inline-flex w-fit rounded-full bg-amber-500/10 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:text-amber-300">
+      estimated
+    </span>
+  );
+}
+
+function ManagedSkillDetailPanel({
+  detail,
+  fallbackSkill,
+  loading,
+  actionBusy,
+  onAction,
+  onUpdated,
+}: {
+  detail: ManagedSkillDetail | null;
+  fallbackSkill: ManagedSkill | null;
+  loading: boolean;
+  actionBusy: string | null;
+  onAction: (
+    skill: ManagedSkill,
+    action: "approve" | "promote" | "deprecate" | "reject",
+  ) => void;
+  onUpdated: (name: string) => void;
+}) {
+  const { token } = useClient();
+  const skill = detail?.skill ?? fallbackSkill;
+  const [editing, setEditing] = useState(false);
+  const [editorTab, setEditorTab] = useState<"edit" | "preview">("edit");
+  const [draftMarkdown, setDraftMarkdown] = useState("");
+  const [assessment, setAssessment] = useState<ManagedSkillUpdateAssessment | null>(null);
+  const [confirmMajorOpen, setConfirmMajorOpen] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [routingBusy, setRoutingBusy] = useState(false);
+  const [routingResult, setRoutingResult] = useState<ManagedSkillRoutingTestPayload | null>(null);
+  const [editorError, setEditorError] = useState<string | null>(null);
+  const [routingError, setRoutingError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!editing) {
+      setDraftMarkdown(detail?.raw_markdown ?? "");
+      setAssessment(null);
+      setEditorError(null);
+      setConfirmMajorOpen(false);
+      setRoutingResult(null);
+      setRoutingError(null);
+    }
+  }, [detail?.raw_markdown, detail?.skill.name, editing]);
+
+  if (!skill) {
+    return (
+      <section className="rounded-[18px] border border-border/50 p-8 text-center text-sm text-muted-foreground">
+        Select a skill to inspect it.
+      </section>
+    );
+  }
+  const actions = allowedStatusActions(skill.status);
+  const canEdit = skill.status !== "system" && Boolean(detail?.raw_markdown);
+
+  const startEditing = () => {
+    setDraftMarkdown(detail?.raw_markdown ?? "");
+    setAssessment(null);
+    setEditorError(null);
+    setEditorTab("edit");
+    setEditing(true);
+  };
+
+  const closeEditor = () => {
+    if (saving) return;
+    setEditing(false);
+    setDraftMarkdown(detail?.raw_markdown ?? "");
+    setAssessment(null);
+    setEditorError(null);
+    setConfirmMajorOpen(false);
+  };
+
+  const applyUpdate = async () => {
+    setSaving(true);
+    setEditorError(null);
+    try {
+      const payload = await updateManagedSkillMarkdown(token, skill.name, draftMarkdown);
+      setAssessment(payload.assessment);
+      setEditing(false);
+      setConfirmMajorOpen(false);
+      onUpdated(payload.skill?.name ?? skill.name);
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Skill update failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const assessAndSave = async () => {
+    if (!detail || draftMarkdown === detail.raw_markdown) {
+      setAssessment({
+        kind: "noop",
+        reasons: ["No instruction changes detected."],
+        changed_fields: [],
+        current_status: skill.status,
+        next_status: skill.status,
+        requires_revalidation: false,
+      });
+      return;
+    }
+    setSaving(true);
+    setEditorError(null);
+    try {
+      const payload = await updateManagedSkillMarkdown(token, skill.name, draftMarkdown, { dryRun: true });
+      setAssessment(payload.assessment);
+      if (payload.assessment.kind === "major") {
+        setConfirmMajorOpen(true);
+        return;
+      }
+      await applyUpdate();
+    } catch (error) {
+      setEditorError(error instanceof Error ? error.message : "Skill update assessment failed.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const runRoutingTest = async () => {
+    setRoutingBusy(true);
+    setRoutingError(null);
+    try {
+      const payload = await runManagedSkillRoutingTest(token, skill.name);
+      setRoutingResult(payload);
+    } catch (error) {
+      setRoutingError(error instanceof Error ? error.message : "Routing test failed.");
+    } finally {
+      setRoutingBusy(false);
+    }
+  };
+
+  return (
+    <section className="min-h-0 overflow-hidden rounded-[18px] border border-border/50 bg-background/45">
+      <div className="flex items-start justify-between gap-4 border-b border-border/45 px-4 py-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-[18px] font-semibold tracking-[-0.01em]">{skill.name}</h2>
+            <StatusBadge status={skill.status} />
+          </div>
+          <p className="mt-1 line-clamp-2 text-[13px] leading-5 text-muted-foreground">
+            {skill.description || "No description."}
+          </p>
+        </div>
+        <div className="flex shrink-0 gap-2">
+          {canEdit ? (
+            <Button
+              size="sm"
+              variant={editing ? "outline" : "secondary"}
+              onClick={editing ? closeEditor : startEditing}
+              disabled={saving}
+              className="h-8 rounded-[9px]"
+            >
+              {editing ? <X className="mr-1.5 h-3.5 w-3.5" aria-hidden /> : <Edit3 className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+              {editing ? "Cancel" : "Edit"}
+            </Button>
+          ) : null}
+          {actions.map((action) => (
+            <Button
+              key={action}
+              size="sm"
+              variant={action === "reject" || action === "deprecate" ? "outline" : "default"}
+              onClick={() => onAction(skill, action)}
+              disabled={actionBusy === `${skill.name}:${action}`}
+              className="h-8 rounded-[9px]"
+            >
+              {actionBusy === `${skill.name}:${action}` ? (
+                <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
+              ) : statusActionIcon(action)}
+              {statusActionLabel(action)}
+            </Button>
+          ))}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex h-56 items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" aria-hidden />
+          Loading details...
+        </div>
+      ) : (
+        <div className="max-h-[min(62vh,40rem)] overflow-y-auto p-4">
+          <div className="grid gap-2 sm:grid-cols-4">
+            <MetaItem label="Risk" value={skill.risk_level} />
+            <MetaItem label="Version" value={skill.version || "n/a"} />
+            <MetaItem label="Usage" value={String(skill.usage_count)} />
+            <MetaItem label="Success" value={successRateTitle(skill.success_rate)} />
+          </div>
+
+          <div className="mt-5 grid gap-4 xl:grid-cols-[minmax(0,3fr)_18rem]">
+            <div className="space-y-5">
+              <DetailSection title="Instructions">
+                {editing ? (
+                  <SkillInstructionEditor
+                    markdown={draftMarkdown}
+                    onChange={setDraftMarkdown}
+                    tab={editorTab}
+                    onTabChange={setEditorTab}
+                    assessment={assessment}
+                    error={editorError}
+                    saving={saving}
+                    onSave={assessAndSave}
+                  />
+                ) : (
+                  <div className="rounded-[14px] border border-border/40 bg-muted/15 px-3.5 py-3">
+                    <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
+                      {formatSkillMarkdownForPreview(detail?.raw_markdown || "No SKILL.md content.")}
+                    </MarkdownText>
+                  </div>
+                )}
+              </DetailSection>
+              <DetailSection title="Recent trace">
+                {detail?.traces.length ? (
+                  <div className="space-y-2">
+                    {detail.traces.slice(0, 5).map((trace) => (
+                      <div key={trace.trace_id} className="rounded-[12px] bg-muted/30 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 text-[12px]">
+                          <span className="truncate font-medium">{trace.selection_reason || "trace"}</span>
+                          <span className="shrink-0 text-muted-foreground">{trace.gate_result ?? "none"}</span>
+                        </div>
+                        <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                          {trace.query_digest || trace.session_key || trace.trace_id}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[13px] text-muted-foreground">No recent traces.</p>
+                )}
+              </DetailSection>
+            </div>
+            <div className="space-y-3">
+              <DetailSection title="Routing test">
+                <RoutingTestPanel
+                  result={routingResult}
+                  error={routingError}
+                  busy={routingBusy}
+                  onRun={runRoutingTest}
+                />
+              </DetailSection>
+              <RelationList title="Conflicts" values={detail?.relations.conflicts_with ?? []} />
+              <RelationList title="Supersedes" values={detail?.relations.supersedes ?? []} />
+              <RelationList title="Fallback" values={detail?.relations.fallback_to ?? []} />
+              <DetailSection title="Agent Tools">
+                <div className="flex flex-wrap gap-1.5">
+                  {skill.required_tools.length ? (
+                    skill.required_tools.map((tool) => <Pill key={tool}>{tool}</Pill>)
+                  ) : (
+                    <p className="text-[13px] text-muted-foreground">No explicit tools.</p>
+                  )}
+                </div>
+              </DetailSection>
+            </div>
+          </div>
+        </div>
+      )}
+      <MajorUpdateDialog
+        open={confirmMajorOpen}
+        assessment={assessment}
+        saving={saving}
+        error={editorError}
+        onCancel={() => {
+          if (!saving) setConfirmMajorOpen(false);
+        }}
+        onConfirm={applyUpdate}
+      />
+    </section>
+  );
+}
+
+function RoutingTestPanel({
+  result,
+  error,
+  busy,
+  onRun,
+}: {
+  result: ManagedSkillRoutingTestPayload | null;
+  error: string | null;
+  busy: boolean;
+  onRun: () => void;
+}) {
+  const accuracy = result && result.total > 0 ? `${Math.round(result.accuracy * 100)}%` : "n/a";
+  return (
+    <div className="space-y-2">
+      <Button
+        type="button"
+        size="sm"
+        variant="outline"
+        onClick={onRun}
+        disabled={busy}
+        className="h-8 rounded-[9px]"
+      >
+        {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <PlayCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+        Run test
+      </Button>
+      {result ? (
+        result.available ? (
+          <div className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-semibold">
+                {result.passed}/{result.total} passed
+              </span>
+              <span className={cn("font-semibold", result.accuracy >= 0.9 ? "text-emerald-600" : result.accuracy >= 0.7 ? "text-amber-600" : "text-destructive")}>
+                {accuracy}
+              </span>
+            </div>
+            <div className="mt-2 space-y-1.5">
+              {result.rows.slice(0, 5).map((row) => (
+                <div key={`${row.query}:${row.expected}`} className="min-w-0 rounded-[9px] bg-background/65 px-2 py-1.5">
+                  <div className="flex items-center gap-1.5">
+                    {row.ok ? (
+                      <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
+                    ) : (
+                      <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-hidden />
+                    )}
+                    <span className="truncate font-medium">{row.query}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-muted-foreground">
+                    {row.actual || "-"} / expected {row.expected || "-"}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5 text-muted-foreground">
+            No routing_cases.json found for this skill.
+          </p>
+        )
+      ) : null}
+      {error ? (
+        <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+function SkillInstructionEditor({
+  markdown,
+  onChange,
+  tab,
+  onTabChange,
+  assessment,
+  error,
+  saving,
+  onSave,
+}: {
+  markdown: string;
+  onChange: (value: string) => void;
+  tab: "edit" | "preview";
+  onTabChange: (tab: "edit" | "preview") => void;
+  assessment: ManagedSkillUpdateAssessment | null;
+  error: string | null;
+  saving: boolean;
+  onSave: () => void;
+}) {
+  return (
+    <div className="rounded-[14px] border border-border/45 bg-background">
+      <details className="border-b border-border/45 px-3.5 py-3">
+        <summary className="cursor-pointer text-[12px] font-semibold text-muted-foreground">
+          Metadata form
+        </summary>
+        <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+          Structured frontmatter editing will sit here. For now this editor preserves the full SKILL.md document and lets the server classify changes before writing.
+        </p>
+      </details>
+      <div className="flex items-center justify-between gap-2 border-b border-border/45 px-3 py-2">
+        <div className="flex rounded-[10px] bg-muted p-1">
+          <EditorTabButton active={tab === "edit"} onClick={() => onTabChange("edit")}>
+            <FileText className="h-3.5 w-3.5" aria-hidden />
+            Edit
+          </EditorTabButton>
+          <EditorTabButton active={tab === "preview"} onClick={() => onTabChange("preview")}>
+            <Eye className="h-3.5 w-3.5" aria-hidden />
+            Preview
+          </EditorTabButton>
+        </div>
+        <Button
+          size="sm"
+          onClick={onSave}
+          disabled={saving}
+          className="h-8 rounded-[9px]"
+        >
+          {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+          Save instructions
+        </Button>
+      </div>
+      <div className="p-3">
+        {tab === "edit" ? (
+          <Textarea
+            aria-label="Skill instructions editor"
+            value={markdown}
+            onChange={(event) => onChange(event.target.value)}
+            spellCheck={false}
+            className="min-h-[24rem] resize-y rounded-[12px] border-border/50 font-mono text-[12px] leading-5"
+          />
+        ) : (
+          <div className="min-h-[24rem] rounded-[12px] border border-border/45 bg-muted/15 px-3.5 py-3">
+            <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
+              {formatSkillMarkdownForPreview(markdown || "No SKILL.md content.")}
+            </MarkdownText>
+          </div>
+        )}
+        {assessment ? <AssessmentNotice assessment={assessment} /> : null}
+        {error ? (
+          <p className="mt-3 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function EditorTabButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2 text-[12px] font-medium transition-colors",
+        active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function AssessmentNotice({ assessment }: { assessment: ManagedSkillUpdateAssessment }) {
+  const major = assessment.kind === "major";
+  return (
+    <div
+      className={cn(
+        "mt-3 rounded-[12px] border px-3 py-2 text-[12px] leading-5",
+        major
+          ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
+          : "border-border/45 bg-muted/25 text-muted-foreground",
+      )}
+    >
+      <div className="flex items-center gap-2 font-semibold">
+        {major ? <CircleAlert className="h-3.5 w-3.5" aria-hidden /> : <Check className="h-3.5 w-3.5" aria-hidden />}
+        {assessment.kind === "noop" ? "No changes" : `${assessment.kind} update`}
+      </div>
+      {assessment.reasons.length ? (
+        <p className="mt-1">{assessment.reasons.join(" ")}</p>
+      ) : null}
+      {assessment.changed_fields.length ? (
+        <p className="mt-1">Changed: {assessment.changed_fields.join(", ")}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function MajorUpdateDialog({
+  open,
+  assessment,
+  saving,
+  error,
+  onCancel,
+  onConfirm,
+}: {
+  open: boolean;
+  assessment: ManagedSkillUpdateAssessment | null;
+  saving: boolean;
+  error: string | null;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Dialog open={open} onOpenChange={(next) => (!next ? onCancel() : undefined)}>
+      <DialogContent className="max-w-xl rounded-[22px] border-border/70 bg-popover p-5 shadow-2xl">
+        <DialogHeader>
+          <DialogTitle>Method changed</DialogTitle>
+          <DialogDescription>
+            This skill will move from {assessment?.current_status ?? "current"} to {assessment?.next_status ?? "candidate"} and needs routing validation before it should be treated as stable again.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="rounded-[14px] border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-[13px] leading-5 text-amber-900 dark:text-amber-100">
+          <div className="mb-1 flex items-center gap-2 font-semibold">
+            <CircleAlert className="h-4 w-4" aria-hidden />
+            Major patch
+          </div>
+          <p>
+            Method, tools, execution requirements, or risk changed. The edit can be saved, but the skill is no longer considered verified until it is promoted again.
+          </p>
+          {assessment?.changed_fields.length ? (
+            <p className="mt-2 text-[12px]">Changed: {assessment.changed_fields.join(", ")}</p>
+          ) : null}
+        </div>
+        {error ? (
+          <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+            {error}
+          </p>
+        ) : null}
+        <DialogFooter className="gap-2 sm:space-x-0">
+          <Button type="button" variant="outline" onClick={onCancel} disabled={saving}>
+            Cancel
+          </Button>
+          <Button type="button" onClick={onConfirm} disabled={saving}>
+            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
+            Save anyway
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function StatusBadge({ status }: { status: ManagedSkillStatus }) {
+  return (
+    <span
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none",
+        status === "draft" && "bg-amber-500/12 text-amber-700 dark:text-amber-300",
+        status === "candidate" && "bg-sky-500/12 text-sky-700 dark:text-sky-300",
+        status === "verified" && "bg-emerald-500/12 text-emerald-700 dark:text-emerald-300",
+        status === "deprecated" && "bg-muted text-muted-foreground",
+        status === "rejected" && "bg-destructive/10 text-destructive",
+        status === "system" && "bg-violet-500/12 text-violet-700 dark:text-violet-300",
+      )}
+    >
+      {status}
+    </span>
+  );
+}
+
+function StatusFilterButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        "rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors",
+        active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function DraftStatusBadge({ status }: { status: string }) {
+  const tone = status === "ready"
+    ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+    : status === "failed"
+      ? "bg-destructive/10 text-destructive"
+      : "bg-sky-500/10 text-sky-700 dark:text-sky-300";
+  return (
+    <span className={cn("shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold", tone)}>
+      {status}
+    </span>
+  );
+}
+
+function draftInboxSummary(draft: ManagedSkillDraft): string {
+  if (draft.status === "composing") return "Composer is running.";
+  if (draft.status === "ready") return "Ready for review and registration.";
+  if (draft.status === "failed") {
+    return typeof draft.review.summary === "string" ? draft.review.summary : "Composer failed.";
+  }
+  return "Waiting for review.";
+}
+
+function MetricPill({ label, value }: { label: string; value: number }) {
+  return (
+    <span className="rounded-[12px] bg-muted/55 px-3 py-2">
+      <span className="block text-[11px] text-muted-foreground">{label}</span>
+      <span className="block text-[15px] font-semibold leading-5">{value}</span>
+    </span>
+  );
+}
+
+function RelationList({ title, values }: { title: string; values: string[] }) {
+  return (
+    <DetailSection title={title}>
+      <div className="flex flex-wrap gap-1.5">
+        {values.length ? (
+          values.map((value) => <Pill key={value}>{value}</Pill>)
+        ) : (
+          <p className="text-[13px] text-muted-foreground">None</p>
+        )}
+      </div>
+    </DetailSection>
+  );
+}
+
+function successRateTone(rate: number | null): string {
+  if (rate === null) return "bg-muted-foreground/35";
+  if (rate >= 0.85) return "bg-emerald-500";
+  if (rate >= 0.7) return "bg-amber-500";
+  return "bg-destructive";
+}
+
+function successRateTitle(rate: number | null): string {
+  return rate === null ? "No attempts" : `${Math.round(rate * 100)}%`;
+}
+
+function allowedStatusActions(status: ManagedSkillStatus): Array<"approve" | "promote" | "deprecate" | "reject"> {
+  if (status === "draft") return ["approve", "reject"];
+  if (status === "candidate") return ["promote"];
+  if (status === "verified") return ["deprecate"];
+  return [];
+}
+
+function isOperationalSkillStatus(status: ManagedSkillStatus): boolean {
+  return status === "system" || status === "candidate" || status === "verified";
+}
+
+function statusActionLabel(action: "approve" | "promote" | "deprecate" | "reject"): string {
+  if (action === "approve") return "등록";
+  if (action === "promote") return "verified로 승격";
+  if (action === "deprecate") return "사용 중지";
+  return "반려";
+}
+
+function statusActionMessage(action: "approve" | "promote" | "deprecate" | "reject", status: ManagedSkillStatus): string {
+  if (action === "approve") return `등록되었습니다. 현재 상태: ${status}`;
+  if (action === "promote") return `승격되었습니다. 현재 상태: ${status}`;
+  if (action === "deprecate") return `사용 중지되었습니다. 현재 상태: ${status}`;
+  return `반려되었습니다. 현재 상태: ${status}`;
+}
+
+function statusActionIcon(action: "approve" | "promote" | "deprecate" | "reject") {
+  if (action === "approve") return <Check className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  if (action === "promote") return <ShieldCheck className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  if (action === "deprecate") return <Archive className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
+  return <X className="mr-1.5 h-3.5 w-3.5" aria-hidden />;
 }
 
 function SkillCatalogRow({
@@ -352,6 +2501,179 @@ function DetailSection({ title, children }: { title: string; children: ReactNode
       {children}
     </section>
   );
+}
+
+function draftGovernanceFlagLabel(flag: ManagedSkillDraftGovernanceFlag): string {
+  if (flag.kind === "security") {
+    return `Security review is ${flag.severity ?? "flagged"} risk.`;
+  }
+  if (flag.kind === "routing") {
+    return `Routing test passed ${flag.passed ?? 0}/${flag.total ?? 10}.`;
+  }
+  if (flag.kind === "duplicate") {
+    const score = typeof flag.score === "number" ? ` (${Math.round(flag.score * 100)}%)` : "";
+    return `Duplicate check found a close neighbor${score}.`;
+  }
+  return flag.message ?? `${flag.kind} needs review.`;
+}
+
+function installedToolStatusLabel(status: string): string {
+  if (status === "running") return "Running";
+  if (status === "stopped") return "Stopped";
+  if (!status || status === "unknown") return "Unknown";
+  return status;
+}
+
+function installedToolStatusTone(status: string): string {
+  if (status === "running") return "text-emerald-600 dark:text-emerald-300";
+  if (status === "stopped") return "text-muted-foreground";
+  return "text-amber-700 dark:text-amber-300";
+}
+
+function parseSkillFullPrompt(input: string): {
+  name: string;
+  description: string;
+  trigger: string;
+  method: string;
+  category: string;
+  risk_level: string;
+  requires_exec: boolean | null;
+} {
+  const sections = splitSkillFullPrompt(input);
+  const method = sections.method || sections.instructions || sections.instruction || "";
+  const trigger = sections.triggers || sections.trigger || sections.trigger_utterances || "";
+  const risk = (sections.risk || sections.risk_level || "").trim().toLowerCase();
+  const requiresExecRaw = (sections.requires_exec || sections.requiresexec || sections.requires_execution || "").trim().toLowerCase();
+  return {
+    name: firstLine(sections.name),
+    description: sections.description.trim(),
+    trigger: normalizeListText(trigger),
+    method: method.trim(),
+    category: firstLine(sections.category),
+    risk_level: ["low", "medium", "high"].includes(risk) ? risk : "",
+    requires_exec: parseBooleanLike(requiresExecRaw),
+  };
+}
+
+function splitSkillFullPrompt(input: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  let currentKey = "";
+  for (const rawLine of input.split(/\r?\n/)) {
+    const line = rawLine.replace(/\s+$/, "");
+    const heading = line.match(/^\s*(?:#{1,4}\s*)?([A-Za-z][\w\s-]{0,40})\s*:\s*(.*)$/);
+    if (heading) {
+      currentKey = heading[1].trim().toLowerCase().replace(/[-_]+/g, " ");
+      result[currentKey] = heading[2].trim();
+      continue;
+    }
+    if (!currentKey) {
+      result.description = [result.description, line.trim()].filter(Boolean).join("\n");
+      continue;
+    }
+    result[currentKey] = [result[currentKey], line].filter(Boolean).join("\n");
+  }
+  return Object.fromEntries(
+    Object.entries(result).map(([key, value]) => [key.replace(/\s+/g, "_"), value]),
+  );
+}
+
+function firstLine(value: string | undefined): string {
+  return (value ?? "").split(/\r?\n/, 1)[0]?.trim() ?? "";
+}
+
+function normalizeListText(value: string): string {
+  return value
+    .split(/\r?\n/)
+    .map((line) => line.trim().replace(/^[-*]\s+/, ""))
+    .filter(Boolean)
+    .join("\n");
+}
+
+function parseBooleanLike(value: string): boolean | null {
+  if (["true", "yes", "y", "1", "필요", "예"].includes(value)) return true;
+  if (["false", "no", "n", "0", "불필요", "아니오"].includes(value)) return false;
+  return null;
+}
+
+function formatSkillMarkdownForPreview(markdown: string): string {
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/);
+  if (!match) return markdown;
+  const frontmatter = match[1].trimEnd();
+  const body = markdown.slice(match[0].length).replace(/^\s+/, "");
+  return ["```yaml", frontmatter, "```", "", body].join("\n");
+}
+
+const MAX_SKILL_PACKAGE_FILES = 80;
+const MAX_SKILL_PACKAGE_FILE_BYTES = 256 * 1024;
+
+async function readSkillPackageFiles(files: FileList): Promise<ManagedSkillPackageFile[]> {
+  if (files.length > MAX_SKILL_PACKAGE_FILES) {
+    throw new Error(`Too many files. Select ${MAX_SKILL_PACKAGE_FILES} or fewer.`);
+  }
+  const result: ManagedSkillPackageFile[] = [];
+  for (const file of Array.from(files)) {
+    if (file.size > MAX_SKILL_PACKAGE_FILE_BYTES) {
+      throw new Error(`${file.name} is too large for skill package import.`);
+    }
+    const relativePath = typeof file.webkitRelativePath === "string" && file.webkitRelativePath
+      ? file.webkitRelativePath
+      : file.name;
+    result.push({
+      path: normalizeBrowserPackagePath(relativePath),
+      content: await file.text(),
+    });
+  }
+  return dedupePackageFiles(result);
+}
+
+async function readFileAsBase64(file: File): Promise<string> {
+  if (file.size > 2 * 1024 * 1024) {
+    throw new Error(`${file.name} is too large for zip package import.`);
+  }
+  const buffer = await file.arrayBuffer();
+  let binary = "";
+  const bytes = new Uint8Array(buffer);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
+  return window.btoa(binary);
+}
+
+function normalizeBrowserPackagePath(path: string): string {
+  return path.replace(/\\/g, "/").replace(/^\/+/, "");
+}
+
+function dedupePackageFiles(files: ManagedSkillPackageFile[]): ManagedSkillPackageFile[] {
+  const seen = new Set<string>();
+  const result: ManagedSkillPackageFile[] = [];
+  for (const file of files) {
+    const path = normalizeBrowserPackagePath(file.path);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    result.push({ path, content: file.content });
+  }
+  return result;
+}
+
+function isManagedPackageFile(path: string): boolean {
+  const name = normalizeBrowserPackagePath(path).split("/").pop()?.toLowerCase();
+  return name === "skill.md" || name === "routing_cases.json";
+}
+
+function inferPackageFileRole(path: string): string {
+  const normalized = normalizeBrowserPackagePath(path).toLowerCase();
+  if (normalized.startsWith("templates/")) return "template";
+  if (normalized.startsWith("examples/")) return "example";
+  if (normalized.startsWith("scripts/") || /\.(sh|zsh|py|js|mjs|rb|ps1|bat|cmd)$/.test(normalized)) {
+    return "script";
+  }
+  if (normalized.startsWith("docs/") || normalized.startsWith("references/")) return "reference";
+  if (normalized.endsWith(".json")) return "data";
+  return "reference";
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function RequirementLine({

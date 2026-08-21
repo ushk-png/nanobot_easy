@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Summarize this document into five bullets.", "expected": "summarize-document"},
+    {"query": "Give me a short summary of this article.", "expected": "summarize-document"},
+    {"query": "Extract the key points from the text below.", "expected": "summarize-document"},
+    {"query": "Make this long memo shorter.", "expected": "summarize-document"},
+    {"query": "Summarize the attached transcript without action items.", "expected": "summarize-document"},
+    {"query": "Extract decisions and owners from these meeting notes.", "expected": "meeting-notes"},
+    {"query": "Review this proposal for risks.", "expected": "document-review"},
+    {"query": "Synthesize these three reports.", "expected": "research-synthesis"},
+    {"query": "Find current sources on this topic.", "expected": "research-brief"},
+    {"query": "Translate this technical document.", "expected": "translation-technical"}
+  ]
+}

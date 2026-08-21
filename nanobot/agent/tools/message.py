@@ -81,6 +81,10 @@ class MessageTool(Tool, ContextAware):
             "message_turn_delivered_media",
             default=(),
         )
+        self._turn_delivered_contents_var: ContextVar[tuple[str, ...]] = ContextVar(
+            "message_turn_delivered_contents",
+            default=(),
+        )
         self._record_channel_delivery_var: ContextVar[bool] = ContextVar(
             "message_record_channel_delivery",
             default=False,
@@ -114,10 +118,15 @@ class MessageTool(Tool, ContextAware):
         """Reset per-turn send tracking."""
         self._sent_in_turn = False
         self._turn_delivered_media_var.set(())
+        self._turn_delivered_contents_var.set(())
 
     def turn_delivered_media_paths(self) -> list[str]:
         """Absolute paths attached via this tool to the active chat in the current turn."""
         return list(self._turn_delivered_media_var.get())
+
+    def turn_delivered_contents(self) -> list[str]:
+        """Text contents proactively delivered to the active chat in the current turn."""
+        return list(self._turn_delivered_contents_var.get())
 
     def set_record_channel_delivery(self, active: bool):
         """Mark tool-sent messages as proactive channel deliveries."""
@@ -263,6 +272,8 @@ class MessageTool(Tool, ContextAware):
             await self._send_callback(msg)
             if channel == default_channel and chat_id == default_chat_id:
                 self._sent_in_turn = True
+                prev_contents = self._turn_delivered_contents_var.get()
+                self._turn_delivered_contents_var.set(prev_contents + (content,))
                 if media:
                     prev = self._turn_delivered_media_var.get()
                     self._turn_delivered_media_var.set(prev + tuple(str(p) for p in media))

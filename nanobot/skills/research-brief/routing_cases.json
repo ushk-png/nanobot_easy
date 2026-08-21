@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Research the latest trends in local-first apps.", "expected": "research-brief"},
+    {"query": "Find current information and sources about this regulation.", "expected": "research-brief"},
+    {"query": "Make a sourced research brief on this market.", "expected": "research-brief"},
+    {"query": "Give me an external-information brief with links.", "expected": "research-brief"},
+    {"query": "Find authoritative sources for this technical question.", "expected": "research-brief"},
+    {"query": "Synthesize these sources I already collected.", "expected": "research-synthesis"},
+    {"query": "Summarize this single report.", "expected": "summarize-document"},
+    {"query": "Compare these vendors.", "expected": "compare-options"},
+    {"query": "Explain the difference between two research methods.", "expected": "answer-comparison"},
+    {"query": "Draft an email with these research findings.", "expected": "email-draft"}
+  ]
+}

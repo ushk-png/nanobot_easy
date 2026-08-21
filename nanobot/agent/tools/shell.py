@@ -670,6 +670,9 @@ class ExecTool(Tool):
         """Best-effort safety guard for potentially destructive commands."""
         cmd = command.strip()
         lower = cmd.lower()
+        lifecycle_error = self._gateway_lifecycle_guard(cmd)
+        if lifecycle_error:
+            return lifecycle_error
 
         # allow_patterns take priority over deny_patterns so that users can
         # exempt specific commands (e.g. "rm -rf" inside a build directory)
@@ -738,6 +741,41 @@ class ExecTool(Tool):
                         + _WORKSPACE_BOUNDARY_NOTE
                     )
 
+        return None
+
+    @staticmethod
+    def _gateway_lifecycle_guard(command: str) -> str | None:
+        """Block commands that would kill the gateway currently running this tool.
+
+        Restart scripts can schedule a detached restart safely. Directly killing
+        the gateway from inside its own exec tool cancels the tool call before
+        the following start command can reliably run.
+        """
+        current_pid = str(os.getpid())
+        if re.search(
+            rf"(?:^|[;&|]\s*)(?:\S*/)?kill(?:\s+-[A-Za-z0-9]+|\s+-\d+)*"
+            rf"(?:\s+[^;&|]*)?\s+{re.escape(current_pid)}(?:\s|$|[;&|])",
+            command,
+        ):
+            return ToolResult.error(
+                "Error: Command blocked by safety guard (cannot kill the current nanobot gateway from inside exec; use restart-nanobot-skill.sh for detached restart)"
+            )
+        if re.search(
+            r"(?:^|[;&|]\s*)pkill\b[^;&|]*\s+-f\b[^;&|]*(?:nanobot|gateway)",
+            command,
+            re.I,
+        ):
+            return ToolResult.error(
+                "Error: Command blocked by safety guard (cannot pkill nanobot/gateway processes from inside exec; use restart-nanobot-skill.sh)"
+            )
+        if re.search(
+            r"(?:^|[;&|]\s*)killall\b[^;&|]*(?:nanobot|python)",
+            command,
+            re.I,
+        ):
+            return ToolResult.error(
+                "Error: Command blocked by safety guard (cannot killall nanobot runtime processes from inside exec; use restart-nanobot-skill.sh)"
+            )
         return None
 
     @classmethod

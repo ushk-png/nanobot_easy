@@ -50,13 +50,43 @@ def _compute_line_ages(annotated) -> list[LineAge]:
 class GitStore:
     """Git-backed version control for memory files."""
 
-    def __init__(self, workspace: Path, tracked_files: list[str]):
+    def __init__(
+        self,
+        workspace: Path,
+        tracked_files: list[str],
+        tracked_dirs: list[str] | None = None,
+    ):
         self._workspace = workspace
         self._tracked_files = tracked_files
+        self._tracked_dirs = [d.strip("/") for d in (tracked_dirs or []) if d.strip("/")]
 
     def is_initialized(self) -> bool:
         """Check if the git repo has been initialized."""
         return (self._workspace / ".git").is_dir()
+
+    def _tracked_paths(self) -> list[str]:
+        """Tracked files plus every file currently under a tracked directory."""
+        paths = list(self._tracked_files)
+        for rel_dir in self._tracked_dirs:
+            base = self._workspace / rel_dir
+            if not base.is_dir():
+                continue
+            paths.extend(
+                str(p.relative_to(self._workspace))
+                for p in sorted(base.rglob("*"))
+                if p.is_file()
+            )
+        return paths
+
+    def _untracked_in_tracked_dirs(self, untracked: list) -> list[str]:
+        if not self._tracked_dirs:
+            return []
+        prefixes = tuple(f"{d}/" for d in self._tracked_dirs)
+        normalized = [
+            u.decode("utf-8", errors="replace") if isinstance(u, bytes) else str(u)
+            for u in untracked
+        ]
+        return [u for u in normalized if u.startswith(prefixes)]
 
     # -- init ------------------------------------------------------------------
 
@@ -106,9 +136,11 @@ class GitStore:
                 p.parent.mkdir(parents=True, exist_ok=True)
                 if not p.exists():
                     p.write_text("", encoding="utf-8")
+            for rel_dir in self._tracked_dirs:
+                (self._workspace / rel_dir).mkdir(parents=True, exist_ok=True)
 
             # Initial commit
-            porcelain.add(str(self._workspace), paths=[".gitignore"] + self._tracked_files)
+            porcelain.add(str(self._workspace), paths=[".gitignore"] + self._tracked_paths())
             porcelain.commit(
                 str(self._workspace),
                 message=b"init: nanobot memory store",
@@ -135,13 +167,15 @@ class GitStore:
             from dulwich import porcelain
 
             # .gitignore excludes everything except tracked files,
-            # so any staged/unstaged change must be in our files.
+            # so any staged/unstaged change must be in our files. New files in
+            # tracked directories show up as untracked, not unstaged.
             st = porcelain.status(str(self._workspace))
-            if not st.unstaged and not any(st.staged.values()):
+            new_dir_files = self._untracked_in_tracked_dirs(list(st.untracked or []))
+            if not st.unstaged and not any(st.staged.values()) and not new_dir_files:
                 return None
 
             msg_bytes = message.encode("utf-8") if isinstance(message, str) else message
-            porcelain.add(str(self._workspace), paths=self._tracked_files)
+            porcelain.add(str(self._workspace), paths=self._tracked_paths())
             sha_bytes = porcelain.commit(
                 str(self._workspace),
                 message=msg_bytes,
@@ -198,10 +232,15 @@ class GitStore:
         return False
 
     def _build_gitignore(self) -> str:
-        """Generate .gitignore content from tracked files."""
+        """Generate .gitignore content from tracked files and directories."""
         dirs: set[str] = set()
         for f in self._tracked_files:
             parent = str(Path(f).parent)
+            if parent != ".":
+                dirs.add(parent)
+        for d in self._tracked_dirs:
+            dirs.add(d)
+            parent = str(Path(d).parent)
             if parent != ".":
                 dirs.add(parent)
         lines = ["/*"]
@@ -209,6 +248,8 @@ class GitStore:
             lines.append(f"!{d}/")
         for f in self._tracked_files:
             lines.append(f"!{f}")
+        for d in sorted(self._tracked_dirs):
+            lines.append(f"!{d}/**")
         lines.append("!.gitignore")
         return "\n".join(lines) + "\n"
 

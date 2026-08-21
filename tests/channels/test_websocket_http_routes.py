@@ -23,6 +23,7 @@ from nanobot.cron.types import CronJob, CronPayload, CronSchedule
 from nanobot.optional_features import InstallResult
 from nanobot.session.keys import UNIFIED_SESSION_KEY
 from nanobot.session.manager import Session, SessionManager
+from nanobot.skill_store import SkillDraftContent, SkillStore
 from nanobot.triggers.local_store import LocalTriggerStore
 from nanobot.webui.gateway_services import GatewayServices, build_gateway_services
 
@@ -71,6 +72,8 @@ def _make_handler(
     local_trigger_store: LocalTriggerStore | None = None,
     cron_pending_job_ids: Any | None = None,
     local_trigger_pending_ids: Any | None = None,
+    skill_management_enabled: bool = False,
+    skill_draft_composer: Any | None = None,
 ) -> GatewayServices:
     config = WebSocketConfig.model_validate(cfg) if isinstance(cfg, dict) else cfg
     workspace = workspace_path or Path.cwd()
@@ -84,6 +87,8 @@ def _make_handler(
         runtime_model_name=runtime_model_name,
         runtime_surface="browser",
         runtime_capabilities_overrides=None,
+        skill_management_enabled=skill_management_enabled,
+        skill_draft_composer=skill_draft_composer,
         cron_service=cron_service,
         local_trigger_store=local_trigger_store,
         cron_pending_job_ids=cron_pending_job_ids,
@@ -103,6 +108,8 @@ def _ch(
     local_trigger_store: LocalTriggerStore | None = None,
     cron_pending_job_ids: Any | None = None,
     local_trigger_pending_ids: Any | None = None,
+    skill_management_enabled: bool = False,
+    skill_draft_composer: Any | None = None,
     **extra: Any,
 ) -> WebSocketChannel:
     cfg: dict[str, Any] = {
@@ -124,6 +131,8 @@ def _ch(
         local_trigger_store=local_trigger_store,
         cron_pending_job_ids=cron_pending_job_ids,
         local_trigger_pending_ids=local_trigger_pending_ids,
+        skill_management_enabled=skill_management_enabled,
+        skill_draft_composer=skill_draft_composer,
     )
     return WebSocketChannel(cfg, bus, gateway=gateway)
 
@@ -514,6 +523,387 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
     finally:
         await channel.stop()
         await server_task
+
+
+@pytest.mark.asyncio
+async def test_skill_manage_routes_require_token_and_capability(
+    bus: MagicMock, tmp_path: Path
+) -> None:
+    skill_dir = tmp_path / "skills" / "managed-skill"
+    skill_dir.mkdir(parents=True)
+    (skill_dir / "SKILL.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "name: managed-skill",
+                "description: Managed skill for WebUI search.",
+                "metadata:",
+                "  nanobot:",
+                "    version: 1.0.0",
+                "    category: testing.webui",
+                "    risk_level: low",
+                "    requires_exec: false",
+                "---",
+                "Use this skill for WebUI registry management tests.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    (skill_dir / "routing_cases.json").write_text(
+        json.dumps(
+            {
+                "cases": [
+                    {
+                        "query": "WebUI registry management tests",
+                        "expected": "managed-skill",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    draft_dir = tmp_path / "skills" / "draft-managed-skill"
+    draft_dir.mkdir(parents=True)
+    (draft_dir / "SKILL.md").write_text(
+        "\n".join(
+            [
+                "---",
+                "name: draft-managed-skill",
+                "description: Draft managed skill.",
+                "metadata:",
+                "  nanobot:",
+                "    version: 1.0.0",
+                "    category: testing.webui",
+                "    risk_level: low",
+                "    requires_exec: false",
+                "---",
+                "Use this draft for WebUI status transition tests.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty-system")
+    store.approve_draft("managed-skill")
+    store.record_trace(
+        trace_id="managed-trace-1",
+        session_key="webui:test",
+        query_digest="managed search",
+        candidates=[{"name": "managed-skill", "score": 1.0}],
+        selected_skill="managed-skill",
+        selection_reason="cold",
+        executed_by="main",
+        gate_result="ok",
+    )
+
+    disabled_port = _free_port()
+    disabled_channel = _ch(
+        bus,
+        session_manager=_seed_session(tmp_path),
+        workspace_path=tmp_path,
+        port=disabled_port,
+        skill_management_enabled=False,
+    )
+    disabled_server_task = asyncio.create_task(disabled_channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        deny = await _http_get(f"http://127.0.0.1:{disabled_port}/api/skills/manage")
+        assert deny.status_code == 401
+
+        boot = await _http_get(f"http://127.0.0.1:{disabled_port}/webui/bootstrap")
+        token = boot.json()["token"]
+        disabled = await _http_get(
+            f"http://127.0.0.1:{disabled_port}/api/skills/manage",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert disabled.status_code == 403
+    finally:
+        await disabled_channel.stop()
+        await disabled_server_task
+
+    async def composer(values: dict[str, Any]) -> SkillDraftContent:
+        return SkillDraftContent(
+            method="# LLM Method\n1. Use the composed flow.",
+            review={
+                "status": "ready",
+                "summary": f"LLM review for {values['name']}.",
+                "security_risk_level": str(values.get("risk_level") or "low"),
+                "red_flags": [],
+            },
+            routing_cases=[
+                {"query": "llm composed trigger", "expected": str(values["name"])},
+            ],
+        )
+
+    enabled_port = _free_port()
+    enabled_channel = _ch(
+        bus,
+        session_manager=_seed_session(tmp_path),
+        workspace_path=tmp_path,
+        port=enabled_port,
+        skill_management_enabled=True,
+        skill_draft_composer=composer,
+    )
+    enabled_server_task = asyncio.create_task(enabled_channel.start())
+    await asyncio.sleep(0.3)
+    try:
+        boot = await _http_get(f"http://127.0.0.1:{enabled_port}/webui/bootstrap")
+        token = boot.json()["token"]
+        headers = {"Authorization": f"Bearer {token}"}
+
+        listing = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage",
+            headers=headers,
+        )
+        assert listing.status_code == 200
+        listing_body = listing.json()
+        managed = next(
+            skill for skill in listing_body["skills"] if skill["name"] == "managed-skill"
+        )
+        assert managed["status"] == "candidate"
+        assert managed["usage_count"] == 1
+        assert managed["success_rate"] == 1.0
+        assert listing_body["status_counts"]["candidate"] >= 1
+
+        search = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/search?q=WebUI",
+            headers=headers,
+        )
+        assert search.status_code == 200
+        search_body = search.json()
+        assert search_body["query"] == "WebUI"
+        assert any(match["name"] == "managed-skill" for match in search_body["matches"])
+
+        detail = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill?traceLimit=5",
+            headers=headers,
+        )
+        assert detail.status_code == 200
+        detail_body = detail.json()
+        assert detail_body["skill"]["name"] == "managed-skill"
+        assert detail_body["skill"]["status"] == "candidate"
+        assert "WebUI registry management tests" in detail_body["raw_markdown"]
+        assert detail_body["traces"][0]["trace_id"] == "managed-trace-1"
+
+        approved = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/draft-managed-skill/status?action=approve",
+            headers=headers,
+        )
+        assert approved.status_code == 200
+        assert approved.json()["skill"]["status"] == "candidate"
+
+        promoted = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill/status?action=promote",
+            headers=headers,
+        )
+        assert promoted.status_code == 200
+        assert promoted.json()["skill"]["status"] == "verified"
+
+        minor_markdown = detail_body["raw_markdown"].replace(
+            "Managed skill for WebUI search.",
+            "Managed skill for WebUI dry-run search.",
+        )
+        dry_run = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill/update?dry_run=true",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Update": quote(json.dumps({"markdown": minor_markdown})),
+            },
+        )
+        assert dry_run.status_code == 200
+        assert dry_run.json()["assessment"]["kind"] == "minor"
+        assert dry_run.json()["dry_run"] is True
+
+        routing_test = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill/test",
+            headers=headers,
+        )
+        assert routing_test.status_code == 200
+        routing_body = routing_test.json()
+        assert routing_body["available"] is True
+        assert routing_body["passed"] == 1
+        assert routing_body["total"] == 1
+        assert routing_body["rows"][0]["actual"] == "managed-skill"
+
+        major_markdown = detail_body["raw_markdown"] + "\n\n## Method\nRun a new workflow.\n"
+        updated = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill/update",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Update": quote(json.dumps({"markdown": major_markdown})),
+            },
+        )
+        assert updated.status_code == 200
+        updated_body = updated.json()
+        assert updated_body["assessment"]["kind"] == "major"
+        assert updated_body["skill"]["status"] == "candidate"
+
+        composed = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/compose",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Draft": quote(
+                    json.dumps(
+                        {
+                            "name": "web-composed-skill",
+                            "description": "Skill composed from the WebUI.",
+                            "trigger": "web compose test",
+                            "method": "# Web Composed Skill\n\n## Method\nUse the composed flow.",
+                            "category": "testing.webui",
+                        }
+                    )
+                ),
+            },
+        )
+        assert composed.status_code == 202
+        composed_body = composed.json()
+        draft_id = composed_body["draft"]["draft_id"]
+        assert composed_body["draft"]["status"] == "composing"
+        assert SkillStore(tmp_path).get_skill("web-composed-skill") is None
+        composing_list = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage",
+            headers=headers,
+        )
+        assert any(
+            draft["draft_id"] == draft_id
+            for draft in composing_list.json()["drafts"]
+        )
+
+        draft_detail = None
+        for _ in range(10):
+            draft_detail = await _http_get(
+                f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{draft_id}",
+                headers=headers,
+            )
+            if draft_detail.json()["draft"]["status"] == "ready":
+                break
+            await asyncio.sleep(0.05)
+        assert draft_detail is not None
+        assert draft_detail.status_code == 200
+        assert draft_detail.json()["draft"]["name"] == "web-composed-skill"
+        assert draft_detail.json()["draft"]["status"] == "ready"
+        assert "LLM Method" in draft_detail.json()["draft"]["markdown"]
+        assert draft_detail.json()["draft"]["review"]["summary"] == "LLM review for web-composed-skill."
+        assert draft_detail.json()["draft"]["routing_cases"] == [
+            {"query": "llm composed trigger", "expected": "web-composed-skill"},
+        ]
+
+        approved_draft = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{draft_id}/approve",
+            headers=headers,
+        )
+        assert approved_draft.status_code == 200
+        approved_draft_body = approved_draft.json()
+        assert approved_draft_body["draft"]["status"] == "approved"
+        assert approved_draft_body["skill"]["status"] == "candidate"
+        assert (tmp_path / "skills" / "web-composed-skill" / "SKILL.md").is_file()
+
+        medium_draft = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/compose",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Draft": quote(
+                    json.dumps(
+                        {
+                            "name": "medium-risk-skill",
+                            "description": "Medium risk composed skill.",
+                            "trigger": "medium risk test",
+                            "risk_level": "medium",
+                        }
+                    )
+                ),
+            },
+        )
+        assert medium_draft.status_code == 202
+        medium_draft_id = medium_draft.json()["draft"]["draft_id"]
+        medium_detail = None
+        for _ in range(10):
+            medium_detail = await _http_get(
+                f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{medium_draft_id}",
+                headers=headers,
+            )
+            if medium_detail.json()["draft"]["status"] == "ready":
+                break
+            await asyncio.sleep(0.05)
+        assert medium_detail is not None
+        assert medium_detail.json()["draft"]["governance"]["requires_confirmation"] is True
+
+        medium_without_reason = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{medium_draft_id}/approve",
+            headers=headers,
+        )
+        assert medium_without_reason.status_code == 409
+
+        medium_with_reason = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{medium_draft_id}/approve",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Approval": quote(
+                    json.dumps({"reason": "Local-only skill; risk accepted by operator."})
+                ),
+            },
+        )
+        assert medium_with_reason.status_code == 200
+        assert medium_with_reason.json()["skill"]["status"] == "candidate"
+
+        high_draft = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/compose",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Draft": quote(
+                    json.dumps(
+                        {
+                            "name": "high-risk-skill",
+                            "description": "High risk composed skill.",
+                            "trigger": "high risk test",
+                            "risk_level": "high",
+                        }
+                    )
+                ),
+                "X-Nanobot-Skill-Approval": quote(
+                    json.dumps({"reason": "Trying to override high risk."})
+                ),
+            },
+        )
+        assert high_draft.status_code == 202
+        high_draft_id = high_draft.json()["draft"]["draft_id"]
+        high_detail = None
+        for _ in range(10):
+            high_detail = await _http_get(
+                f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{high_draft_id}",
+                headers=headers,
+            )
+            if high_detail.json()["draft"]["status"] == "ready":
+                break
+            await asyncio.sleep(0.05)
+        assert high_detail is not None
+        assert high_detail.json()["draft"]["governance"]["blocked"] is True
+
+        high_approval = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/drafts/{high_draft_id}/approve",
+            headers={
+                **headers,
+                "X-Nanobot-Skill-Approval": quote(
+                    json.dumps({"reason": "Trying to override high risk."})
+                ),
+            },
+        )
+        assert high_approval.status_code == 403
+
+        invalid_action = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/managed-skill/status?action=bogus",
+            headers=headers,
+        )
+        assert invalid_action.status_code == 400
+
+        invalid = await _http_get(
+            f"http://127.0.0.1:{enabled_port}/api/skills/manage/a%2Fb",
+            headers=headers,
+        )
+        assert invalid.status_code == 400
+    finally:
+        await enabled_channel.stop()
+        await enabled_server_task
 
 
 @pytest.mark.asyncio

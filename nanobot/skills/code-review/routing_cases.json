@@ -1,0 +1,16 @@
+{
+  "cases": [
+    {"query": "Review this code for bugs.", "expected": "code-review"},
+    {"query": "Find issues in this PR diff.", "expected": "code-review"},
+    {"query": "Give me code review comments on this patch.", "expected": "code-review"},
+    {"query": "Check this function for security and missing tests.", "expected": "code-review"},
+    {"query": "Review this implementation before I merge it.", "expected": "code-review"},
+    {"query": "Refactor this function and update the files directly.", "expected": "code-modify"},
+    {"query": "Implement this UI change in the repository.", "expected": "code-modify"},
+    {"query": "Fix the failing unit test in the repo.", "expected": "code-debugging"},
+    {"query": "Give me a debugging procedure for this flaky test.", "expected": "debug-procedure"},
+    {"query": "Explain this error message.", "expected": "error-message-explain"},
+    {"query": "Compare these two APIs.", "expected": "answer-comparison"},
+    {"query": "Review this product spec.", "expected": "document-review"}
+  ]
+}

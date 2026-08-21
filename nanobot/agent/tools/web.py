@@ -7,7 +7,7 @@ import html
 import json
 import os
 import re
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 from urllib.parse import quote, urljoin, urlparse
 
 import httpx
@@ -22,6 +22,8 @@ from nanobot.agent.tools.schema import (
     tool_parameters_schema,
 )
 from nanobot.config_base import Base
+from nanobot.evidence import EvidenceItem, EvidencePacketBuilder, FreshnessPolicy
+from nanobot.evidence.packet import is_time_sensitive_query
 from nanobot.utils.helpers import build_image_content_blocks
 
 # Shared constants
@@ -63,6 +65,14 @@ class WebSearchConfig(Base):
     timeout: int = 30
 
 
+class WebEvidenceConfig(Base):
+    """Evidence-layer output controls for web search."""
+
+    enabled: bool = False
+    mode: Literal["metadata", "packet"] = "packet"
+    stale_after_days: int = Field(default=180, ge=1)
+
+
 class WebFetchConfig(Base):
     """Web fetch tool configuration."""
     use_jina_reader: bool = True
@@ -75,6 +85,7 @@ class WebToolsConfig(Base):
     user_agent: str | None = None
     search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     fetch: WebFetchConfig = Field(default_factory=WebFetchConfig)
+    evidence: WebEvidenceConfig = Field(default_factory=WebEvidenceConfig)
 
 
 def _strip_tags(text: str) -> str:
@@ -242,6 +253,70 @@ def _format_results(query: str, items: list[dict[str, Any]], n: int) -> str:
     return "\n".join(lines)
 
 
+def _item_timestamp(item: dict[str, Any]) -> str | None:
+    for key in (
+        "timestamp",
+        "published_at",
+        "publishedAt",
+        "publish_time",
+        "publishTime",
+        "date",
+        "published",
+    ):
+        value = item.get(key)
+        if value:
+            return str(value)
+    return None
+
+
+def _items_to_evidence(query: str, items: list[dict[str, Any]], n: int) -> list[EvidenceItem]:
+    terms = [term for term in re.split(r"\W+", query.lower()) if len(term) > 2]
+    evidence: list[EvidenceItem] = []
+    for i, item in enumerate(items[:n], 1):
+        title = _normalize(_strip_tags(str(item.get("title", ""))))
+        snippet = _normalize(_strip_tags(str(item.get("content", ""))))
+        url = str(item.get("url", "") or "")
+        haystack = f"{title} {snippet}".lower()
+        relevance = (sum(1 for term in terms if term in haystack) / len(terms)) if terms else 0.0
+        evidence.append(
+            EvidenceItem(
+                id=f"W{i}",
+                source_type="web",
+                title=title,
+                url_or_path=url,
+                content_snippet=snippet,
+                timestamp=_item_timestamp(item),
+                author=str(item.get("author") or item.get("site") or item.get("source") or "") or None,
+                relevance=relevance,
+            )
+        )
+    return evidence
+
+
+def _format_evidence_results(
+    query: str,
+    items: list[dict[str, Any]],
+    n: int,
+    config: WebEvidenceConfig,
+    *,
+    time_sensitive: bool | None = None,
+) -> str:
+    if not items:
+        return f"No results for: {query}"
+    builder = EvidencePacketBuilder(
+        freshness_policy=FreshnessPolicy(stale_after_days=config.stale_after_days)
+    )
+    packet = builder.build(
+        question=query,
+        items=_items_to_evidence(query, items, n),
+        time_sensitive=is_time_sensitive_query(query) if time_sensitive is None else time_sensitive,
+    )
+    packet_text = builder.format(packet, max_items=n)
+    if config.mode == "metadata":
+        return f"{_format_results(query, items, n)}\n\n{packet_text}"
+    return packet_text
+
+
 def _normalize_volcengine_time_range(value: Any) -> str | None:
     if value is None:
         return None
@@ -319,6 +394,7 @@ class WebSearchTool(Tool):
                 return resolve_config_env_vars(load_config()).tools.web.search
         return cls(
             config=ctx.config.web.search,
+            evidence_config=ctx.config.web.evidence,
             proxy=ctx.config.web.proxy,
             user_agent=ctx.config.web.user_agent,
             config_loader=config_loader,
@@ -327,11 +403,13 @@ class WebSearchTool(Tool):
     def __init__(
         self,
         config: WebSearchConfig | None = None,
+        evidence_config: WebEvidenceConfig | None = None,
         proxy: str | None = None,
         user_agent: str | None = None,
         config_loader: Callable[[], WebSearchConfig] | None = None,
     ):
         self.config = config if config is not None else WebSearchConfig()
+        self.evidence_config = evidence_config if evidence_config is not None else WebEvidenceConfig()
         self.proxy = proxy
         self.user_agent = user_agent if user_agent is not None else _DEFAULT_USER_AGENT
         self._config_loader = config_loader
@@ -387,6 +465,24 @@ class WebSearchTool(Tool):
             api_key = self.config.api_key or os.environ.get("SERPER_API_KEY", "")
             return "serper" if api_key else "duckduckgo"
         return provider
+
+    def _format_search_results(
+        self,
+        query: str,
+        items: list[dict[str, Any]],
+        n: int,
+        *,
+        time_sensitive: bool | None = None,
+    ) -> str:
+        if not self.evidence_config.enabled:
+            return _format_results(query, items, n)
+        return _format_evidence_results(
+            query,
+            items,
+            n,
+            self.evidence_config,
+            time_sensitive=time_sensitive,
+        )
 
     @property
     def read_only(self) -> bool:
@@ -493,7 +589,7 @@ class WebSearchTool(Tool):
 
             answer_text = getattr(result, "answer", "") or ""
             items = [{"title": answer_text or "Olostep answer", "url": "", "content": "\n".join(source_lines)}]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except Olostep_BaseError as e:
             return ToolResult.error(f"Error: Olostep search error: {type(e).__name__}: {e}")
         except Exception as e:
@@ -525,10 +621,16 @@ class WebSearchTool(Tool):
                         await asyncio.sleep(1.0)
                 r.raise_for_status()
             items = [
-                {"title": x.get("title", ""), "url": x.get("url", ""), "content": x.get("description", "")}
+                {
+                    "title": x.get("title", ""),
+                    "url": x.get("url", ""),
+                    "content": x.get("description", ""),
+                    "date": x.get("age") or x.get("page_age") or x.get("published"),
+                    "source": x.get("profile", {}).get("name") if isinstance(x.get("profile"), dict) else None,
+                }
                 for x in r.json().get("web", {}).get("results", [])
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 return ToolResult.error(
@@ -553,7 +655,19 @@ class WebSearchTool(Tool):
                     timeout=15.0,
                 )
                 r.raise_for_status()
-            return _format_results(query, r.json().get("results", []), n)
+            items = []
+            for result in r.json().get("results", []):
+                if not isinstance(result, dict):
+                    continue
+                items.append(
+                    {
+                        "title": result.get("title", ""),
+                        "url": result.get("url", ""),
+                        "content": result.get("content") or result.get("snippet") or "",
+                        "date": result.get("published_date") or result.get("publishedDate"),
+                    }
+                )
+            return self._format_search_results(query, items, n)
         except Exception as e:
             return ToolResult.error(f"Error: {e}")
 
@@ -587,7 +701,7 @@ class WebSearchTool(Tool):
                 }
                 for x in r.json().get("results", [])
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 return ToolResult.error("Error: Keenable search rate limited. Try again later or reduce search frequency.")
@@ -613,7 +727,18 @@ class WebSearchTool(Tool):
                     timeout=10.0,
                 )
                 r.raise_for_status()
-            return _format_results(query, r.json().get("results", []), n)
+            items = [
+                {
+                    "title": x.get("title", ""),
+                    "url": x.get("url", ""),
+                    "content": x.get("content") or x.get("snippet") or "",
+                    "date": x.get("publishedDate") or x.get("published_date"),
+                    "source": x.get("engine"),
+                }
+                for x in r.json().get("results", [])
+                if isinstance(x, dict)
+            ]
+            return self._format_search_results(query, items, n)
         except Exception as e:
             return ToolResult.error(f"Error: {e}")
 
@@ -641,7 +766,7 @@ class WebSearchTool(Tool):
                 {"title": d.get("title", ""), "url": d.get("url", ""), "content": d.get("content", "")[:500]}
                 for d in data
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except Exception as e:
             logger.warning("Jina search failed ({}), falling back to DuckDuckGo", e)
             return await self._search_duckduckgo(query, n)
@@ -664,7 +789,7 @@ class WebSearchTool(Tool):
                 {"title": d.get("title", ""), "url": d.get("url", ""), "content": d.get("snippet", "")}
                 for d in r.json().get("data", {}).get("search", [])
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except Exception as e:
             return ToolResult.error(f"Error: {e}")
 
@@ -708,9 +833,11 @@ class WebSearchTool(Tool):
                         "title": result.get("title", ""),
                         "url": result.get("url", ""),
                         "content": content,
+                        "date": result.get("publishedDate") or result.get("published_date"),
+                        "author": result.get("author"),
                     }
                 )
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 return ToolResult.error("Error: Exa search rate limited. Try again later or reduce search frequency.")
@@ -743,11 +870,12 @@ class WebSearchTool(Tool):
                     "title": result.get("title", ""),
                     "url": result.get("link", ""),
                     "content": result.get("snippet", ""),
+                    "date": result.get("date"),
                 }
                 for result in r.json().get("organic", [])
                 if isinstance(result, dict)
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except httpx.HTTPStatusError as e:
             if e.response.status_code == 429:
                 return ToolResult.error("Error: Serper search rate limited. Try again later or reduce search frequency.")
@@ -853,10 +981,17 @@ class WebSearchTool(Tool):
                     "title": item.get("Title") or item.get("title") or "",
                     "url": item.get("Url") or item.get("URL") or item.get("url") or "",
                     "content": content,
+                    "publishTime": item.get("PublishTime") or item.get("publishTime"),
+                    "site": item.get("SiteName") or item.get("siteName") or item.get("Site"),
                 }
             )
 
-        return _format_results(query, items, n)
+        return self._format_search_results(
+            query,
+            items,
+            n,
+            time_sensitive=True if normalized_time_range else None,
+        )
 
     async def _search_duckduckgo(self, query: str, n: int) -> str:
         try:
@@ -875,7 +1010,7 @@ class WebSearchTool(Tool):
                 {"title": r.get("title", ""), "url": r.get("href", ""), "content": r.get("body", "")}
                 for r in raw
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except Exception as e:
             logger.warning("DuckDuckGo search failed: {}", e)
             return ToolResult.error(f"Error: DuckDuckGo search failed ({e})")
@@ -921,10 +1056,11 @@ class WebSearchTool(Tool):
                     "title": x.get("name", ""),
                     "url": x.get("url", ""),
                     "content": x.get("summary", "") or x.get("snippet", ""),
+                    "date": x.get("datePublished") or x.get("dateLastCrawled"),
                 }
                 for x in web_pages
             ]
-            return _format_results(query, items, n)
+            return self._format_search_results(query, items, n)
         except httpx.HTTPStatusError as e:
             return ToolResult.error(f"Error: Bocha search HTTP {e.response.status_code}: {e.response.text[:200]}")
         except Exception as e:

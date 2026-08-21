@@ -1321,6 +1321,7 @@ def _run_gateway(
     from nanobot.providers.image_generation import image_gen_provider_configs
     from nanobot.session.manager import SessionManager
     from nanobot.session.webui_turns import WebuiTurnCoordinator
+    from nanobot.skill_store import SkillStore
     from nanobot.triggers.local_runner import run_local_trigger_queue
     from nanobot.triggers.local_store import LocalTriggerStore
     from nanobot.webui.token_usage import TokenUsageHook
@@ -1360,6 +1361,7 @@ def _run_gateway(
     cron_store_path = config.workspace_path / "cron" / "jobs.json"
     cron = CronService(cron_store_path)
     trigger_store = LocalTriggerStore(config.workspace_path)
+    skill_store = SkillStore(config.workspace_path)
 
     # Create agent with cron service
     agent = AgentLoop.from_config(
@@ -1667,6 +1669,24 @@ def _run_gateway(
         console.print(f"[green]✓[/green] Health endpoint: http://{host}:{health_port}/health")
         async with server:
             await server.serve_forever()
+
+    async def _relay_server() -> None:
+        try:
+            from nanobot.api.relay import run_relay_server
+        except ImportError as exc:
+            console.print(
+                "[red]Relay is enabled but aiohttp is unavailable. "
+                "Install the api extra or disable relay.[/red]"
+            )
+            raise exc
+
+        await run_relay_server(
+            config,
+            skill_store,
+            on_started=lambda host, relay_port: console.print(
+                f"[green]✓[/green] LLM relay: http://{host}:{relay_port}/v1"
+            ),
+        )
     # Register Dream system job (idempotent on restart)
     from nanobot.cron.types import CronJob, CronPayload, CronSchedule
     dream_cfg = config.agents.defaults.dream
@@ -1754,6 +1774,11 @@ def _run_gateway(
                 tasks.append(asyncio.create_task(
                     _health_server(config.gateway.host, port),
                     name="nanobot-health-server",
+                ))
+            if config.relay.enabled:
+                tasks.append(asyncio.create_task(
+                    _relay_server(),
+                    name="nanobot-llm-relay",
                 ))
             if open_browser_url:
                 tasks.append(asyncio.create_task(
@@ -2245,6 +2270,529 @@ def plugins_disable(
 
 
 # ============================================================================
+# Skill Registry Commands
+# ============================================================================
+
+skill_app = typer.Typer(help="Manage the skill registry")
+app.add_typer(skill_app, name="skill")
+
+# ---------------------------------------------------------------------------
+# Workspace auto-discovery for ``nanobot skill …`` subcommands
+#
+# Bare ``nanobot skill list`` used to always fall back to the default workspace
+# (``~/.nanobot/workspace``). If the user was standing inside a project with
+# its own runtime workspace (e.g. ``./.local/workspace``) they would see an
+# empty registry and mistake pending drafts as "not approved". The resolver
+# below is applied ONLY to the ``skill`` sub-typer — every other CLI command
+# keeps its original behavior.
+# ---------------------------------------------------------------------------
+
+# Environment variable users can set once per shell to point every subsequent
+# ``nanobot skill`` invocation at a specific runtime workspace.
+_WORKSPACE_ENV_VAR = "NANOBOT_WORKSPACE"
+
+# Bounded upward-walk from ``Path.cwd()``. 6 levels covers "project → cli in a
+# nested subdir" without wandering off into the user's home.
+_WORKSPACE_WALK_MAX_LEVELS = 6
+
+# Candidate paths *relative to a walk level* that identify a runtime workspace.
+# Each candidate is treated as the workspace root iff it exists and contains a
+# ``.skillstore/skillstore.db`` file (the SkillStore marker).
+_WORKSPACE_CANDIDATE_RELATIVES: tuple[str, ...] = (
+    ".",                    # cwd itself has .skillstore/ (some layouts)
+    ".local/workspace",     # nanobot_skill runtime layout
+    ".nanobot/workspace",   # in-repo alternative layout
+    "workspace",            # plain subdir
+)
+
+# Files whose presence marks a level as "a real project", used to decide
+# whether to print a warning when we fall back to the default workspace.
+_PROJECT_ROOT_MARKERS: tuple[str, ...] = (
+    "pyproject.toml", ".git", "package.json",
+)
+
+
+def _looks_like_workspace(candidate: Path) -> bool:
+    """True when ``candidate`` is a directory holding a SkillStore DB.
+
+    We check the concrete DB path (``skillstore_path``) so a stray empty
+    ``.skillstore/`` directory does not trick auto-discovery.
+    """
+    from nanobot.skill_store import skillstore_path
+
+    return candidate.is_dir() and skillstore_path(candidate).is_file()
+
+
+def _walk_up_for_workspace(start: Path) -> Path | None:
+    """Walk ``start`` up to filesystem root looking for a workspace layout.
+
+    Returns the discovered workspace path (already resolved) or ``None`` if
+    nothing plausible was found within ``_WORKSPACE_WALK_MAX_LEVELS`` levels.
+    """
+    current = start.resolve(strict=False)
+    for _ in range(_WORKSPACE_WALK_MAX_LEVELS):
+        for rel in _WORKSPACE_CANDIDATE_RELATIVES:
+            candidate = (current / rel).resolve(strict=False)
+            if _looks_like_workspace(candidate):
+                return candidate
+        if current.parent == current:
+            break
+        current = current.parent
+    return None
+
+
+def _cwd_looks_like_project(start: Path) -> bool:
+    """Cheap heuristic: is ``start`` inside a repo/package that isn't the workspace?"""
+    current = start.resolve(strict=False)
+    for _ in range(_WORKSPACE_WALK_MAX_LEVELS):
+        for marker in _PROJECT_ROOT_MARKERS:
+            if (current / marker).exists():
+                return True
+        if current.parent == current:
+            break
+        current = current.parent
+    return False
+
+
+def _resolve_skill_workspace(
+    explicit: str | None,
+    *,
+    env: dict[str, str] | None = None,
+    cwd: Path | None = None,
+) -> tuple[str | None, str]:
+    """Return ``(workspace_string_or_None, source_label)`` for skill CLI.
+
+    Priority: explicit ``--workspace`` > ``NANOBOT_WORKSPACE`` env var >
+    upward walk from ``cwd`` looking for a ``.skillstore`` marker > default
+    (``None`` — caller then falls through to the CLI's original default).
+    ``env``/``cwd`` are injected so tests can drive resolution without
+    touching the real process environment or the real filesystem.
+    """
+    env_map = os.environ if env is None else env
+    here = cwd if cwd is not None else Path.cwd()
+
+    if explicit:
+        return explicit, "cli-arg"
+
+    env_value = (env_map.get(_WORKSPACE_ENV_VAR) or "").strip()
+    if env_value:
+        return env_value, "env"
+
+    discovered = _walk_up_for_workspace(here)
+    if discovered is not None:
+        return str(discovered), "discovered"
+
+    return None, "default"
+
+
+def _announce_skill_workspace(source: str, workspace: str | None) -> None:
+    """Emit a stderr line so users always see which DB the CLI is about to use.
+
+    Also warns when we fell back to the default workspace from inside what
+    looks like a project directory — the exact silent-mismatch bug that
+    made bare ``nanobot skill list`` report "not approved" even after the
+    user confirmed the draft.
+    """
+    from nanobot.config.paths import get_workspace_path
+
+    resolved_path = get_workspace_path(workspace)
+    typer.echo(f"nanobot skill: workspace={resolved_path} (source={source})", err=True)
+
+    if source == "default" and _cwd_looks_like_project(Path.cwd()):
+        typer.echo(
+            "Warning: current directory looks like a project but no workspace "
+            "marker was found. Falling back to the default workspace. "
+            f"Set {_WORKSPACE_ENV_VAR} or pass --workspace to target this "
+            "project's skill DB.",
+            err=True,
+        )
+
+
+def _skill_store_for_cli(config: str | None, workspace: str | None):
+    resolved, source = _resolve_skill_workspace(workspace)
+    _announce_skill_workspace(source, resolved)
+    loaded = _load_runtime_config(config, resolved)
+    from nanobot.skill_store import SkillStore
+
+    return SkillStore(loaded.workspace_path)
+
+
+def _skill_store_and_config_for_cli(config: str | None, workspace: str | None):
+    resolved, source = _resolve_skill_workspace(workspace)
+    _announce_skill_workspace(source, resolved)
+    loaded = _load_runtime_config(config, resolved)
+    from nanobot.skill_store import SkillStore
+
+    return SkillStore(loaded.workspace_path), loaded
+
+
+def _system_skills_dir() -> Path:
+    from nanobot.agent.skills import SYSTEM_SKILLS_DIR
+
+    return SYSTEM_SKILLS_DIR
+
+
+@skill_app.command("reindex")
+def skill_reindex(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Rebuild the SQLite skill registry for a workspace."""
+    store, loaded = _skill_store_and_config_for_cli(config, workspace)
+    try:
+        from nanobot.skill_embeddings import make_skill_embedding_fn
+
+        embedding = make_skill_embedding_fn(loaded)
+        if embedding is None:
+            result = store.reindex(system_dir=_system_skills_dir())
+        else:
+            embedding_fn, embedding_model, dimensions = embedding
+            result = store.reindex(
+                system_dir=_system_skills_dir(),
+                embedding_fn=embedding_fn,
+                embedding_model=embedding_model,
+                embedding_dimensions=dimensions,
+            )
+    except (NotImplementedError, ValueError) as exc:
+        console.print(f"[red]Skill reindex failed: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(
+        f"[green]Indexed {result.skills} skill(s) and {result.relations} relation(s)[/green]\n"
+        f"DB: {result.db_path}"
+    )
+    if loaded.skills.embedding.provider and loaded.skills.embedding.model:
+        console.print(
+            "[green]Skill embeddings indexed[/green] "
+            f"({escape(loaded.skills.embedding.provider)} / {escape(loaded.skills.embedding.model)})"
+        )
+
+
+@skill_app.command("list")
+def skill_list(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    all_statuses: bool = typer.Option(False, "--all", help="Include deprecated/rejected skills"),
+):
+    """List skills currently recorded in the registry."""
+    store = _skill_store_for_cli(config, workspace)
+    rows = store.list_skills(include_deprecated=all_statuses)
+    if not rows:
+        console.print("No skills indexed. Run `nanobot skill reindex` first.")
+        return
+    table = Table(title="Skill Registry")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Risk")
+    table.add_column("Exec")
+    table.add_column("Category")
+    table.add_column("Source")
+    for row in rows:
+        table.add_row(
+            row["name"],
+            row["status"],
+            row["risk_level"],
+            "yes" if row["requires_exec"] else "no",
+            row["category"],
+            row["source"],
+        )
+    console.print(table)
+
+
+@skill_app.command("stats")
+def skill_stats(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Show aggregate skill registry counts."""
+    store = _skill_store_for_cli(config, workspace)
+    by_status = store.status_counts()
+    console.print(f"DB: {store.db_path}")
+    console.print(f"Skills: {sum(by_status.values())}")
+    for status, count in sorted(by_status.items()):
+        console.print(f"- {status}: {count}")
+
+
+@skill_app.command("audit")
+def skill_audit(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    json_output: bool = typer.Option(False, "--json", help="Print the full advisory report as JSON"),
+):
+    """Run an on-demand, advisory skill catalog conformance audit."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    report = store.audit_catalog()
+    payload = report.to_dict()
+    if json_output:
+        console.print_json(data=payload)
+        return
+
+    summary = payload["summary"]
+    console.print(f"Skill catalog audit: {summary['skills']} skill(s)")
+    console.print(f"Report: {payload['report_path']}")
+    console.print(f"Attention: {summary['attention']} · Reference: {summary['reference']}")
+
+    if report.attention:
+        table = Table(title="Attention")
+        table.add_column("Code", style="yellow")
+        table.add_column("Skills", overflow="fold")
+        table.add_column("Message", overflow="fold")
+        for item in report.attention:
+            table.add_row(
+                str(item.get("code") or ""),
+                ", ".join(str(name) for name in item.get("skill_names", [])),
+                str(item.get("message") or ""),
+            )
+        console.print(table)
+    else:
+        console.print("[green]No attention findings.[/green]")
+
+    if report.reference:
+        console.print(
+            "Reference findings were written to the report file "
+            f"({len(report.reference)} item(s))."
+        )
+
+
+def _success_rate(row) -> float | None:
+    from nanobot.skill_store import success_rate_for_row
+
+    return success_rate_for_row(row)
+
+
+@skill_app.command("hot-path-report")
+def skill_hot_path_report(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    min_usage: int = typer.Option(5, "--min-usage", min=1, help="Minimum selected-skill usage"),
+    min_success_rate: float = typer.Option(0.80, "--min-success-rate", min=0.0, max=1.0),
+    limit: int = typer.Option(20, "--limit", min=1, max=100, help="Maximum rows to show"),
+):
+    """Suggest low-risk skills that may deserve Hot Path preloading."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    rows = store.hot_path_report(
+        min_usage=min_usage,
+        min_success_rate=min_success_rate,
+        limit=limit,
+    )
+    table = Table(title="Hot Path Promotion Candidates")
+    table.add_column("Name", style="cyan")
+    table.add_column("Usage")
+    table.add_column("Success")
+    table.add_column("Category")
+    table.add_column("Path", overflow="fold")
+    for row in rows:
+        rate = _success_rate(row)
+        table.add_row(
+            row["name"],
+            str(row["usage_count"]),
+            "-" if rate is None else f"{rate:.0%}",
+            row["category"],
+            row["path"],
+        )
+    console.print(table)
+    if not rows:
+        console.print("No Hot Path candidates met the thresholds.")
+
+
+@skill_app.command("lifecycle-report")
+def skill_lifecycle_report(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    min_usage: int = typer.Option(5, "--min-usage", min=1, help="Minimum selected-skill usage"),
+    max_success_rate: float = typer.Option(0.50, "--max-success-rate", min=0.0, max=1.0),
+    min_routing_failures: int = typer.Option(3, "--min-routing-failures", min=1),
+    apply_deprecate: bool = typer.Option(False, "--apply-deprecate", help="Deprecate rows with action=deprecate"),
+):
+    """Report skills that should be revised or deprecated based on counters."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    findings = store.lifecycle_report(
+        min_usage=min_usage,
+        max_success_rate=max_success_rate,
+        min_routing_failures=min_routing_failures,
+        apply_deprecate=apply_deprecate,
+    )
+
+    table = Table(title="Skill Lifecycle Report")
+    table.add_column("Name", style="cyan")
+    table.add_column("Status")
+    table.add_column("Usage")
+    table.add_column("Success")
+    table.add_column("Routing Fail")
+    table.add_column("Action")
+    table.add_column("Reason")
+    for finding in findings:
+        row = finding.row
+        rate = _success_rate(row)
+        table.add_row(
+            row["name"],
+            row["status"],
+            str(row["usage_count"]),
+            "-" if rate is None else f"{rate:.0%}",
+            str(row["routing_failure_count"]),
+            finding.action,
+            finding.reason,
+        )
+    console.print(table)
+    if not findings:
+        console.print("No lifecycle findings met the thresholds.")
+
+
+@skill_app.command("approve")
+def skill_approve(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Register a human-approved draft as candidate."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.approve_draft(name)
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Approved skill '{escape(name)}'[/green]")
+
+
+@skill_app.command("promote")
+def skill_promote(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Promote a candidate skill to verified."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.promote(name)
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Promoted skill '{escape(name)}'[/green]")
+
+
+@skill_app.command("deprecate")
+def skill_deprecate(
+    name: str = typer.Argument(..., help="Skill name"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Mark a non-system skill as deprecated."""
+    store = _skill_store_for_cli(config, workspace)
+    try:
+        store.deprecate_skill(name)
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Deprecated skill '{escape(name)}'[/green]")
+
+
+def _load_routing_cases(path: Path) -> list[dict[str, object]]:
+    import json
+
+    import yaml
+
+    if not path.exists():
+        raise FileNotFoundError(path)
+    if path.suffix == ".jsonl":
+        cases: list[dict[str, object]] = []
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            item = json.loads(line)
+            if isinstance(item, dict):
+                cases.append(item)
+        return cases
+    raw = path.read_text(encoding="utf-8")
+    data = json.loads(raw) if path.suffix == ".json" else yaml.safe_load(raw)
+    if isinstance(data, dict):
+        data = data.get("cases", [])
+    if not isinstance(data, list):
+        raise ValueError("routing cases must be a list or {cases: [...]}")
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _discover_routing_case_files(workspace: Path) -> list[Path]:
+    from nanobot.agent.skills import BUILTIN_SKILLS_DIR
+
+    roots = [BUILTIN_SKILLS_DIR, workspace / "skills"]
+    seen: set[Path] = set()
+    files: list[Path] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in sorted(root.glob("*/routing_cases.json")):
+            resolved = path.resolve()
+            if resolved in seen:
+                continue
+            seen.add(resolved)
+            files.append(path)
+    return files
+
+
+def _load_discovered_routing_cases(workspace: Path) -> tuple[list[dict[str, object]], list[Path]]:
+    files = _discover_routing_case_files(workspace)
+    cases: list[dict[str, object]] = []
+    for path in files:
+        cases.extend(_load_routing_cases(path))
+    return cases, files
+
+
+@skill_app.command("test-routing")
+def skill_test_routing(
+    cases: Path | None = typer.Argument(
+        None,
+        help="YAML, JSON, or JSONL routing cases. Omit to run all discovered routing_cases.json files.",
+    ),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    top_k: int = typer.Option(3, "--top-k", min=1, max=10, help="Candidates to inspect per case"),
+    threshold: float = typer.Option(0.90, "--threshold", min=0.0, max=1.0, help="Required top-1 accuracy"),
+    include_drafts: bool = typer.Option(
+        False,
+        "--include-drafts",
+        help="Include draft skills for pre-approval routing validation only.",
+    ),
+):
+    """Run deterministic skill routing tests against the registry."""
+    store = _skill_store_for_cli(config, workspace)
+    store.ensure_index(system_dir=_system_skills_dir())
+    workspace_path = store.workspace
+    try:
+        if cases is None:
+            routing_cases, discovered_files = _load_discovered_routing_cases(workspace_path)
+        else:
+            routing_cases = _load_routing_cases(cases)
+            discovered_files = [cases]
+    except Exception as exc:
+        console.print(f"[red]Could not load routing cases: {escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    if not routing_cases:
+        console.print("[red]No routing cases found.[/red]")
+        raise typer.Exit(1)
+
+    min_status = ("draft", "candidate", "verified") if include_drafts else ("candidate", "verified")
+    result = store.run_routing_test(routing_cases, top_k=top_k, min_status=min_status)
+    table = Table(title=f"Skill Routing Test ({len(discovered_files)} file(s), {len(routing_cases)} case(s))")
+    table.add_column("Query", overflow="fold")
+    table.add_column("Expected")
+    table.add_column("Actual")
+    table.add_column("Result")
+    for row in result.rows:
+        table.add_row(
+            row.query,
+            row.expected,
+            row.actual or "-",
+            "[green]ok[/green]" if row.ok else "[red]fail[/red]",
+        )
+    console.print(table)
+    console.print(f"Accuracy: {result.passed}/{result.total} ({result.accuracy:.1%})")
+    if result.accuracy < threshold:
+        raise typer.Exit(1)
+
+
+# ============================================================================
 # Status Commands
 # ============================================================================
 
@@ -2288,6 +2836,184 @@ def status(
             else:
                 has_key = bool(p.api_key)
                 console.print(f"{spec.label}: {'[green]✓[/green]' if has_key else '[dim]not set[/dim]'}")
+
+
+# ============================================================================
+# LLM Relay
+# ============================================================================
+
+relay_app = typer.Typer(help="Manage external-tool LLM relay keys")
+app.add_typer(relay_app, name="relay")
+
+
+def _relay_store_and_config_for_cli(config: str | None, workspace: str | None):
+    loaded = _load_runtime_config(config, workspace)
+    from nanobot.skill_store import SkillStore
+
+    return SkillStore(loaded.workspace_path), loaded
+
+
+def _relay_secret_env_path(workspace: Path, client_id: str) -> Path:
+    return workspace / ".secrets" / "relay" / f"{client_id}.env"
+
+
+def _write_relay_env_file(path: Path, *, token: str, base_url: str, model: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    content = "\n".join(
+        [
+            f"GROKBUILD_PSK={token}",
+            f"NANOBOT_RELAY_API_KEY={token}",
+            f"NANOBOT_RELAY_BASE_URL={base_url}",
+            f"NANOBOT_RELAY_MODEL={model}",
+            "",
+        ]
+    )
+    path.write_text(content, encoding="utf-8")
+    with suppress(OSError):
+        path.chmod(0o600)
+
+
+def _relay_base_url(config: Config) -> str:
+    return f"http://{_host_for_local_browser(config.relay.host)}:{config.relay.port}/v1"
+
+
+@relay_app.command("issue")
+def relay_issue(
+    client: str = typer.Argument(..., help="Relay client id, e.g. grok-build"),
+    preset: str = typer.Option("default", "--preset", help="Model preset bound to this client"),
+    tool_name: str | None = typer.Option(None, "--tool-name", help="Human-readable tool name"),
+    replace: bool = typer.Option(False, "--replace", help="Replace an existing client key"),
+    write_env: bool = typer.Option(True, "--write-env/--no-write-env", help="Write workspace .secrets relay env file"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Issue a PSK for an external tool. The raw token is shown once."""
+    store, loaded = _relay_store_and_config_for_cli(config, workspace)
+    try:
+        loaded.resolve_preset(None if preset == "default" else preset)
+        issued = store.issue_relay_client(
+            client_id=client,
+            tool_name=tool_name,
+            model_preset=preset,
+            replace=replace,
+        )
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+
+    model = loaded.resolve_preset(None if preset == "default" else preset).model
+    base_url = _relay_base_url(loaded)
+    console.print(f"[green]Issued relay key for {escape(issued.record.client_id)}[/green]")
+    console.print(f"Base URL: [cyan]{base_url}[/cyan]")
+    console.print(f"Model: [cyan]{escape(model)}[/cyan]")
+    console.print(f"Token: [yellow]{issued.token}[/yellow]")
+    console.print("[dim]The token is not stored in plaintext by nanobot.[/dim]")
+    if write_env:
+        env_path = _relay_secret_env_path(loaded.workspace_path, issued.record.client_id)
+        _write_relay_env_file(env_path, token=issued.token, base_url=base_url, model=model)
+        console.print(f"Env file: [cyan]{env_path}[/cyan]")
+
+
+@relay_app.command("list")
+def relay_list(
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """List relay clients without exposing raw secrets."""
+    store, _loaded = _relay_store_and_config_for_cli(config, workspace)
+    rows = store.list_relay_clients()
+    table = Table(title="Relay Clients")
+    table.add_column("Client", style="cyan")
+    table.add_column("Tool")
+    table.add_column("Preset")
+    table.add_column("Status")
+    table.add_column("Key")
+    table.add_column("Last Used")
+    for row in rows:
+        table.add_row(
+            row.client_id,
+            row.tool_name,
+            row.model_preset,
+            row.status,
+            row.key_id,
+            row.last_used_at or "-",
+        )
+    console.print(table)
+    if not rows:
+        console.print("No relay clients have been issued.")
+
+
+@relay_app.command("rotate")
+def relay_rotate(
+    client: str = typer.Argument(..., help="Relay client id"),
+    preset: str | None = typer.Option(None, "--preset", help="New model preset; default keeps current"),
+    write_env: bool = typer.Option(True, "--write-env/--no-write-env", help="Rewrite workspace .secrets relay env file"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Rotate a relay client's PSK. The raw replacement token is shown once."""
+    store, loaded = _relay_store_and_config_for_cli(config, workspace)
+    current = {row.client_id: row for row in store.list_relay_clients()}.get(client)
+    if current is None:
+        console.print(f"[red]relay client {escape(client)!r} not found[/red]")
+        raise typer.Exit(1)
+    model_preset = preset or current.model_preset
+    try:
+        loaded.resolve_preset(None if model_preset == "default" else model_preset)
+        issued = store.issue_relay_client(
+            client_id=client,
+            tool_name=current.tool_name,
+            model_preset=model_preset,
+            replace=True,
+        )
+    except (KeyError, ValueError) as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    model = loaded.resolve_preset(None if model_preset == "default" else model_preset).model
+    base_url = _relay_base_url(loaded)
+    console.print(f"[green]Rotated relay key for {escape(client)}[/green]")
+    console.print(f"Token: [yellow]{issued.token}[/yellow]")
+    if write_env:
+        env_path = _relay_secret_env_path(loaded.workspace_path, issued.record.client_id)
+        _write_relay_env_file(env_path, token=issued.token, base_url=base_url, model=model)
+        console.print(f"Env file: [cyan]{env_path}[/cyan]")
+
+
+@relay_app.command("revoke")
+def relay_revoke(
+    client: str = typer.Argument(..., help="Relay client id"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Revoke a relay client key."""
+    store, _loaded = _relay_store_and_config_for_cli(config, workspace)
+    try:
+        row = store.revoke_relay_client(client)
+    except KeyError as exc:
+        console.print(f"[red]{escape(str(exc))}[/red]")
+        raise typer.Exit(1) from exc
+    console.print(f"[green]Revoked relay client {escape(row.client_id)}[/green]")
+
+
+@relay_app.command("test")
+def relay_test(
+    client: str = typer.Argument(..., help="Relay client id"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+):
+    """Show connection settings and whether the client has an active key."""
+    store, loaded = _relay_store_and_config_for_cli(config, workspace)
+    rows = {row.client_id: row for row in store.list_relay_clients()}
+    row = rows.get(client)
+    if row is None:
+        console.print(f"[red]relay client {escape(client)!r} not found[/red]")
+        raise typer.Exit(1)
+    model = loaded.resolve_preset(None if row.model_preset == "default" else row.model_preset).model
+    console.print(f"Client: {escape(row.client_id)}")
+    console.print(f"Status: {escape(row.status)}")
+    console.print(f"Base URL: [cyan]{_relay_base_url(loaded)}[/cyan]")
+    console.print(f"Model: [cyan]{escape(model)}[/cyan]")
+    console.print(f"Relay enabled: {'yes' if loaded.relay.enabled else 'no'}")
 
 
 # ============================================================================

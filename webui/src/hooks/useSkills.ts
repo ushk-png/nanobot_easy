@@ -1,20 +1,22 @@
 import { useEffect, useState } from "react";
 
 import { fetchSkills } from "@/lib/api";
-import type { SkillSummary } from "@/lib/types";
+import type { SkillsPayload } from "@/lib/types";
 
-export function useSkills(token: string): SkillSummary[] {
-  const [skills, setSkills] = useState<SkillSummary[]>([]);
+const EMPTY_SKILLS_PAYLOAD: SkillsPayload = { skills: [], installed_tools: [] };
+
+export function useSkills(token: string): SkillsPayload {
+  const [payload, setPayload] = useState<SkillsPayload>(EMPTY_SKILLS_PAYLOAD);
 
   useEffect(() => {
     let cancelled = false;
     fetchSkills(token)
-      .then(({ skills: nextSkills }) => !cancelled && setSkills(nextSkills))
-      .catch(() => !cancelled && setSkills([]));
+      .then((nextPayload) => !cancelled && setPayload(nextPayload))
+      .catch(() => !cancelled && setPayload(EMPTY_SKILLS_PAYLOAD));
     return () => {
       cancelled = true;
     };
   }, [token]);
 
-  return skills;
+  return payload;
 }

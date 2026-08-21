@@ -1,11 +1,14 @@
 # Project-specific
 .worktrees/
 .worktree/
+.local/
 .assets
 .docs
 .env
 .web
 .orion
+tasks.md
+test_onboard_data/
 
 # Claude / AI assistant artifacts
 docs/superpowers/

@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Why is my OAuth callback returning 401?", "expected": "answer-diagnosis"},
+    {"query": "Diagnose this: the WebUI shows skills but registration returns 403.", "expected": "answer-diagnosis"},
+    {"query": "What caused this deployment to start failing after config changes?", "expected": "answer-diagnosis"},
+    {"query": "Possible root causes for intermittent timeout errors?", "expected": "answer-diagnosis"},
+    {"query": "The command says permission denied. What should I check first?", "expected": "answer-diagnosis"},
+    {"query": "What does ENOENT mean in plain English?", "expected": "error-message-explain"},
+    {"query": "How do I configure WebUI tokens?", "expected": "answer-howto"},
+    {"query": "Compare token auth and OAuth.", "expected": "answer-comparison"},
+    {"query": "Fix the failing test in this repo.", "expected": "code-debugging"},
+    {"query": "Review this API design for risks.", "expected": "document-review"}
+  ]
+}

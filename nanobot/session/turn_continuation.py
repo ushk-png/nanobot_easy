@@ -14,8 +14,10 @@ from loguru import logger
 
 from nanobot.session.goal_state import (
     goal_state_runtime_lines,
+    message_confirms_sustained_goal,
     sustained_goal_active,
     sustained_goal_turn,
+    sustained_goal_waits_for_user,
 )
 
 INTERNAL_CONTINUATION_META = "_internal_continuation"
@@ -97,6 +99,42 @@ def should_finalize_on_max_iterations(
             message_metadata=message_metadata,
         )
     )
+
+
+def should_route_followup_to_pending(
+    session_metadata: Mapping[str, Any] | None,
+) -> bool:
+    """Return whether a same-session follow-up should be injected mid-turn.
+
+    Approval-gated sustained goals are waiting for a fresh human turn. Routing
+    that reply into an existing pending queue can keep the active task
+    monopolizing the session and repeat the same approval prompt, so those
+    turns bypass injection.
+    """
+    return not sustained_goal_waits_for_user(session_metadata)
+
+
+def should_autocontinue_sustained_goal(
+    session_metadata: Mapping[str, Any] | None,
+    *,
+    message_metadata: Mapping[str, Any] | None = None,
+    user_message: str | None = None,
+) -> bool:
+    """Return whether a visible turn may be forced to keep working on a goal.
+
+    Active goal metadata is always available as context, but it must not
+    override a fresh user question such as "재시작했어?". Automatic continuation is
+    reserved for synthetic continuation slices and explicit proceed replies.
+    """
+    if not sustained_goal_active(session_metadata):
+        return False
+    if sustained_goal_waits_for_user(session_metadata):
+        return False
+    if internal_continuation_inbound(message_metadata):
+        return True
+    if str((message_metadata or {}).get("original_command") or "").strip() == "/goal":
+        return True
+    return message_confirms_sustained_goal(user_message or "")
 
 
 async def maybe_continue_turn(ctx: Any) -> bool:
@@ -200,6 +238,9 @@ def _goal_continuation_available(
     if not sustained_goal_turn(session_metadata, message_metadata=message_metadata):
         return False
     if not sustained_goal_active(session_metadata):
+        return False
+    if sustained_goal_waits_for_user(session_metadata):
+        logger.info("Sustained-goal continuation blocked by explicit user approval gate")
         return False
     try:
         rounds = int((session_metadata or {}).get(_GOAL_CONTINUATION_ROUNDS_KEY) or 0)

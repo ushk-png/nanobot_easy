@@ -53,6 +53,7 @@ import {
   Trash2,
   Triangle,
   Waves,
+  Wrench,
   X,
   Zap,
   type LucideIcon,
@@ -60,7 +61,10 @@ import {
 import { useTranslation } from "react-i18next";
 
 import { LanguageSwitcher } from "@/components/LanguageSwitcher";
-import { SkillsCatalogSettings } from "@/components/settings/SkillsCatalogSettings";
+import {
+  InstalledToolsPanel,
+  SkillsCatalogSettings,
+} from "@/components/settings/SkillsCatalogSettings";
 import { TokenUsageHeatmap } from "@/components/settings/TokenUsageHeatmap";
 import { Button } from "@/components/ui/button";
 import {
@@ -128,6 +132,7 @@ import type {
   CliAppInfo,
   CliAppsPayload,
   ImageGenerationSettingsUpdate,
+  InstalledExternalTool,
   McpPresetInfo,
   McpPresetsPayload,
   NanobotFeatureInfo,
@@ -152,6 +157,7 @@ export type SettingsSectionKey =
   | "apps"
   | "automations"
   | "skills"
+  | "tools"
   | "runtime"
   | "advanced";
 
@@ -309,6 +315,7 @@ interface SettingsViewProps {
   onModelNameChange: (modelName: string | null) => void;
   onSettingsChange?: (payload: SettingsPayload) => void;
   skills?: SkillSummary[];
+  installedTools?: InstalledExternalTool[];
   onWorkspaceSettingsChange?: () => void | Promise<void>;
   onSectionChange?: (section: SettingsSectionKey) => void;
   onLogout?: () => void;
@@ -530,6 +537,7 @@ export function SettingsView({
   onModelNameChange,
   onSettingsChange,
   skills = [],
+  installedTools = [],
   onWorkspaceSettingsChange,
   onSectionChange,
   onLogout,
@@ -1749,6 +1757,8 @@ export function SettingsView({
         );
       case "skills":
         return <SkillsCatalogSettings skills={skills} />;
+      case "tools":
+        return <InstalledToolsSettings installedTools={installedTools} />;
       case "runtime":
         return (
           <RuntimeSettings
@@ -1842,7 +1852,10 @@ export function SettingsView({
       <main className="min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
         <div
           className={cn(
-            "mx-auto w-full max-w-[920px] px-4 py-6 sm:px-8 sm:py-8 lg:py-12",
+            "mx-auto w-full px-4 py-6 sm:px-8 sm:py-8 lg:py-12",
+            activeSection === "skills" || activeSection === "tools" || activeSection === "automations"
+              ? "max-w-[1720px]"
+              : "max-w-[920px]",
             hostChromeInset && "pt-[4.25rem] sm:pt-[4.25rem] lg:pt-[4.75rem]",
           )}
         >
@@ -1894,6 +1907,20 @@ export function SettingsView({
   );
 }
 
+function InstalledToolsSettings({ installedTools }: { installedTools: InstalledExternalTool[] }) {
+  return (
+    <div className="space-y-4">
+      <p className="max-w-[680px] text-[13px] leading-5 text-muted-foreground">
+        App Tools are external programs installed outside nanobot, including GitHub, Homebrew,
+        npm, pip, or workspace-local installs. They are separate from Agent Tools such as exec,
+        read_file, and run_cli_app. Start, stop, update, and removal requests stay in chat so
+        they can route through the matching setup or usage skill.
+      </p>
+      <InstalledToolsPanel tools={installedTools} />
+    </div>
+  );
+}
+
 const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fallback: string }> = [
   { key: "overview", icon: Activity, fallback: "Overview" },
   { key: "appearance", icon: Palette, fallback: "Appearance" },
@@ -1901,6 +1928,7 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
   { key: "image", icon: ImageIcon, fallback: "Image" },
   { key: "voice", icon: Mic, fallback: "Voice" },
   { key: "browser", icon: Globe2, fallback: "Web" },
+  { key: "tools", icon: Wrench, fallback: "App Tools" },
   { key: "runtime", icon: Server, fallback: "System" },
   { key: "advanced", icon: ShieldCheck, fallback: "Security" },
 ];

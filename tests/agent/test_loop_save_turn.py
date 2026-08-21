@@ -398,6 +398,50 @@ def test_save_turn_strips_runtime_context_suffix_from_string() -> None:
     assert session.messages[0]["content"] == "hello world"
 
 
+def test_save_turn_strips_recent_memory_before_runtime_from_string() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:recent-memory-strip")
+    recent = (
+        ContextBuilder._RECENT_MEMORY_TAG
+        + "\n- old volatile fact\n"
+        + ContextBuilder._RECENT_MEMORY_END
+    )
+    runtime = (
+        ContextBuilder._RUNTIME_CONTEXT_TAG
+        + "\nCurrent Time: now\n"
+        + ContextBuilder._RUNTIME_CONTEXT_END
+    )
+
+    loop._save_turn(
+        session,
+        [{"role": "user", "content": f"hello world\n\n{recent}\n\n{runtime}"}],
+        skip=0,
+    )
+    assert session.messages[0]["content"] == "hello world"
+
+
+def test_save_turn_strips_skill_candidates_before_runtime_from_string() -> None:
+    loop = _mk_loop()
+    session = Session(key="test:skill-candidates-strip")
+    candidates = (
+        ContextBuilder._SKILL_CANDIDATES_TAG
+        + "\n1. meeting-minutes | score=88\n"
+        + ContextBuilder._SKILL_CANDIDATES_END
+    )
+    runtime = (
+        ContextBuilder._RUNTIME_CONTEXT_TAG
+        + "\nCurrent Time: now\n"
+        + ContextBuilder._RUNTIME_CONTEXT_END
+    )
+
+    loop._save_turn(
+        session,
+        [{"role": "user", "content": f"hello world\n\n{candidates}\n\n{runtime}"}],
+        skip=0,
+    )
+    assert session.messages[0]["content"] == "hello world"
+
+
 def test_save_turn_skips_string_user_when_only_runtime_context_suffix() -> None:
     loop = _mk_loop()
     session = Session(key="test:suffix-only")
@@ -1061,6 +1105,82 @@ async def test_run_agent_loop_goal_continue_message_reads_latest_metadata(
     )
 
     assert "Goal created during this runner call." in (seen["goal_continue"] or "")
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_does_not_force_goal_over_status_question(
+    tmp_path: Path,
+) -> None:
+    from nanobot.agent.runner import AgentRunResult
+
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("telegram:goal-status")
+    session.metadata[GOAL_STATE_KEY] = {
+        "status": "active",
+        "objective": "Install and benchmark Cua Driver.",
+        "user_approval_received": True,
+    }
+    seen: dict[str, bool] = {}
+
+    async def fake_run(spec):
+        assert spec.goal_active_predicate is not None
+        seen["autocontinue"] = spec.goal_active_predicate()
+        return AgentRunResult(
+            final_content="restart ok",
+            messages=[{"role": "assistant", "content": "restart ok"}],
+        )
+
+    loop.runner.run = fake_run  # type: ignore[method-assign]
+
+    await loop._run_agent_loop(
+        [],
+        session=session,
+        channel="telegram",
+        chat_id="goal-status",
+        session_key=session.key,
+        metadata={},
+        user_message="재시작했어?",
+    )
+
+    assert seen["autocontinue"] is False
+
+
+@pytest.mark.asyncio
+async def test_run_agent_loop_allows_goal_after_explicit_proceed_reply(
+    tmp_path: Path,
+) -> None:
+    from nanobot.agent.runner import AgentRunResult
+
+    loop = _make_full_loop(tmp_path)
+    session = loop.sessions.get_or_create("telegram:goal-proceed")
+    session.metadata[GOAL_STATE_KEY] = {
+        "status": "active",
+        "objective": "Install and benchmark Cua Driver.",
+        "user_approval_received": True,
+    }
+    seen: dict[str, bool] = {}
+
+    async def fake_run(spec):
+        assert spec.goal_active_predicate is not None
+        seen["autocontinue"] = spec.goal_active_predicate()
+        return AgentRunResult(
+            final_content="continuing",
+            messages=[{"role": "assistant", "content": "continuing"}],
+        )
+
+    loop.runner.run = fake_run  # type: ignore[method-assign]
+
+    await loop._run_agent_loop(
+        [],
+        session=session,
+        channel="telegram",
+        chat_id="goal-proceed",
+        session_key=session.key,
+        metadata={},
+        user_message="진행해줘",
+    )
+
+    assert seen["autocontinue"] is True
 
 
 @pytest.mark.asyncio

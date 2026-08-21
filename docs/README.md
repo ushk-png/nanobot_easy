@@ -18,6 +18,8 @@ If you find a docs mistake, outdated command, or confusing step, please open an 
 | Comfortable pasting commands and JSON | [`quick-start.md`](./quick-start.md) | [`provider-cookbook.md`](./provider-cookbook.md) for pasteable provider setups |
 | Operating a long-running bot | [`concepts.md`](./concepts.md) | [`chat-apps.md`](./chat-apps.md), [`webui.md`](./webui.md), and [`deployment.md`](./deployment.md) |
 | Integrating or extending nanobot | [`architecture.md`](./architecture.md) | [`configuration.md`](./configuration.md), [`openai-api.md`](./openai-api.md), [`python-sdk.md`](./python-sdk.md), [`development.md`](./development.md), and [`channel-plugin-guide.md`](./channel-plugin-guide.md) |
+| Using the nanobot_skill fork locally | [`nanobot-skill-usage-ko.md`](./nanobot-skill-usage-ko.md) | Project-local setup, scripts, Telegram, WebUI, and skill registry operations |
+| Designing the student-friendly distribution | [`student-mode-distribution-ko.md`](./student-mode-distribution-ko.md) | Windows-first setup, student/general mode, safe mode, and local study data |
 
 ## Start Here
 
@@ -40,6 +42,7 @@ If a local `nanobot agent` session can already answer normally, you can also ask
 |---|---|---|
 | Use nanobot in a browser | [`webui.md`](./webui.md) | Run `nanobot webui` and open the local browser workbench |
 | Talk through a chat app | [`chat-apps.md`](./chat-apps.md) | Merge one channel snippet, run `nanobot channels status`, keep `nanobot gateway` running |
+| Manage skills | [`cli-reference.md#skill-registry`](./cli-reference.md#skill-registry) | Reindex, list, approve, deprecate, and inspect skill routing/lifecycle reports |
 | Change provider or add fallbacks | [`provider-cookbook.md`](./provider-cookbook.md) | Keep `modelPresets` named and set `agents.defaults.modelPreset` |
 | Call nanobot from Python | [`python-sdk.md`](./python-sdk.md) | Reuse the same config/workspace from code, then run or stream one agent turn |
 | Understand before operating long-term | [`concepts.md`](./concepts.md) | Know what config, workspace, gateway, sessions, memory, and tools mean |
@@ -50,6 +53,7 @@ If a local `nanobot agent` session can already answer normally, you can also ask
 | Goal | Read | Outcome |
 |---|---|---|
 | Open the bundled browser UI | [`webui.md`](./webui.md) | `nanobot webui`, chat workspace, Apps, Skills, Automations, and settings |
+| Inspect or operate skills | [`nanobot-skill-usage-ko.md`](./nanobot-skill-usage-ko.md) and [`cli-reference.md#skill-registry`](./cli-reference.md#skill-registry) | Skill usage, registry commands, and lifecycle reports |
 | Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [`chat-apps.md`](./chat-apps.md) | A gateway-backed chat channel with access control |
 | Use slash commands and automations | [`chat-commands.md`](./chat-commands.md) | Pairing, model presets, local triggers, heartbeat tasks, and chat-side controls |
 | Generate images | [`image-generation.md`](./image-generation.md) | Image provider config, WebUI image mode, and artifact behavior |

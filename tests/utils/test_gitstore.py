@@ -265,3 +265,36 @@ class TestNestedRepoProtection:
 
         assert result is False
         assert not (workspace / ".git").exists()
+
+
+class TestTrackedDirs:
+    def test_new_file_in_tracked_dir_is_committed(self, tmp_path):
+        g = GitStore(
+            tmp_path,
+            tracked_files=["memory/MEMORY.md"],
+            tracked_dirs=["memory/topics"],
+        )
+        assert g.init()
+        assert (tmp_path / "memory" / "topics").is_dir()
+
+        topic = tmp_path / "memory" / "topics" / "coding.md"
+        topic.write_text("## coding\n- decided X\n", encoding="utf-8")
+        sha = g.auto_commit("dream: topic snapshot")
+        assert sha is not None
+
+        # Committed content survives a working-tree delete + revert-less check:
+        # the file no longer reports as a pending change.
+        assert g.auto_commit("dream: no-op") is None
+
+        topic.write_text("## coding\n- decided X\n- next Y\n", encoding="utf-8")
+        assert g.auto_commit("dream: topic update") is not None
+
+    def test_untracked_files_outside_tracked_dirs_do_not_commit(self, tmp_path):
+        g = GitStore(
+            tmp_path,
+            tracked_files=["memory/MEMORY.md"],
+            tracked_dirs=["memory/topics"],
+        )
+        assert g.init()
+        (tmp_path / "scratch.txt").write_text("noise", encoding="utf-8")
+        assert g.auto_commit("dream: should be a no-op") is None

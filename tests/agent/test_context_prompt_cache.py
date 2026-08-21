@@ -141,8 +141,8 @@ def test_runtime_context_excludes_sender_id_when_not_provided(tmp_path) -> None:
     assert "Sender ID:" not in user_content
 
 
-def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:
-    """Entries in history.jsonl not yet consumed by Dream appear with timestamps."""
+def test_unprocessed_history_injected_into_current_user_message(tmp_path) -> None:
+    """Entries not yet consumed by Dream appear in volatile Recent Memory."""
     workspace = _make_workspace(tmp_path)
     builder = ContextBuilder(workspace)
 
@@ -150,10 +150,15 @@ def test_unprocessed_history_injected_into_system_prompt(tmp_path) -> None:
     builder.memory.append_history("Agent fetched forecast via web_search")
 
     prompt = builder.build_system_prompt()
-    assert "# Recent History" in prompt
-    assert "User asked about weather in Tokyo" in prompt
-    assert "Agent fetched forecast via web_search" in prompt
-    assert re.search(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]", prompt)
+    assert ContextBuilder._RECENT_MEMORY_TAG not in prompt
+    assert "User asked about weather in Tokyo" not in prompt
+
+    messages = builder.build_messages([], "hello", channel="cli", chat_id="direct")
+    content = messages[-1]["content"]
+    assert ContextBuilder._RECENT_MEMORY_TAG in content
+    assert "User asked about weather in Tokyo" in content
+    assert "Agent fetched forecast via web_search" in content
+    assert re.search(r"\[\d{4}-\d{2}-\d{2} \d{2}:\d{2}\]", content)
 
 
 def test_recent_history_injection_is_session_scoped(tmp_path) -> None:
@@ -164,12 +169,19 @@ def test_recent_history_injection_is_session_scoped(tmp_path) -> None:
     builder.memory.append_history("telegram history", session_key="telegram:chat-1")
     builder.memory.append_history("slack history", session_key="slack:chat-2")
 
-    prompt = builder.build_system_prompt(session_key="telegram:chat-1")
+    messages = builder.build_messages(
+        [],
+        "hello",
+        channel="telegram",
+        chat_id="chat-1",
+        session_key="telegram:chat-1",
+    )
+    content = messages[-1]["content"]
 
-    assert "# Recent History" in prompt
-    assert "telegram history" in prompt
-    assert "slack history" not in prompt
-    assert "legacy entry without session" not in prompt
+    assert ContextBuilder._RECENT_MEMORY_TAG in content
+    assert "telegram history" in content
+    assert "slack history" not in content
+    assert "legacy entry without session" not in content
 
 
 def test_recent_history_injection_unified_excludes_cron_internals(tmp_path) -> None:
@@ -180,14 +192,19 @@ def test_recent_history_injection_unified_excludes_cron_internals(tmp_path) -> N
     builder.memory.append_history("channel user history", session_key="telegram:chat-1")
     builder.memory.append_history("cron internal history", session_key="cron:job-1")
 
-    prompt = builder.build_system_prompt(
+    messages = builder.build_messages(
+        [],
+        "hello",
+        channel="cli",
+        chat_id="direct",
         session_key="unified:default",
         unified_session=True,
     )
+    content = messages[-1]["content"]
 
-    assert "unified user history" in prompt
-    assert "channel user history" in prompt
-    assert "cron internal history" not in prompt
+    assert "unified user history" in content
+    assert "channel user history" in content
+    assert "cron internal history" not in content
 
 
 def test_cron_recent_history_can_see_own_history_and_unified_context(tmp_path) -> None:
@@ -198,14 +215,19 @@ def test_cron_recent_history_can_see_own_history_and_unified_context(tmp_path) -
     builder.memory.append_history("own cron history", session_key="cron:job-1")
     builder.memory.append_history("other cron history", session_key="cron:job-2")
 
-    prompt = builder.build_system_prompt(
+    messages = builder.build_messages(
+        [],
+        "hello",
+        channel="cron",
+        chat_id="job-1",
         session_key="cron:job-1",
         unified_session=True,
     )
+    content = messages[-1]["content"]
 
-    assert "unified user history" in prompt
-    assert "own cron history" in prompt
-    assert "other cron history" not in prompt
+    assert "unified user history" in content
+    assert "own cron history" in content
+    assert "other cron history" not in content
 
 
 def test_recent_history_capped_at_max(tmp_path) -> None:
@@ -216,10 +238,11 @@ def test_recent_history_capped_at_max(tmp_path) -> None:
     for i in range(builder._MAX_RECENT_HISTORY + 20):
         builder.memory.append_history(f"entry-{i}")
 
-    prompt = builder.build_system_prompt()
-    assert "entry-0" not in prompt
-    assert "entry-19" not in prompt
-    assert f"entry-{builder._MAX_RECENT_HISTORY + 19}" in prompt
+    messages = builder.build_messages([], "hello", channel="cli", chat_id="direct")
+    content = messages[-1]["content"]
+    assert "entry-0" not in content
+    assert "entry-19" not in content
+    assert f"entry-{builder._MAX_RECENT_HISTORY + 19}" in content
 
 
 def test_recent_history_truncated_at_max_tokens(tmp_path) -> None:
@@ -232,12 +255,14 @@ def test_recent_history_truncated_at_max_tokens(tmp_path) -> None:
     big_entry = "word " * (builder._MAX_HISTORY_TOKENS + 5_000)
     builder.memory.append_history(big_entry)
 
-    prompt = builder.build_system_prompt()
-    history_section = prompt.split("# Recent History\n\n", 1)
+    messages = builder.build_messages([], "hello", channel="cli", chat_id="direct")
+    content = messages[-1]["content"]
+    history_section = content.split(ContextBuilder._RECENT_MEMORY_TAG + "\n", 1)
     assert len(history_section) == 2
+    history_text = history_section[1].split("\n" + ContextBuilder._RECENT_MEMORY_END, 1)[0]
 
     enc = tiktoken.get_encoding("cl100k_base")
-    assert len(enc.encode(history_section[1])) <= builder._MAX_HISTORY_TOKENS
+    assert len(enc.encode(history_text)) <= builder._MAX_HISTORY_TOKENS
 
 
 def test_no_recent_history_when_dream_has_processed_all(tmp_path) -> None:
@@ -248,8 +273,9 @@ def test_no_recent_history_when_dream_has_processed_all(tmp_path) -> None:
     cursor = builder.memory.append_history("already processed entry")
     builder.memory.set_last_dream_cursor(cursor)
 
-    prompt = builder.build_system_prompt()
-    assert "# Recent History" not in prompt
+    messages = builder.build_messages([], "hello", channel="cli", chat_id="direct")
+    content = messages[-1]["content"]
+    assert ContextBuilder._RECENT_MEMORY_TAG not in content
 
 
 def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
@@ -264,12 +290,25 @@ def test_partial_dream_processing_shows_only_remainder(tmp_path) -> None:
 
     builder.memory.set_last_dream_cursor(c2)
 
-    prompt = builder.build_system_prompt()
-    assert "# Recent History" in prompt
-    assert "old conversation about Python" not in prompt
-    assert "old conversation about Rust" not in prompt
-    assert "recent question about Docker" in prompt
-    assert "recent question about K8s" in prompt
+    messages = builder.build_messages([], "hello", channel="cli", chat_id="direct")
+    content = messages[-1]["content"]
+    assert ContextBuilder._RECENT_MEMORY_TAG in content
+    assert "old conversation about Python" not in content
+    assert "old conversation about Rust" not in content
+    assert "recent question about Docker" in content
+    assert "recent question about K8s" in content
+
+
+def test_system_prompt_stable_when_recent_history_changes(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace)
+
+    prompt1 = builder.build_system_prompt()
+    builder.memory.append_history("new volatile memory")
+    prompt2 = builder.build_system_prompt()
+
+    assert prompt1 == prompt2
+    assert "new volatile memory" not in prompt2
 
 
 def test_execution_rules_in_system_prompt(tmp_path) -> None:
@@ -285,6 +324,16 @@ def test_execution_rules_in_system_prompt(tmp_path) -> None:
     assert "multi-step tasks" in prompt
     assert "Read before you write" in prompt
     assert "verify the result" in prompt
+
+
+def test_identity_prompt_contains_explicit_permission_gate(tmp_path) -> None:
+    workspace = _make_workspace(tmp_path)
+    builder = ContextBuilder(workspace)
+
+    prompt = builder.build_system_prompt()
+    assert "Explicit Permission Gates" in prompt
+    assert "explicit-permission-required" in prompt
+    assert "다음 단계(N)는 승인 전까지 실행하지 않습니다." in prompt
 
 
 def test_identity_has_no_behavioral_instructions(tmp_path) -> None:

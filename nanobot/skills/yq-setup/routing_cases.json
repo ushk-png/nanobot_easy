@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Install yq for this nanobot workspace.", "expected": "yq-setup"},
+    {"query": "Set up yq so the agent can query YAML files.", "expected": "yq-setup"},
+    {"query": "Configure yq under workspace/tools for nanobot.", "expected": "yq-setup"},
+    {"query": "Add a YAML query CLI tool to this workspace.", "expected": "yq-setup"},
+    {"query": "Prepare yq as an external tool with a local venv.", "expected": "yq-setup"},
+    {"query": "Use yq to read this YAML file.", "expected": "yq-usage"},
+    {"query": "Explain the difference between YAML and JSON.", "expected": "answer-comparison"},
+    {"query": "Translate this YAML-related technical note.", "expected": "translation-technical"},
+    {"query": "Review this YAML config for risks.", "expected": "document-review"},
+    {"query": "Summarize this YAML document.", "expected": "summarize-document"}
+  ]
+}

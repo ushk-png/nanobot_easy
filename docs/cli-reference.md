@@ -140,6 +140,18 @@ http://127.0.0.1:18790/health
 
 The bundled WebUI is served by the WebSocket channel, usually on port `8765`, not by the gateway health endpoint.
 
+## LLM Relay
+
+`nanobot relay` manages PSK credentials for external tools that need an OpenAI-compatible LLM backend. The relay is served by `nanobot gateway` when `relay.enabled` is true and calls the configured provider directly, without entering AgentLoop.
+
+| Command | Description |
+|---|---|
+| `nanobot relay issue <client>` | Issue a one-time visible PSK for a tool client and optionally write `.secrets/relay/<client>.env` |
+| `nanobot relay list` | List relay clients without exposing raw secrets |
+| `nanobot relay rotate <client>` | Replace a client's PSK |
+| `nanobot relay revoke <client>` | Revoke a client's PSK |
+| `nanobot relay test <client>` | Show the client's relay URL, model, status, and enablement state |
+
 ## Local Triggers
 
 `nanobot trigger` delivers one local message to a trigger that was created from
@@ -270,6 +282,46 @@ saved settings and turns the channel off.
 | `nanobot provider logout github-copilot` | Remove GitHub Copilot OAuth state |
 
 See [`providers.md`](./providers.md#oauth-providers) for when OAuth providers need explicit provider/model selection.
+
+## Skill Registry
+
+The skill registry indexes built-in, system, and workspace skills for
+`skill_search`, routing checks, and lifecycle reporting. The registry is
+workspace-scoped, so pass the same `--workspace` and `--config` paths that the
+agent or gateway uses.
+
+| Command | Description |
+|---|---|
+| `nanobot skill reindex` | Rebuild the SQLite skill registry for the active workspace |
+| `nanobot skill list` | List skills currently recorded in the registry |
+| `nanobot skill stats` | Show aggregate skill counts and usage counters |
+| `nanobot skill approve <skill_id>` | Register a human-approved draft as `candidate` |
+| `nanobot skill promote <skill_id>` | Promote a proven `candidate` skill to `verified` |
+| `nanobot skill deprecate <skill_id>` | Mark a non-system skill as `deprecated` |
+| `nanobot skill test-routing` | Run deterministic routing checks against indexed skills; omit the cases path to run all discovered `routing_cases.json` files |
+| `nanobot skill hot-path-report` | Suggest frequently successful skills that may deserve preloading |
+| `nanobot skill lifecycle-report` | Report skills with usage/failure patterns that may need revision or deprecation |
+
+Examples:
+
+```bash
+nanobot skill reindex --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill list --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill approve skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill promote skill_123 --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill test-routing --config ./bot-a/config.json --workspace ./bot-a/workspace
+nanobot skill hot-path-report --config ./bot-a/config.json --workspace ./bot-a/workspace
+```
+
+System skills are protected by the registry. They can be indexed and searched
+where appropriate, but `approve` and `deprecate` only operate on non-system
+skills.
+
+`approve` registers a human-reviewed draft as `candidate`; it does not promote
+directly to `verified`. Use `promote` only after a candidate has proven itself
+through operation, tests, or review. The WebUI Skills management screen calls
+the same service methods as these CLI commands when
+`tools.webuiSkillManagement.enabled` is true.
 
 ## Useful First Checks
 

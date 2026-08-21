@@ -619,8 +619,12 @@ class TelegramChannel(BaseChannel):
 
         if self._app:
             self.logger.info("Stopping bot...")
-            await self._app.updater.stop()
-            await self._app.stop()
+            updater = self._app.updater
+            if updater is not None:
+                with suppress(RuntimeError):
+                    await updater.stop()
+            with suppress(RuntimeError):
+                await self._app.stop()
             await self._app.shutdown()
             self._app = None
 

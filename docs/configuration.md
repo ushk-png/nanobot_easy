@@ -2068,10 +2068,63 @@ Subagents also stop immediately when one of their tools returns an execution err
 }
 ```
 
+Subagent profiles let you define named roles for `spawn` and `delegate`. Each
+profile can restrict tools, preload skills, override the model, change
+temperature, and decide whether that subagent is allowed to spawn more
+subagents. The parent agent must pass a profile name and expected output when
+delegating work, so subagent runs stay explicit and auditable.
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "maxSubagentDepth": 2,
+      "subagentProfiles": {
+        "researcher": {
+          "description": "Find and summarize source material.",
+          "whenToUse": ["Background research", "Source collection"],
+          "whenNotToUse": ["Final policy decisions"],
+          "tools": ["web", "file"],
+          "skills": ["research-brief"],
+          "temperature": 0.2,
+          "canSpawn": false
+        },
+        "reviewer": {
+          "description": "Review outputs for gaps, risks, and contradictions.",
+          "tools": ["file"],
+          "skills": ["document-review"],
+          "canSpawn": false
+        }
+      }
+    }
+  }
+}
+```
+
+If no profiles are configured, nanobot still exposes a general-purpose
+subagent profile. `maxSubagentDepth` prevents recursive delegation from growing
+without bound.
+
 | Option | Default | Description |
 |--------|---------|-------------|
 | `agents.defaults.maxConcurrentSubagents` | `1` | Maximum number of spawned subagents that may run at the same time. Attempts to spawn beyond this limit return an error. |
+| `agents.defaults.subagentProfiles` | `{}` | Named subagent role definitions used by `spawn` and `delegate`. |
+| `agents.defaults.maxSubagentDepth` | `2` | Maximum nested subagent depth. Allowed range is `1` to `3`. |
 | `agents.defaults.failOnToolError` | `true` | Stop a spawned subagent when a tool execution fails. Set to `false` to return tool errors to the subagent model so it can recover within the same run. |
+
+Subagent profile fields:
+
+| Field | Default | Description |
+|---|---|---|
+| `description` | `""` | Short role description shown to the parent agent and subagent prompt. |
+| `whenToUse` | `[]` | Routing hints for when this profile is appropriate. |
+| `whenNotToUse` | `[]` | Routing hints for when this profile should be avoided. |
+| `tools` | `null` | Optional allow-list of tool names or tool groups for the subagent. |
+| `skills` | `[]` | Skill names to preload into the subagent prompt. |
+| `model` | `null` | Optional model override for this profile. |
+| `maxIterations` | `null` | Optional tool-iteration limit override. |
+| `temperature` | `null` | Optional temperature override. |
+| `canSpawn` | `false` | Whether subagents with this profile may spawn/delegate to nested subagents. |
 
 
 ## Auto Compact
@@ -2157,7 +2210,7 @@ When enabled, all incoming messages — regardless of which channel they arrive 
 
 ## Disabled Skills
 
-nanobot ships with built-in skills, and your workspace can also define custom skills under `skills/`. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
+nanobot ships with built-in skills, system skills, and your workspace can also define custom skills under `skills/`. Built-in and workspace skills are task workflows. System skills support orchestration, skill creation, and review flows. If you want to hide specific skills from the agent, set `agents.defaults.disabledSkills` to a list of skill directory names:
 
 ```json
 {
@@ -2173,7 +2226,152 @@ Disabled skills are excluded from the main agent's skill summary, from always-on
 
 | Option | Default | Description |
 |--------|---------|-------------|
-| `agents.defaults.disabledSkills` | `[]` | List of skill directory names to exclude from loading. Applies to both built-in skills and workspace skills. |
+| `agents.defaults.disabledSkills` | `[]` | List of skill directory names to exclude from loading. Applies to built-in, system, and workspace skills. |
+
+When many skills are available, nanobot may avoid injecting the entire skill
+summary into every prompt and instead instruct the model to call
+`skill_search`. The skill registry is workspace-scoped and can be rebuilt with:
+
+```bash
+nanobot skill reindex --config ./config.json --workspace ./workspace
+```
+
+Use `nanobot skill list`, `nanobot skill stats`, `nanobot skill
+hot-path-report`, and `nanobot skill lifecycle-report` to inspect indexed
+skills and routing outcomes.
+
+## WebUI Skill Management
+
+WebUI skill management is disabled by default. Enabling it allows authenticated
+WebUI clients to call management endpoints that register drafts, transition
+skill status, and run registry-backed checks. Keep it disabled unless you are
+actively using the local WebUI as a skill management console.
+
+```json
+{
+  "tools": {
+    "webuiSkillManagement": {
+      "enabled": false,
+      "draftExpireDays": 30,
+      "redFlags": {
+        "minRoutingPasses": 7,
+        "securityRiskAtLeast": "medium",
+        "securityBlockAtLeast": "high",
+        "duplicateScoreAtLeast": 0.8
+      }
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.webuiSkillManagement.enabled` | `false` | Enable skill-management API capability for authenticated WebUI clients. |
+| `tools.webuiSkillManagement.draftExpireDays` | `30` | Days before unmanaged draft rows should expire. |
+| `tools.webuiSkillManagement.redFlags.minRoutingPasses` | `7` | Minimum passing routing-test count out of 10 before registration can stay collapsed into the one-click path. |
+| `tools.webuiSkillManagement.redFlags.securityRiskAtLeast` | `"medium"` | Risk level at or above which registration must expand into explicit review. |
+| `tools.webuiSkillManagement.redFlags.securityBlockAtLeast` | `"high"` | Risk level at or above which override registration is blocked. |
+| `tools.webuiSkillManagement.redFlags.duplicateScoreAtLeast` | `0.8` | Duplicate score at or above which registration must expand into explicit review. |
+
+The WebUI uses these thresholds to decide whether draft registration can remain
+collapsed into one **Register** action or must expand into explicit review with
+an override reason. `securityBlockAtLeast` is the non-overridable boundary.
+When a draft reaches this risk level, registration is blocked.
+
+Current embedded WebUI management routes are registry-backed and token-protected:
+`GET /api/skills/manage`, `GET /api/skills/manage/search?q=...`,
+`GET /api/skills/manage/{name}`, and
+`GET /api/skills/manage/{name}/status?action=approve|promote|deprecate|reject`.
+Skill edits use `GET /api/skills/manage/{name}/update?dry_run=true` for
+Minor/Major assessment and `GET /api/skills/manage/{name}/update` to apply the
+change. Because the embedded WebSocket HTTP gateway currently accepts GET
+requests only, the update markdown is sent as a URL-encoded JSON object in the
+`X-Nanobot-Skill-Update` header:
+
+```http
+X-Nanobot-Skill-Update: %7B%22markdown%22%3A%22---%5Cnname%3A...%22%7D
+```
+
+The update route rejects system skills, path traversal names, and registry rows
+outside the workspace skill repository. Method/tool/risk changes are classified
+as Major; if a verified skill receives a Major edit, the service writes the file,
+reindexes, and returns the skill to candidate for revalidation.
+
+Routing tests use `GET /api/skills/manage/{name}/test`. The server reads
+`<workspace>/skills/{name}/routing_cases.json`, accepts either a JSON list or
+`{"cases": [...]}`, and returns `available=false` when the file is not present.
+
+Draft registration uses the same GET-only gateway convention:
+`GET /api/skills/manage/drafts/compose` with a URL-encoded JSON object in the
+`X-Nanobot-Skill-Draft` header, `GET /api/skills/manage/drafts/{id}` to poll the
+draft, and `GET /api/skills/manage/drafts/{id}/approve` to write
+`<workspace>/skills/{name}/SKILL.md`, move routing cases into
+`routing_cases.json`, reindex, and expose the skill as candidate. This is the
+Composer-backed path: compose starts an asynchronous draft job using the active
+provider/model, the draft remains DB-only until approval, and approval performs
+file creation, registry transition, and reindexing as one service operation with
+best-effort rollback if file creation succeeds but registry transition fails.
+Drafts older than `draftExpireDays` are eligible for expiry instead of remaining
+in the inbox forever.
+
+For the browser workflow, see [`webui.md#skills`](./webui.md#skills). For a
+project-local Korean runbook, see
+[`nanobot-skill-usage-ko.md#webui에서-스킬-관리하기`](./nanobot-skill-usage-ko.md#webui에서-스킬-관리하기).
+
+## External Tool Skills
+
+Executable external-tool skills are disabled by default. This capability covers
+skill pairs such as `<tool>-setup` and `<tool>-usage`, where setup installs an
+external program into the workspace and usage documents how to call it safely.
+The install-source allowlist is separate from `tools.ssrfWhitelist`: SSRF
+whitelisting controls private-network access, while this setting governs public
+download origins that setup skills are allowed to declare.
+
+```json
+{
+  "tools": {
+    "externalToolSkills": {
+      "enabled": false,
+      "allowedInstallDomains": [
+        "github.com",
+        "pypi.org",
+        "files.pythonhosted.org",
+        "registry.npmjs.org"
+      ],
+      "installRoot": "tools",
+      "denyGlobalInstall": true
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.externalToolSkills.enabled` | `false` | Enable executable external-tool skill governance for setup/usage skill pairs. |
+| `tools.externalToolSkills.allowedInstallDomains` | GitHub, PyPI, Python files, npm registry | Domains that setup skills may declare in `metadata.nanobot.install_sources`. |
+| `tools.externalToolSkills.installRoot` | `"tools"` | Workspace subdirectory convention for external tools, normally `<workspace>/tools/<name>/`. |
+| `tools.externalToolSkills.denyGlobalInstall` | `true` | Keep setup skills from requiring sudo, global package installs, or writes outside the workspace tool root. |
+
+The registry rejects malformed setup/usage skills during indexing. A
+`<tool>-setup` skill must declare `risk_level=high`, `requires_exec=true`,
+concrete `install_sources`, and `Install`, `Verify`, and `Uninstall` sections.
+A `<tool>-usage` skill must start its Method by checking whether the tool is
+installed and should point users to the setup skill instead of starting
+installation automatically.
+
+The initial pilot pair is `yq-setup` and `yq-usage`. It installs yq into
+`<workspace>/tools/yq/` via an isolated Python virtual environment, records the
+tool in `<workspace>/tools/installed.md`, and keeps normal usage separate from
+installation.
+
+Installed external tools are shown read-only in the WebUI Tools screen, with the
+same summary also visible from Skills management, by parsing
+`<workspace>/tools/installed.md`. Nanobot does not run cron
+health checks, disk monitors, update scanners, or vulnerability scans for this
+list. Status and last-check fields are only the last recorded values from a
+usage/setup skill or a user-requested status check. Delete, update, start, and
+stop operations remain chat requests that route through the relevant setup or
+usage skill.
 
 ## Tool Hint Max Length
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 
 from loguru import logger as default_logger
 
@@ -42,6 +42,9 @@ def build_gateway_services(
     runtime_model_name: Any | None,
     runtime_surface: str,
     runtime_capabilities_overrides: dict[str, Any] | None,
+    skill_management_enabled: bool = False,
+    skill_management_red_flags: Any | None = None,
+    skill_draft_composer: Callable[[dict[str, Any]], Awaitable[Any]] | None = None,
     disabled_skills: set[str] | None = None,
     cron_service: Any | None = None,
     local_trigger_store: Any | None = None,
@@ -72,6 +75,9 @@ def build_gateway_services(
         media=media,
         workspaces=workspaces,
         skills_workspace_path=workspace_path,
+        skill_management_enabled=skill_management_enabled,
+        skill_management_red_flags=skill_management_red_flags,
+        skill_draft_composer=skill_draft_composer,
         disabled_skills=disabled_skills,
         cron_service=cron_service,
         local_trigger_store=local_trigger_store,

@@ -1,7 +1,23 @@
 ---
 name: tmux
 description: Remote-control tmux sessions for interactive CLIs by sending keystrokes and scraping pane output.
-metadata: {"nanobot":{"emoji":"🧵","os":["darwin","linux"],"requires":{"bins":["tmux"]}}}
+metadata:
+  nanobot:
+    id: builtin-tmux
+    version: 1.0.0
+    status: verified
+    category: terminal.tmux
+    risk_level: high
+    requires_exec: true
+    required_tools:
+      - exec
+    emoji: 🧵
+    os:
+      - darwin
+      - linux
+    requires:
+      bins:
+        - tmux
 ---
 
 # tmux Skill

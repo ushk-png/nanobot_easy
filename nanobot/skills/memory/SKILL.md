@@ -2,6 +2,18 @@
 name: memory
 description: Two-layer memory system with Dream-managed knowledge files.
 always: true
+metadata:
+  nanobot:
+    id: builtin-memory
+    version: 1.0.0
+    status: verified
+    category: memory.core
+    risk_level: low
+    requires_exec: false
+    always: true
+    required_tools:
+      - grep
+      - read_file
 ---
 
 # Memory

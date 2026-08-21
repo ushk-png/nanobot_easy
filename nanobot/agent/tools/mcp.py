@@ -1023,7 +1023,12 @@ async def connect_mcp_servers(
             )
             return name, server_stack
 
-        except Exception as e:
+        except BaseException as e:
+            # MCP transports (notably streamable HTTP) may surface connection
+            # failures as BaseExceptionGroup/CancelledError from AnyIO task
+            # groups while entering or unwinding async context managers.  A
+            # broken optional MCP integration must not take down the agent loop
+            # or gateway; skip this server and retry on a later message.
             hint = ""
             text = str(e).lower()
             if any(
@@ -1040,8 +1045,16 @@ async def connect_mcp_servers(
                     " Hint: this looks like stdio protocol pollution. Make sure the MCP server writes "
                     "only JSON-RPC to stdout and sends logs/debug output to stderr instead."
                 )
-            logger.exception("MCP server '{}': failed to connect: {}", name, hint)
-            with suppress(Exception):
+            if isinstance(e, asyncio.CancelledError):
+                logger.warning("MCP server '{}': connection cancelled; skipping for now", name)
+            else:
+                logger.warning(
+                    "MCP server '{}': failed to connect: {}{}",
+                    name,
+                    type(e).__name__,
+                    hint,
+                )
+            with suppress(BaseException):
                 await server_stack.aclose()
             return name, None
 
@@ -1050,8 +1063,12 @@ async def connect_mcp_servers(
     for name, cfg in mcp_servers.items():
         try:
             result = await connect_single_server(name, cfg)
-        except Exception as e:
-            logger.exception("MCP server '{}' connection failed: {}", name, e)
+        except BaseException as e:
+            logger.warning(
+                "MCP server '{}' connection failed before isolation: {}",
+                name,
+                type(e).__name__,
+            )
             continue
         if result is not None and result[1] is not None:
             server_stacks[result[0]] = result[1]

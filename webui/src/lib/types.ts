@@ -183,7 +183,284 @@ export interface SkillDetail extends SkillSummary {
   raw_markdown: string;
 }
 
-export interface SkillsPayload { skills: SkillSummary[]; }
+export type ManagedSkillStatus =
+  | "system"
+  | "draft"
+  | "candidate"
+  | "verified"
+  | "deprecated"
+  | "rejected";
+
+export interface ManagedSkill {
+  id: string;
+  name: string;
+  version: string;
+  status: ManagedSkillStatus;
+  risk_level: "low" | "medium" | "high" | string;
+  category: string;
+  requires_exec: boolean;
+  path: string;
+  source: string;
+  description: string;
+  when_to_use: string;
+  when_not_to_use: string;
+  required_tools: string[];
+  usage_count: number;
+  success_count: number;
+  failure_count: number;
+  routing_failure_count: number;
+  success_rate: number | null;
+  content_hash: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManagedSkillTrace {
+  trace_id: string;
+  ts: string;
+  session_key: string | null;
+  query_digest: string | null;
+  candidates: Array<Record<string, unknown>>;
+  selected_skill: string | null;
+  selection_reason: string;
+  executed_by: string | null;
+  wave_no: number | null;
+  gate_result: string | null;
+  user_feedback: string | null;
+  notes: string | null;
+}
+
+export interface ManagedSkillDetail {
+  skill: ManagedSkill;
+  raw_markdown: string;
+  relations: {
+    conflicts_with: string[];
+    supersedes: string[];
+    fallback_to: string[];
+  };
+  traces: ManagedSkillTrace[];
+}
+
+export interface InstalledExternalTool {
+  name: string;
+  description: string;
+  installed_at: string;
+  version: string;
+  status: "running" | "stopped" | "unknown" | string;
+  last_checked_at: string | null;
+  path: string;
+  source: string;
+  linked_skills?: string;
+  removal_note?: string;
+}
+
+export interface SkillsPayload {
+  skills: SkillSummary[];
+  installed_tools?: InstalledExternalTool[];
+}
+
+export interface ManagedSkillsPayload {
+  skills: ManagedSkill[];
+  drafts?: ManagedSkillDraft[];
+  installed_tools?: InstalledExternalTool[];
+  status_counts: Partial<Record<ManagedSkillStatus, number>>;
+}
+
+export interface SkillAuditFinding {
+  code: string;
+  severity: "attention" | "reference" | string;
+  skill_names: string[];
+  message: string;
+  path?: string;
+  fields?: string[];
+  reasons?: string[];
+  cluster_keys?: string[];
+  category?: string;
+  count?: number;
+}
+
+export interface SkillAuditReport {
+  generated_at: string;
+  report_path: string;
+  summary: {
+    skills: number;
+    attention: number;
+    reference: number;
+    general_category: number;
+    missing_routing_cases: number;
+    missing_frontmatter_fields: number;
+    unwired_similarity_clusters: number;
+  };
+  attention: SkillAuditFinding[];
+  reference: SkillAuditFinding[];
+}
+
+export interface SkillAuditPayload {
+  audit: SkillAuditReport;
+}
+
+export interface ManagedSkillSearchMatch {
+  name: string;
+  description: string;
+  status: ManagedSkillStatus;
+  risk_level: "low" | "medium" | "high" | string;
+  requires_exec: boolean;
+  category: string;
+  score: number;
+  stats_weight: number;
+  path: string;
+  usage_count: number;
+  success_count: number;
+  failure_count: number;
+  routing_failure_count: number;
+  success_rate: number | null;
+}
+
+export interface ManagedSkillSearchPayload {
+  query: string;
+  matches: ManagedSkillSearchMatch[];
+}
+
+export interface ManagedSkillStatusPayload {
+  skill: ManagedSkill;
+  action: string;
+}
+
+export interface ManagedSkillUpdateAssessment {
+  kind: "noop" | "minor" | "major";
+  reasons: string[];
+  changed_fields: string[];
+  current_status: ManagedSkillStatus;
+  next_status: ManagedSkillStatus;
+  requires_revalidation: boolean;
+}
+
+export interface ManagedSkillUpdatePayload {
+  assessment: ManagedSkillUpdateAssessment;
+  skill: ManagedSkill | null;
+  dry_run: boolean;
+}
+
+export interface ManagedSkillRoutingTestRow {
+  query: string;
+  expected: string;
+  actual: string;
+  ok: boolean;
+}
+
+export interface ManagedSkillDraftRoutingCase {
+  query: string;
+  expected: string;
+}
+
+export interface ManagedSkillDraftPolicy {
+  min_routing_passes: number;
+  security_risk_at_least: string;
+  security_block_at_least: string;
+  duplicate_score_at_least: number;
+}
+
+export interface ManagedSkillDraftGovernanceFlag {
+  kind: string;
+  severity?: string;
+  message?: string;
+  passed?: number;
+  total?: number;
+  score?: number;
+}
+
+export interface ManagedSkillDraftGovernance {
+  can_register: boolean;
+  requires_confirmation: boolean;
+  blocked: boolean;
+  blocking: ManagedSkillDraftGovernanceFlag[];
+  confirmations: ManagedSkillDraftGovernanceFlag[];
+}
+
+export interface ManagedSkillRoutingTestPayload {
+  available: boolean;
+  cases_path: string;
+  passed: number;
+  total: number;
+  accuracy: number;
+  rows: ManagedSkillRoutingTestRow[];
+}
+
+export interface ManagedSkillDraft {
+  draft_id: string;
+  name: string;
+  status: "composing" | "ready" | "failed" | "approved" | "rejected" | string;
+  markdown: string;
+  review: Record<string, unknown>;
+  routing_cases: ManagedSkillDraftRoutingCase[];
+  policy?: ManagedSkillDraftPolicy;
+  governance?: ManagedSkillDraftGovernance;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ManagedSkillDraftPayload {
+  draft: ManagedSkillDraft;
+}
+
+export interface ManagedSkillDraftApprovePayload {
+  draft: ManagedSkillDraft;
+  skill: ManagedSkill | null;
+}
+
+export interface ManagedSkillDraftDiscardPayload {
+  draft_id: string;
+  deleted: boolean;
+}
+
+export interface ManagedSkillDraftComposeValues {
+  name: string;
+  description: string;
+  trigger?: string;
+  method?: string;
+  category?: string;
+  risk_level?: string;
+  requires_exec?: boolean;
+  required_tools?: string[];
+  install_sources?: string[];
+  attachments?: ManagedSkillPackageFile[];
+  package_files?: ManagedSkillPackageFileMeta[];
+  routing_cases?: ManagedSkillDraftRoutingCase[];
+}
+
+export interface ManagedSkillPackageFile {
+  path: string;
+  content: string;
+}
+
+export interface ManagedSkillPackageFileMeta {
+  path: string;
+  size: number;
+  role: "template" | "example" | "script" | "reference" | "data" | string;
+}
+
+export interface ManagedSkillImportResult {
+  mode: "frontmatter" | "normalized" | "deterministic" | string;
+  fields: ManagedSkillDraftComposeValues;
+  sections?: Record<string, string>;
+  normalized_markdown: string;
+  estimated_fields: string[];
+  validation: {
+    errors: string[];
+    warnings: string[];
+  };
+  preserved_method: boolean;
+  package?: {
+    root?: string;
+    files: ManagedSkillPackageFileMeta[];
+    attachments?: ManagedSkillPackageFile[];
+    routing_cases?: ManagedSkillDraftRoutingCase[];
+  };
+}
+
+export interface ManagedSkillImportPayload {
+  import: ManagedSkillImportResult;
+}
 
 /** Structured UI blob on ``progress`` WS frames; channels may add more ``kind`` values later. */
 export interface AgentUIBlob {
@@ -910,13 +1187,11 @@ export type InboundEvent =
     }
   | { event: "error"; chat_id?: string; detail?: string; reason?: string };
 
-/** Base64-encoded image attached to an outbound ``message`` envelope.
+/** Base64-encoded file attached to an outbound ``message`` envelope.
  *
- * ``data_url`` must be a ``data:image/<png|jpeg|webp|gif>;base64,...`` string
- * — the server whitelists those MIME types and rejects everything else
- * (including SVG, to avoid an XSS surface). ``name`` is advisory: it's
- * preserved for the file on disk and surfaced as the placeholder label when
- * the session is replayed.
+ * ``data_url`` must use a server-whitelisted image, video, or document MIME.
+ * SVG remains excluded to avoid an embedded-script XSS surface. ``name`` is
+ * advisory and surfaced as the attachment label when the session is replayed.
  */
 export interface OutboundMedia {
   data_url: string;

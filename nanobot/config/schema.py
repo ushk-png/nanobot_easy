@@ -116,6 +116,20 @@ class ModelPresetConfig(Base):
         )
 
 
+class SubagentProfile(Base):
+    """A specialized subagent role definition."""
+
+    description: str = ""
+    when_to_use: list[str] = Field(default_factory=list)
+    when_not_to_use: list[str] = Field(default_factory=list)
+    tools: list[str] | None = None
+    skills: list[str] = Field(default_factory=list)
+    model: str | None = None
+    max_iterations: int | None = None
+    temperature: float | None = None
+    can_spawn: bool = False
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -132,6 +146,26 @@ class AgentDefaults(Base):
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200
     max_concurrent_subagents: int = Field(default=1, ge=1)
+    skills: list[str] = Field(default_factory=list)  # Main-agent Hot Path skills preloaded into the prompt.
+    proactive_skill_cards: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("proactiveSkillCards", "proactive_skill_cards"),
+        serialization_alias="proactiveSkillCards",
+    )  # Inject top skill candidate cards into the turn context before the model decides.
+    proactive_card_min_score: int = Field(
+        default=35,
+        ge=0,
+        le=100,
+        validation_alias=AliasChoices("proactiveCardMinScore", "proactive_card_min_score"),
+        serialization_alias="proactiveCardMinScore",
+    )  # Minimum retrieval score required before proactive skill cards are injected.
+    proactive_method_inline: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("proactiveMethodInline", "proactive_method_inline"),
+        serialization_alias="proactiveMethodInline",
+    )  # Inline the top skill Method only for strong, unambiguous proactive matches.
+    subagent_profiles: dict[str, SubagentProfile] = Field(default_factory=dict)
+    max_subagent_depth: int = Field(default=2, ge=1, le=3)
     fail_on_tool_error: bool = True
     max_tool_result_chars: int = 16_000
     provider_retry_mode: Literal["standard", "persistent"] = "standard"
@@ -168,6 +202,17 @@ class AgentsConfig(Base):
     """Agent configuration."""
 
     defaults: AgentDefaults = Field(default_factory=AgentDefaults)
+
+
+class StudentModeConfig(Base):
+    """Beginner/student distribution mode settings."""
+
+    mode: Literal["general", "student"] = "general"
+    coach_name: str = Field(default="담임 선생님", min_length=1)
+    review_teacher_name: str = Field(default="엘르 선생님", min_length=1)
+    study_log_path: str = "study_log.jsonl"
+    review_queue_path: str = "review_queue.jsonl"
+    daily_review_cron_name: str = "student-mode-daily-review"
 
 
 class ProviderConfig(Base):
@@ -322,6 +367,26 @@ class ApiConfig(Base):
         )
 
 
+class RelayConfig(Base):
+    """PSK-authenticated direct LLM relay for external tools.
+
+    This is intentionally separate from the agent API. Relay requests call the
+    configured provider directly and do not enter AgentLoop, memory, skills, or
+    nanobot tools.
+    """
+
+    enabled: bool = False
+    host: str = "127.0.0.1"
+    port: int = 8910
+    timeout: float = 120.0
+    max_request_bytes: int = Field(
+        default=1024 * 1024,
+        ge=1024,
+        validation_alias=AliasChoices("maxRequestBytes", "max_request_bytes"),
+        serialization_alias="maxRequestBytes",
+    )
+
+
 class GatewayConfig(Base):
     """Gateway/server configuration."""
 
@@ -329,6 +394,20 @@ class GatewayConfig(Base):
     port: int = 18790
     restart_mode: Literal["auto", "exec", "spawn", "exit"] = "auto"
     heartbeat: HeartbeatConfig = Field(default_factory=HeartbeatConfig)
+
+
+class SkillEmbeddingConfig(Base):
+    """Optional semantic embedding configuration for skill routing."""
+
+    provider: str | None = None
+    model: str | None = None
+    dimensions: int | None = Field(default=None, ge=1)
+
+
+class SkillsConfig(Base):
+    """Skill runtime/indexing configuration."""
+
+    embedding: SkillEmbeddingConfig = Field(default_factory=SkillEmbeddingConfig)
 
 
 class MCPServerConfig(Base):
@@ -343,6 +422,48 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     tool_timeout: int = 30  # seconds before a tool call is cancelled
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
+
+
+class WebUISkillManagementRedFlagsConfig(Base):
+    """Thresholds that decide whether skill registration needs expanded review."""
+
+    min_routing_passes: int = Field(default=7, ge=0, le=10)
+    security_risk_at_least: Literal["low", "medium", "high"] = "medium"
+    security_block_at_least: Literal["low", "medium", "high"] = "high"
+    duplicate_score_at_least: float = Field(default=0.8, ge=0.0, le=1.0)
+
+
+class WebUISkillManagementConfig(Base):
+    """WebUI skill-management capability switch and governance thresholds."""
+
+    enabled: bool = False
+    draft_expire_days: int = Field(default=30, ge=1, le=365)
+    red_flags: WebUISkillManagementRedFlagsConfig = Field(
+        default_factory=WebUISkillManagementRedFlagsConfig
+    )
+
+
+class ExternalToolSkillsConfig(Base):
+    """Governance for executable external-tool setup/usage skills."""
+
+    enabled: bool = False
+    allowed_install_domains: list[str] = Field(
+        default_factory=lambda: [
+            "github.com",
+            "pypi.org",
+            "files.pythonhosted.org",
+            "registry.npmjs.org",
+        ],
+        validation_alias=AliasChoices("allowedInstallDomains", "allowed_install_domains"),
+    )
+    install_root: str = Field(
+        default="tools",
+        validation_alias=AliasChoices("installRoot", "install_root"),
+    )
+    deny_global_install: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("denyGlobalInstall", "deny_global_install"),
+    )
 
 
 def _lazy_default(module_path: str, class_name: str) -> Any:
@@ -368,6 +489,10 @@ class ToolsConfig(Base):
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
     )
+    safe_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("safeMode", "safe_mode"),
+    )  # server-side policy intent for beginner/student surfaces; CLI keeps existing defaults
     restrict_to_workspace: bool = False  # policy intent: keep tool access inside workspace when possible
     webui_allow_local_service_access: bool = Field(
         default=True,
@@ -385,6 +510,14 @@ class ToolsConfig(Base):
             "webui_allow_remote_package_install",
         ),
     )  # allow non-local WebUI clients to install optional Python packages
+    webui_skill_management: WebUISkillManagementConfig = Field(
+        default_factory=WebUISkillManagementConfig,
+        validation_alias=AliasChoices("webuiSkillManagement", "webui_skill_management"),
+    )
+    external_tool_skills: ExternalToolSkillsConfig = Field(
+        default_factory=ExternalToolSkillsConfig,
+        validation_alias=AliasChoices("externalToolSkills", "external_tool_skills"),
+    )
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
     ssrf_whitelist: list[str] = Field(default_factory=list)  # CIDR ranges to exempt from SSRF blocking (e.g. ["100.64.0.0/10"] for Tailscale)
 
@@ -393,11 +526,18 @@ class Config(BaseSettings):
     """Root configuration for nanobot."""
 
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
+    student_mode: StudentModeConfig = Field(
+        default_factory=StudentModeConfig,
+        validation_alias=AliasChoices("studentMode", "student_mode"),
+        serialization_alias="studentMode",
+    )
     channels: ChannelsConfig = Field(default_factory=ChannelsConfig)
     transcription: TranscriptionConfig = Field(default_factory=TranscriptionConfig)
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     api: ApiConfig = Field(default_factory=ApiConfig)
+    relay: RelayConfig = Field(default_factory=RelayConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
+    skills: SkillsConfig = Field(default_factory=SkillsConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
     model_presets: dict[str, ModelPresetConfig] = Field(
         default_factory=dict,
@@ -613,7 +753,12 @@ def _resolve_tool_config_refs() -> None:
     from nanobot.agent.tools.image_generation import ImageGenerationToolConfig
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
-    from nanobot.agent.tools.web import WebFetchConfig, WebSearchConfig, WebToolsConfig
+    from nanobot.agent.tools.web import (
+        WebEvidenceConfig,
+        WebFetchConfig,
+        WebSearchConfig,
+        WebToolsConfig,
+    )
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -623,6 +768,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebToolsConfig = WebToolsConfig  # type: ignore[attr-defined]
     mod.WebSearchConfig = WebSearchConfig  # type: ignore[attr-defined]
     mod.WebFetchConfig = WebFetchConfig  # type: ignore[attr-defined]
+    mod.WebEvidenceConfig = WebEvidenceConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
 

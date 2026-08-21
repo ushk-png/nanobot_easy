@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "What is the difference between OAuth and API keys?", "expected": "answer-comparison"},
+    {"query": "Compare optimistic locking and pessimistic locking conceptually.", "expected": "answer-comparison"},
+    {"query": "How are candidate and verified skills different?", "expected": "answer-comparison"},
+    {"query": "A vs B meaning: semantic search vs keyword search.", "expected": "answer-comparison"},
+    {"query": "Which concept applies here, retry or idempotency?", "expected": "answer-comparison"},
+    {"query": "Which deployment option should I choose for this team?", "expected": "compare-options"},
+    {"query": "Tell me step by step how to configure OAuth.", "expected": "answer-howto"},
+    {"query": "This login flow fails with a 401. Diagnose it.", "expected": "answer-diagnosis"},
+    {"query": "Review this spec for missing risks.", "expected": "document-review"},
+    {"query": "Summarize this document into decisions and action items.", "expected": "meeting-notes"}
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Turn this meeting transcript into decisions and action items.", "expected": "meeting-notes"},
+    {"query": "Extract owners and due dates from these notes.", "expected": "meeting-notes"},
+    {"query": "Summarize this meeting with unresolved questions.", "expected": "meeting-notes"},
+    {"query": "Create meeting minutes from this rough transcript.", "expected": "meeting-notes"},
+    {"query": "List decisions, action items, and follow-ups from the call.", "expected": "meeting-notes"},
+    {"query": "Summarize this article.", "expected": "summarize-document"},
+    {"query": "Review this meeting memo for risks.", "expected": "document-review"},
+    {"query": "Draft a follow-up email.", "expected": "email-draft"},
+    {"query": "Compare the two options discussed.", "expected": "compare-options"},
+    {"query": "Go back to the coding topic from earlier.", "expected": "topic-recall"}
+  ]
+}

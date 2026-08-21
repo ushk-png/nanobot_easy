@@ -18,8 +18,8 @@ import type {
   OutboundMedia,
   GoalStateWsPayload,
   ToolProgressEvent,
-  UIImage,
   UIFileEdit,
+  UIMediaAttachment,
   UIMessage,
   UITurnPhase,
   WorkspaceScopePayload,
@@ -439,7 +439,7 @@ function findFileEditTraceIndex(
  * blob URL even after the server persists the file under a different name. */
 export interface SendImage {
   media: OutboundMedia;
-  preview: UIImage;
+  preview: UIMediaAttachment;
 }
 
 export interface SendOptions {
@@ -1140,7 +1140,7 @@ export function useNanobotStream(
             turnPhase: "user",
             turnSeq: 0,
             createdAt: Date.now(),
-            ...(previews ? { images: previews } : {}),
+            ...(previews ? { media: previews } : {}),
             ...(options?.cliApps?.length ? { cliApps: options.cliApps } : {}),
             ...(options?.mcpPresets?.length ? { mcpPresets: options.mcpPresets } : {}),
           },

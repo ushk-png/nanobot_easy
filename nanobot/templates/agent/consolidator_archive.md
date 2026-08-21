@@ -9,6 +9,11 @@ Only SNIP facts deserve a non-[skip] mark:
 Output one fact per line in this format:
 - [mark] fact content
 
+When multiple topics appear, group facts by topic in the fact content itself.
+Preserve unresolved items and concrete identifiers such as file paths, function
+names, class names, issue IDs, session keys, URLs, and command names. Do not
+collapse unrelated topics into one generic summary line.
+
 Marks (choose the best match):
 - [permanent] Core preferences, personal traits, habits — never becomes stale
 - [durable] Technical discoveries, project knowledge, config details — valid for months

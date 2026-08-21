@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "Let's continue what we were doing earlier.", "expected": "topic-recall"},
+    {"query": "Go back to the coding topic from before.", "expected": "topic-recall"},
+    {"query": "What was that file we edited earlier?", "expected": "topic-recall"},
+    {"query": "Resume the previous nanobot skill UI task.", "expected": "topic-recall"},
+    {"query": "Restore context from the earlier design discussion.", "expected": "topic-recall"},
+    {"query": "Summarize this new document.", "expected": "summarize-document"},
+    {"query": "Diagnose this new error.", "expected": "answer-diagnosis"},
+    {"query": "Create a new skill.", "expected": "skill-creator"},
+    {"query": "Review this code snippet.", "expected": "code-review"},
+    {"query": "Draft an email.", "expected": "email-draft"}
+  ]
+}

@@ -8,6 +8,7 @@ import {
   Settings,
   SquarePen,
   Blocks,
+  Wrench,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
 
@@ -37,9 +38,10 @@ interface SidebarProps {
   onOpenSettings: () => void;
   onOpenApps: () => void;
   onOpenSkills: () => void;
+  onOpenTools: () => void;
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
-  activeUtility?: "apps" | "skills" | "automations" | null;
+  activeUtility?: "apps" | "skills" | "tools" | "automations" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -167,6 +169,13 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenSkills}
           active={props.activeUtility === "skills"}
           icon={<Brain className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.tools", { defaultValue: "App Tools" })}
+          onClick={props.onOpenTools}
+          active={props.activeUtility === "tools"}
+          icon={<Wrench className="h-4 w-4" />}
         />
         <SidebarActionButton
           collapsed={collapsed}

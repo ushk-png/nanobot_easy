@@ -60,6 +60,77 @@ Messages flow through an async `MessageBus` (`nanobot/bus/queue.py`) that decoup
 - Security boundaries: [`.agent/security.md`](.agent/security.md)
 - Common gotchas: [`.agent/gotchas.md`](.agent/gotchas.md)
 
+### `nanobot skill …` workspace auto-discovery
+
+Every `nanobot skill …` subcommand (list, stats, reindex, audit, approve,
+promote, deprecate, test-routing, …) resolves the runtime workspace in this
+order:
+
+1. `--workspace / -w` explicit CLI arg
+2. `NANOBOT_WORKSPACE` environment variable
+3. Auto-discovery: walk up from the current directory (max 6 levels) and
+   accept the first path whose `.skillstore/skillstore.db` exists. Candidates
+   at each level: `./`, `./.local/workspace`, `./.nanobot/workspace`,
+   `./workspace`.
+4. Default: `~/.nanobot/workspace` (nanobot's global default)
+
+The CLI **always** prints the resolved path to stderr on the first line, e.g.
+`nanobot skill: workspace=/…/nanobot_skill/.local/workspace (source=discovered)`.
+If auto-discovery falls back to the default while the current dir looks like a
+project (has `pyproject.toml`, `.git`, or `package.json`) an additional warning
+prompts the user to set `NANOBOT_WORKSPACE` or pass `--workspace`.
+
+**Debugging skill-approval mismatches:** always read the stderr `workspace=…`
+line to confirm the CLI is talking to the same DB the runtime writes to. A
+bare `nanobot skill list` from outside a project targets the default DB and
+will not see drafts pending in a project workspace.
+
+## Execution Continuity Guardrails
+
+When a user asks for execution against a concrete target, do not stop after
+planning, routing, bookkeeping, or skill selection. Routing is not completion.
+
+- Treat requests such as `테스트해줘`, `확인해줘`, `찾아줘`, `고쳐줘`, `실행해줘`,
+  `보여줘`, or a message that includes a concrete URL/path/file/ID as execution
+  requests when the context implies work should be performed.
+- After selecting a skill for an execution request, continue in the same turn to
+  the first applicable verification or execution tool call, unless explicit
+  approval is required for a risky side effect.
+- A response that only says what will be done, records `skill_decision`, starts a
+  goal, or checks routing is incomplete unless the user's request was only to
+  plan or explain.
+- Before ending the turn, verify that one of the task's concrete done states was
+  reached: successful result, clearly labeled approximate/best-effort result, or
+  a blocker that states what was attempted and what input/permission is missing.
+- For each execution-capable skill, keep a skill-specific Done Criteria section
+  when the completion state is not obvious.
+- If a tool fails, retry once with a different practical approach when safe; if
+  still blocked, report the attempts and next required input instead of silently
+  stopping.
+
+## Staged Workflow Execution Guardrails
+
+When a user defines or uses a staged/manual-approval workflow, execute exactly
+what has been approved and stop before the next stage.
+
+- Treat phrases such as `Stage N 실행해줘`, `Stage N 진행해줘`, `N단계 해줘`,
+  or `계속 진행해줘` as explicit approval for that stage when the stage is
+  already known from the conversation.
+- Do not ask for confirmation again for an already-approved stage unless a
+  required input is missing or the requested action is destructive beyond that
+  stage's stated scope.
+- Boundary statements are not completion. After stating the boundary, perform
+  the approved stage's actual deliverables before ending the turn.
+- Do not confuse bookkeeping, routing checks, plans, or tool setup with the
+  requested work. A stage is complete only when its promised output has been
+  produced or its approved actions have been executed and verified.
+- Before replying, check that the approved stage's deliverables are included.
+  If not, continue working rather than asking whether to continue.
+- Lock only future stages (`N+1` and later). Do not apply the approval gate to
+  the current stage after the user has approved it.
+- End staged responses with the next-stage boundary, e.g.
+  `다음 단계(N+1)는 승인 전까지 실행하지 않습니다.`
+
 ## Contribution Flow
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for contribution flow and PR guidelines.

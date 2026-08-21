@@ -299,21 +299,60 @@ describe("App layout", () => {
     expect(asideClassNames.some((cls) => cls.includes("lg:block"))).toBe(true);
   });
 
-  it("places Automations after Skills in the main sidebar", async () => {
+  it("places Tools between Skills and Automations in the main sidebar", async () => {
     render(<App />);
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
     const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
+    const toolsButton = within(sidebar).getByRole("button", { name: "App Tools" });
     const automationsButton = within(sidebar).getByRole("button", { name: "Automations" });
 
     expect(appsButton.compareDocumentPosition(skillsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    expect(skillsButton.compareDocumentPosition(toolsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
     expect(
-      skillsButton.compareDocumentPosition(automationsButton) &
+      toolsButton.compareDocumentPosition(automationsButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
+  });
+
+  it("opens Tools from the main sidebar", async () => {
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/settings/cli-apps": { apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" },
+      "/api/settings/mcp-presets": { presets: [], installed_count: 0 },
+      "/api/webui/skills": {
+        skills: [],
+        installed_tools: [{
+          name: "yq",
+          description: "YAML query tool",
+          installed_at: "2026-07-10",
+          version: "3.4.3",
+          status: "running",
+          last_checked_at: "2026-07-10T00:00:00Z",
+          path: "tools/yq/.venv/bin/yq",
+          source: "https://pypi.org/project/yq/",
+        }],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "App Tools" }));
+
+    expect(await screen.findByRole("heading", { name: "App Tools" })).toBeInTheDocument();
+    expect(screen.getByText("Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.")).toBeInTheDocument();
+    expect(screen.getByText("YAML query tool")).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "App Tools" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.title).toBe("App Tools · nanobot");
   });
 
   it("opens Skills from the main sidebar", async () => {
@@ -358,8 +397,8 @@ describe("App layout", () => {
     fireEvent.click(skillsButton);
 
     expect(await screen.findByRole("heading", { name: "Skills" })).toBeInTheDocument();
-    expect(screen.getByText("cron")).toBeInTheDocument();
-    expect(screen.getByText("github")).toBeInTheDocument();
+    expect(screen.getAllByText("cron").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("github").length).toBeGreaterThan(0);
     expect(screen.getByText("Missing: CLI: gh")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
@@ -383,6 +422,379 @@ describe("App layout", () => {
     expect(screen.getByText("Missing CLI")).toBeInTheDocument();
     fireEvent.click(screen.getByText("Raw SKILL.md"));
     expect(screen.getByText(/Use GitHub CLI/)).toBeInTheDocument();
+  });
+
+  it("opens the registry-backed skill management view when enabled", async () => {
+    const managedSkill = {
+      id: "skill-1",
+      name: "review-helper",
+      version: "1.0.0",
+      status: "candidate",
+      risk_level: "low",
+      category: "review",
+      requires_exec: false,
+      path: "/workspace/skills/review-helper/SKILL.md",
+      source: "workspace",
+      description: "Review code changes.",
+      when_to_use: "",
+      when_not_to_use: "",
+      required_tools: [],
+      usage_count: 4,
+      success_count: 3,
+      failure_count: 1,
+      routing_failure_count: 0,
+      success_rate: 0.75,
+      content_hash: "abc",
+      created_at: "2026-07-10T00:00:00Z",
+      updated_at: "2026-07-10T00:00:00Z",
+    };
+    const draftSkill = {
+      ...managedSkill,
+      id: "skill-2",
+      name: "draft-helper",
+      status: "draft",
+      description: "Waiting for registration.",
+      usage_count: 0,
+      success_count: 0,
+      failure_count: 0,
+      success_rate: null,
+    };
+    mockFetchRoutes({
+      "/api/settings": baseSettingsPayload(),
+      "/api/settings/cli-apps": { apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" },
+      "/api/settings/mcp-presets": { presets: [], installed_count: 0 },
+      "/api/webui/skills": { skills: [] },
+      "/api/skills/manage": {
+        skills: [draftSkill, managedSkill],
+        installed_tools: [{
+          name: "yq",
+          description: "YAML query tool",
+          installed_at: "2026-07-10",
+          version: "3.4.3",
+          status: "running",
+          last_checked_at: "2026-07-10T00:00:00Z",
+          path: "tools/yq/.venv/bin/yq",
+          source: "https://pypi.org/project/yq/",
+        }],
+        drafts: [{
+          draft_id: "draft-ready-card",
+          name: "ready-web-draft",
+          status: "ready",
+          markdown: "---\nname: ready-web-draft\n---\n# Ready Web Draft",
+          review: { status: "ready", summary: "Ready for registration." },
+          routing_cases: [{ query: "ready web draft", expected: "ready-web-draft" }],
+          governance: {
+            can_register: true,
+            requires_confirmation: false,
+            blocked: false,
+            blocking: [],
+            confirmations: [],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        }],
+        status_counts: { draft: 2, candidate: 1 },
+      },
+      "/api/skills/manage/review-helper": {
+        skill: managedSkill,
+        raw_markdown: "---\nname: review-helper\n---\n# Review Helper",
+        relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+        traces: [{
+          trace_id: "trace-1",
+          ts: "2026-07-10T00:00:00Z",
+          session_key: "websocket:test",
+          query_digest: "review this diff",
+          candidates: [],
+          selected_skill: "review-helper",
+          selection_reason: "cold",
+          executed_by: "main",
+          wave_no: null,
+          gate_result: "ok",
+          user_feedback: null,
+          notes: null,
+        }],
+      },
+      "/api/skills/manage/review-helper/test": {
+        available: true,
+        cases_path: "/tmp/workspace/skills/review-helper/routing_cases.json",
+        passed: 1,
+        total: 1,
+        accuracy: 1,
+        rows: [{
+          query: "review this diff",
+          expected: "review-helper",
+          actual: "review-helper",
+          ok: true,
+        }],
+      },
+      "/api/skills/manage/draft-helper": {
+        skill: draftSkill,
+        raw_markdown: "---\nname: draft-helper\n---",
+        relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+        traces: [],
+      },
+      "/api/skills/manage/drafts/compose": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "composing",
+          markdown: "",
+          review: { status: "composing", summary: "Composer is generating the draft." },
+          routing_cases: [],
+          governance: {
+            can_register: false,
+            requires_confirmation: false,
+            blocked: false,
+            blocking: [],
+            confirmations: [],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+      },
+      "/api/skills/manage/drafts/draft-web-created": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "ready",
+          markdown: "---\nname: web-created\n---\n# Web Created\n\n## Method\nUse it.",
+          review: {
+            status: "ready",
+            summary: "placeholder",
+            routing_test: { passed: 6, total: 10 },
+          },
+          routing_cases: [{ query: "web created", expected: "web-created" }],
+          governance: {
+            can_register: false,
+            requires_confirmation: true,
+            blocked: false,
+            blocking: [],
+            confirmations: [{ kind: "routing", passed: 6, total: 10 }],
+          },
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+      },
+      "/api/skills/manage/drafts/draft-web-created/approve": {
+        draft: {
+          draft_id: "draft-web-created",
+          name: "web-created",
+          status: "approved",
+          markdown: "---\nname: web-created\n---\n# Web Created",
+          review: { status: "ready" },
+          routing_cases: [{ query: "web created", expected: "web-created" }],
+          created_at: "2026-07-10T00:00:00Z",
+          updated_at: "2026-07-10T00:00:00Z",
+        },
+        skill: {
+          ...managedSkill,
+          id: "skill-3",
+          name: "web-created",
+          status: "candidate",
+          description: "Web created skill.",
+        },
+      },
+      "/api/skills/manage/import": {
+        import: {
+          mode: "frontmatter",
+          fields: {
+            name: "gcalcli-calendar",
+            description: "Manage Google Calendar via gcalcli.",
+            trigger: "check my calendar\nadd calendar event",
+            method: "# gcalcli-calendar\n\n## Method\n1. Call gcalcli.",
+            category: "general",
+            risk_level: "medium",
+            requires_exec: true,
+          },
+          normalized_markdown: "---\nname: gcalcli-calendar\n---\n# gcalcli-calendar",
+          estimated_fields: ["category"],
+          validation: { errors: [], warnings: ["category was not declared; using general."] },
+          preserved_method: true,
+        },
+      },
+      "/api/skills/manage/drafts/draft-ready-card/discard": {
+        draft_id: "draft-ready-card",
+        deleted: true,
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+
+    expect(await screen.findByText(/Registry-backed skill management/)).toBeInTheDocument();
+    expect(screen.getByText("Installed skills")).toBeInTheDocument();
+    expect(screen.getByText(/Operational skills/)).toBeInTheDocument();
+    expect(screen.queryByText("YAML query tool")).not.toBeInTheDocument();
+    expect(screen.getByText("Inbox")).toBeInTheDocument();
+    expect(screen.getByText("draft-helper")).toBeInTheDocument();
+    expect(screen.getByText("ready-web-draft")).toBeInTheDocument();
+    expect(screen.getByText("Ready for review and registration.")).toBeInTheDocument();
+    expect(screen.getAllByText("review-helper").length).toBeGreaterThan(0);
+    expect(await screen.findByText("review this diff")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /verified로 승격/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Run test" }));
+    expect(await screen.findByText("1/1 passed")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Start from scratch instead" }));
+    fireEvent.change(await screen.findByPlaceholderText("review-renewal-notes"), {
+      target: { value: "web-created" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("Review renewal notes and surface customer risk."), {
+      target: { value: "Web created skill." },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/review this renewal/), {
+      target: { value: "web created" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Create draft" }));
+    expect(await screen.findByText("Draft ready")).toBeInTheDocument();
+    expect(screen.getByText("expected web-created")).toBeInTheDocument();
+    expect(screen.getByText("Confirmation required")).toBeInTheDocument();
+    expect(screen.getByText("Routing test passed 6/10.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Register" })).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText(/Internal-only skill/), {
+      target: { value: "Known narrow trigger set; acceptable for local use." },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Register" }));
+    expect(await screen.findByText("Registered web-created.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "New skill" }));
+    expect(screen.queryByPlaceholderText("review-renewal-notes")).not.toBeInTheDocument();
+    fireEvent.change(
+      await screen.findByPlaceholderText(/Paste a ClawHub SKILL\.md/),
+      { target: { value: "---\nname: gcalcli-calendar\n---\n# gcalcli-calendar" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Import & preview" }));
+    expect(await screen.findByDisplayValue("gcalcli-calendar")).toBeInTheDocument();
+    expect(screen.getByText("estimated")).toBeInTheDocument();
+    expect(screen.getByText("category was not declared; using general.")).toBeInTheDocument();
+    expect(screen.getByText("Method content is verbatim from the pasted source.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(await screen.findByPlaceholderText(/Paste a ClawHub SKILL\.md/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
+    fireEvent.click(screen.getByText("ready-web-draft"));
+    expect(await screen.findByText("Draft ready")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Register" })).not.toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Discard" }));
+    expect(screen.getByRole("button", { name: "Confirm discard" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Confirm discard" }));
+    expect(await screen.findByText("Discarded draft ready-web-draft.")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("draft-helper"));
+    expect(await screen.findByRole("button", { name: /등록/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /반려/ })).toBeInTheDocument();
+  });
+
+  it("opens the managed skill editor and confirms major updates", async () => {
+    const managedSkill = {
+      id: "skill-1",
+      name: "review-helper",
+      version: "1.0.0",
+      status: "verified",
+      risk_level: "low",
+      category: "review",
+      requires_exec: false,
+      path: "/tmp/workspace/skills/review-helper/SKILL.md",
+      source: "workspace",
+      description: "Review helper.",
+      when_to_use: "",
+      when_not_to_use: "",
+      required_tools: [],
+      usage_count: 4,
+      success_count: 3,
+      failure_count: 1,
+      routing_failure_count: 0,
+      success_rate: 0.75,
+      content_hash: "abc",
+      created_at: "2026-07-10T00:00:00Z",
+      updated_at: "2026-07-10T00:00:00Z",
+    };
+    const rawMarkdown = "---\nname: review-helper\n---\n# Review Helper\n\n## Method\nOld method.";
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(baseSettingsPayload());
+      if (url === "/api/settings/cli-apps") {
+        return jsonResponse({ apps: [], installed_count: 0, catalog_updated_at: "2026-04-18" });
+      }
+      if (url === "/api/settings/mcp-presets") {
+        return jsonResponse({ presets: [], installed_count: 0 });
+      }
+      if (url === "/api/webui/skills") return jsonResponse({ skills: [] });
+      if (url === "/api/skills/manage") {
+        return jsonResponse({
+          skills: [managedSkill],
+          status_counts: { verified: 1 },
+        });
+      }
+      if (url === "/api/skills/manage/review-helper") {
+        return jsonResponse({
+          skill: managedSkill,
+          raw_markdown: rawMarkdown,
+          relations: { conflicts_with: [], supersedes: [], fallback_to: [] },
+          traces: [],
+        });
+      }
+      if (url === "/api/skills/manage/review-helper/update?dry_run=true") {
+        return jsonResponse({
+          assessment: {
+            kind: "major",
+            reasons: ["Method changed."],
+            changed_fields: ["method"],
+            current_status: "verified",
+            next_status: "candidate",
+            requires_revalidation: true,
+          },
+          skill: managedSkill,
+          dry_run: true,
+        });
+      }
+      if (url === "/api/skills/manage/review-helper/update") {
+        return jsonResponse({
+          assessment: {
+            kind: "major",
+            reasons: ["Method changed."],
+            changed_fields: ["method"],
+            current_status: "verified",
+            next_status: "candidate",
+            requires_revalidation: true,
+          },
+          skill: { ...managedSkill, status: "candidate" },
+          dry_run: false,
+        });
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Skills" }));
+
+    expect(await screen.findByText(/Registry-backed skill management/)).toBeInTheDocument();
+    expect(await screen.findByText("Old method.")).toBeInTheDocument();
+    fireEvent.click(await screen.findByRole("button", { name: "Edit" }));
+    const editor = await screen.findByRole("textbox", { name: "Skill instructions editor" });
+    fireEvent.change(editor, { target: { value: rawMarkdown.replace("Old method.", "New method.") } });
+    fireEvent.click(screen.getByRole("button", { name: "Save instructions" }));
+
+    expect(await screen.findByText("Method changed")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save anyway" }));
+    expect(await screen.findByText("Skill instructions saved.")).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/skills/manage/review-helper/update?dry_run=true",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "X-Nanobot-Skill-Update": expect.any(String),
+        }),
+      }),
+    );
   });
 
   it("opens Automations from the main sidebar", async () => {

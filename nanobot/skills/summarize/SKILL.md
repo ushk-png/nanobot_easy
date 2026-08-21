@@ -2,7 +2,29 @@
 name: summarize
 description: Summarize or extract text/transcripts from URLs, podcasts, and local files (great fallback for “transcribe this YouTube/video”).
 homepage: https://summarize.sh
-metadata: {"nanobot":{"emoji":"🧾","requires":{"bins":["summarize"]},"install":[{"id":"brew","kind":"brew","formula":"steipete/tap/summarize","bins":["summarize"],"label":"Install summarize (brew)"}]}}
+metadata:
+  nanobot:
+    id: builtin-summarize
+    version: 1.0.0
+    status: verified
+    category: external.tool
+    risk_level: medium
+    requires_exec: true
+    conflicts_with:
+      - summarize-document
+    required_tools:
+      - exec
+    emoji: 🧾
+    requires:
+      bins:
+        - summarize
+    install:
+      - id: brew
+        kind: brew
+        formula: steipete/tap/summarize
+        bins:
+          - summarize
+        label: Install summarize (brew)
 ---
 
 # Summarize
@@ -16,6 +38,13 @@ Use this skill immediately when the user asks any of:
 - “what’s this link/video about?”
 - “summarize this URL/article”
 - “transcribe this YouTube/video” (best-effort transcript extraction; no `yt-dlp` needed)
+
+## When not to use
+
+- Summarizing a pasted report, memo, article, transcript, or other supplied
+  text with no URL — use `summarize-document`.
+- Use `summarize-document` for pasted text or a supplied document when no
+  external CLI extraction is needed.
 
 ## Quick start
 

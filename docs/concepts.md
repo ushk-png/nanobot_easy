@@ -14,6 +14,7 @@ nanobot has one small core loop and several ways to enter it:
 | Providers | LLM backends such as OpenRouter, Anthropic, OpenAI, Bedrock, Ollama, vLLM, and other OpenAI-compatible APIs |
 | Channels | User-facing transports such as CLI, WebUI/WebSocket, Telegram, Discord, Slack, Feishu, WeChat, Email, Mattermost, and others |
 | Tools | Capabilities the model may call, including files, shell, web search/fetch, MCP, cron, image generation, and subagents |
+| Skills | Markdown instruction packages that teach focused workflows and can be loaded on demand |
 | Memory | Workspace files and session history that keep useful context across turns |
 | Gateway | Long-running process that connects enabled channels and serves the health endpoint |
 
@@ -128,6 +129,47 @@ Tools are discovered automatically from built-in modules and plugin entry points
 - subagents and runtime self-inspection.
 
 Security-sensitive controls live in [`configuration.md#security`](./configuration.md#security). For production or shared chat apps, also configure channel access controls such as `allowFrom`, pairing, or WebSocket tokens.
+
+## Skills and Delegation
+
+Skills are Markdown instruction packages stored in three places:
+
+| Source | Location | Purpose |
+|---|---|---|
+| Built-in skills | `nanobot/skills/` | Packaged workflows such as summarization, research, debugging, memory, and integrations |
+| System skills | `nanobot/skills-system/` | Orchestration and skill-management workflows such as composite tasks and skill review |
+| Workspace skills | `<workspace>/skills/` | Custom skills for one nanobot instance |
+
+The Skills view in the WebUI shows the catalog of loadable skills. That does
+not mean every skill is inserted into every model call. Always-on skills are
+preloaded; other skills are discovered from summaries or through the
+`skill_search` tool when the request needs a focused workflow.
+
+The skill registry is workspace-scoped. It indexes skill metadata, records
+routing traces and outcomes, and powers reports such as hot-path and lifecycle
+checks. Rebuild it after adding or editing skills:
+
+```bash
+nanobot skill reindex --config ./config.json --workspace ./workspace
+```
+
+When WebUI skill management is enabled, the browser Skills view uses the same
+registry service as the CLI. Drafts are reviewed before they become searchable
+candidate skills, candidates can later be promoted to verified, and system
+skills remain repository-managed and read-only from runtime management paths.
+
+The packaged starter catalog focuses on workflows where procedure changes answer
+quality: comparison, how-to guidance, diagnosis, document work, research
+synthesis, coding review/debug planning, data interpretation, translation,
+email drafting, and decision notes. Starter catalog skills include
+`routing_cases.json` files so routing behavior can be measured as the catalog
+evolves.
+
+For complex tasks, nanobot can use subagents. `spawn` starts background work and
+returns later through the message bus; `delegate` waits for the subagent result
+and returns it directly as a tool result. Subagent profiles define role-specific
+tool allow-lists, preloaded skills, model overrides, and nesting permissions.
+`maxSubagentDepth` limits recursive delegation.
 
 ## Background Jobs
 

@@ -58,7 +58,20 @@ export function readStoredLocale(): SupportedLocale | null {
 }
 
 export function resolveInitialLocale(): SupportedLocale {
-  return readStoredLocale() ?? defaultLocale;
+  const stored = readStoredLocale();
+  if (stored) return stored;
+  if (typeof navigator === "undefined") return defaultLocale;
+  const candidates = [
+    ...(Array.isArray(navigator.languages) ? navigator.languages : []),
+    navigator.language,
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    const normalized = normalizeLocale(candidate);
+    if (normalized !== defaultLocale || candidate.toLowerCase().startsWith(defaultLocale)) {
+      return normalized;
+    }
+  }
+  return defaultLocale;
 }
 
 export function persistLocale(locale: SupportedLocale): void {

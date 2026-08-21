@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "How do I enable WebUI skill management?", "expected": "answer-howto"},
+    {"query": "Walk me through setting up a Telegram bot token.", "expected": "answer-howto"},
+    {"query": "What are the steps to reindex nanobot skills?", "expected": "answer-howto"},
+    {"query": "How should I configure OAuth for a local tool?", "expected": "answer-howto"},
+    {"query": "Give me setup steps for a safe staging deployment.", "expected": "answer-howto"},
+    {"query": "What is the difference between OAuth and API keys?", "expected": "answer-comparison"},
+    {"query": "This setup command failed with permission denied. Diagnose it.", "expected": "answer-diagnosis"},
+    {"query": "Create a reusable skill for this workflow.", "expected": "skill-creator"},
+    {"query": "Install this GitHub CLI utility for me.", "expected": "clawhub"},
+    {"query": "Review this onboarding guide for clarity.", "expected": "document-review"}
+  ]
+}
