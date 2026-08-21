@@ -265,7 +265,15 @@ async def test_registry_preserves_successful_exec_output_that_starts_with_error(
     tool.execute = AsyncMock(return_value=output)
     registry.register(tool)
 
-    result = await registry.execute("exec", {})
+    result = await registry.execute(
+        "exec",
+        {
+            "intent_summary": "Run a harmless command and preserve its output",
+            "target": "exec session",
+            "scope": "once",
+            "reversible": True,
+        },
+    )
 
     assert result == output
 
@@ -321,3 +329,137 @@ def test_unregister_invalidates_cache() -> None:
     second = registry.get_definitions()
     assert first is not second
     assert len(second) == 1
+
+
+def test_state_changing_tool_definition_requires_intent_metadata() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        _FakeTool(
+            "write_file",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["path", "content"],
+            },
+        )
+    )
+
+    definition = registry.get_definitions()[0]["function"]
+    params = definition["parameters"]
+
+    for key in ["intent_summary", "target", "scope", "reversible"]:
+        assert key in params["properties"]
+        assert key in params["required"]
+    assert "state-changing tool" in definition["description"]
+
+
+def test_prepare_call_rejects_state_changing_tool_without_intent_metadata() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        _FakeTool(
+            "write_file",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["path", "content"],
+            },
+        )
+    )
+
+    tool, params, error = registry.prepare_call("write_file", {"path": "a.txt", "content": "x"})
+
+    assert tool is not None
+    assert params == {"path": "a.txt", "content": "x"}
+    assert error is not None
+    assert "missing required intent_summary" in error
+    assert "missing required target" in error
+    assert "missing required scope" in error
+    assert "missing required reversible" in error
+
+
+def test_prepare_call_strips_intent_metadata_before_execution_params() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        _FakeTool(
+            "write_file",
+            {
+                "type": "object",
+                "properties": {"path": {"type": "string"}, "content": {"type": "string"}},
+                "required": ["path", "content"],
+                "additionalProperties": False,
+            },
+        )
+    )
+
+    tool, params, error = registry.prepare_call(
+        "write_file",
+        {
+            "path": "a.txt",
+            "content": "x",
+            "intent_summary": "Write a one-off file",
+            "target": "a.txt",
+            "scope": "once",
+            "reversible": True,
+        },
+    )
+
+    assert tool is not None
+    assert error is None
+    assert params == {"path": "a.txt", "content": "x"}
+
+
+def test_prepare_call_validates_intent_metadata_types() -> None:
+    registry = ToolRegistry()
+    registry.register(_FakeTool("message", {"type": "object", "properties": {}, "required": []}))
+
+    tool, params, error = registry.prepare_call(
+        "message",
+        {
+            "intent_summary": "",
+            "target": "telegram:8580974491",
+            "scope": "forever",
+            "reversible": "yes",
+        },
+    )
+
+    assert tool is not None
+    assert params == {}
+    assert error is not None
+    assert "intent_summary must be at least 1 chars" in error
+    assert "scope must be one of ['once', 'persistent']" in error
+    assert "reversible should be boolean" in error
+
+
+def test_conditional_tool_requires_metadata_only_for_changing_actions() -> None:
+    registry = ToolRegistry()
+    registry.register(
+        _FakeTool(
+            "cron",
+            {
+                "type": "object",
+                "properties": {"action": {"type": "string"}},
+                "required": ["action"],
+            },
+        )
+    )
+
+    _tool, params, error = registry.prepare_call("cron", {"action": "list"})
+    assert error is None
+    assert params == {"action": "list"}
+
+    _tool, params, error = registry.prepare_call("cron", {"action": "add"})
+    assert error is not None
+    assert "missing required intent_summary" in error
+
+    _tool, params, error = registry.prepare_call(
+        "cron",
+        {
+            "action": "remove",
+            "intent_summary": "Remove one scheduled job",
+            "target": "job:abc",
+            "scope": "persistent",
+            "reversible": False,
+        },
+    )
+    assert error is None
+    assert params == {"action": "remove"}
