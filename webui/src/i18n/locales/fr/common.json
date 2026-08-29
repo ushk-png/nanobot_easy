@@ -58,7 +58,10 @@
     "automations": "Automatisations",
     "skills": {
       "title": "Compétences"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "Retour au chat",
@@ -82,7 +85,9 @@
       "mcp": "MCP",
       "apps": "Applications",
       "automations": "Automatisations",
-      "skills": "Compétences"
+      "skills": "Compétences",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "Interface utilisateur",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "Sélectionner un projet",
         "default": "Autorisation par défaut",
         "full": "Accès complet"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "Faire défiler vers le bas",
     "loadEarlier": "Charger les messages précédents",

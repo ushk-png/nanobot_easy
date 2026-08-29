@@ -58,7 +58,10 @@
     "automations": "Otomasi",
     "skills": {
       "title": "Skill"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "Kembali ke chat",
@@ -82,7 +85,9 @@
       "mcp": "MCP",
       "apps": "Aplikasi",
       "automations": "Otomasi",
-      "skills": "Skill"
+      "skills": "Skill",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "Antarmuka",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "Pilih proyek",
         "default": "Izin default",
         "full": "Akses penuh"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "Gulir ke bawah",
     "loadEarlier": "Muat pesan sebelumnya",

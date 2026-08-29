@@ -796,6 +796,13 @@ def settings_payload(
                 "use_jina_reader": config.tools.web.fetch.use_jina_reader,
             },
         },
+        "agent_tools": {
+            "web_enabled": config.tools.web.enable,
+            "file_enabled": config.tools.file.enable,
+            "exec_enabled": exec_config.enable,
+            "cli_apps_enabled": config.tools.cli_apps.enable,
+            "image_generation_enabled": image_config.enabled,
+        },
         "image_generation": {
             "enabled": image_config.enabled,
             "provider": image_config.provider,
@@ -861,6 +868,7 @@ def settings_payload(
             "review_queue_path": config.student_mode.review_queue_path,
             "daily_review_cron_name": config.student_mode.daily_review_cron_name,
         },
+        "agent_profiles": _agent_profiles_rows(config),
         "advanced": {
             "restrict_to_workspace": config.tools.restrict_to_workspace,
             "workspace_sandbox": sandbox_status.as_dict(),
@@ -1666,3 +1674,180 @@ def update_student_mode_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     return settings_payload(requires_restart=changed)
+
+
+def update_agent_tools_settings(query: QueryParams) -> dict[str, Any]:
+    """Toggle built-in Agent Tools (not App Tools / external programs)."""
+    config = load_config()
+    changed = False
+
+    for query_key, target in [
+        ("web_enabled", config.tools.web),
+        ("file_enabled", config.tools.file),
+        ("exec_enabled", config.tools.exec),
+        ("cli_apps_enabled", config.tools.cli_apps),
+    ]:
+        raw = _query_first(query, query_key)
+        if raw is None:
+            continue
+        parsed = _parse_bool(raw, query_key)
+        if target.enable != parsed:
+            target.enable = parsed
+            changed = True
+
+    raw_image = _query_first(query, "image_generation_enabled")
+    if raw_image is not None:
+        parsed_image = _parse_bool(raw_image, "image_generation_enabled")
+        if config.tools.image_generation.enabled != parsed_image:
+            config.tools.image_generation.enabled = parsed_image
+            changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload(requires_restart=changed)
+
+
+# ---------------------------------------------------------------------------
+# Agent management (nanobot/config/schema.py SubagentProfile CRUD)
+# ---------------------------------------------------------------------------
+
+_DEFAULT_AGENT_ICON = "\U0001f4a1"  # 💡
+_AGENT_NAME_MAX_LEN = 60
+_AGENT_REQUIREMENTS_MAX_LEN = 2000
+
+
+def _agent_icon_map(config: Any) -> dict[str, str]:
+    """Icons are display-only and not part of SubagentProfile; store them in a
+    workspace-local sidecar file instead of the core config schema."""
+    path = Path(config.workspace_path).expanduser() / ".nanobot" / "agent_icons.json"
+    if not path.exists():
+        return {}
+    try:
+        import json
+
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+def _save_agent_icon_map(config: Any, icons: dict[str, str]) -> None:
+    import json
+
+    path = Path(config.workspace_path).expanduser() / ".nanobot" / "agent_icons.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(icons, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _agent_profiles_rows(config: Any) -> list[dict[str, Any]]:
+    icons = _agent_icon_map(config)
+    hidden = {"study-coach", "review-teacher"}
+    profiles = config.agents.defaults.subagent_profiles
+    rows: list[dict[str, Any]] = []
+    for name, profile in profiles.items():
+        if name in hidden:
+            continue
+        rows.append(
+            {
+                "name": name,
+                "icon": icons.get(name, _DEFAULT_AGENT_ICON),
+                "description": profile.description,
+                "when_to_use": list(profile.when_to_use),
+                "when_not_to_use": list(profile.when_not_to_use),
+                "tools": list(profile.tools) if profile.tools is not None else None,
+                "skills": list(profile.skills),
+                "can_spawn": profile.can_spawn,
+            }
+        )
+    return rows
+
+
+def agent_profiles_payload() -> dict[str, Any]:
+    """List all subagent profiles for the Agent Management screen.
+
+    Excludes profiles seeded by the student-mode onboarding flow
+    (study-coach, review-teacher) — those are managed by the "모드" toggle,
+    not this screen, to avoid asking the same question twice.
+    """
+    config = load_config()
+    return {"agents": _agent_profiles_rows(config)}
+
+
+def _validate_agent_name(name: str) -> str:
+    name = name.strip()
+    if not name:
+        raise WebUISettingsError("agent name is required")
+    if len(name) > _AGENT_NAME_MAX_LEN:
+        raise WebUISettingsError("agent name is too long")
+    if name in {"study-coach", "review-teacher"}:
+        raise WebUISettingsError("this name is reserved for student mode")
+    return name
+
+
+def save_agent_profile(query: QueryParams) -> dict[str, Any]:
+    """Create a new agent profile, or rename/update an existing one.
+
+    A simple free-text "requirements" field (from the beginner-facing UI) is
+    stored as `description` and also seeds a single `when_to_use` entry, since
+    `delegate()` needs at least one condition to route to this profile.
+    """
+    from nanobot.config.schema import SubagentProfile
+
+    config = load_config()
+    defaults = config.agents.defaults
+
+    original_name = _query_first(query, "original_name")  # empty/None => creating new
+    name = _validate_agent_name(_query_first(query, "name") or "")
+    icon = (_query_first(query, "icon") or _DEFAULT_AGENT_ICON).strip() or _DEFAULT_AGENT_ICON
+    requirements = (_query_first(query, "requirements") or "").strip()
+    if not requirements:
+        raise WebUISettingsError("requirements is required")
+    if len(requirements) > _AGENT_REQUIREMENTS_MAX_LEN:
+        raise WebUISettingsError("requirements is too long")
+
+    is_rename = bool(original_name) and original_name != name
+    if is_rename and name in defaults.subagent_profiles:
+        raise WebUISettingsError("an agent with this name already exists")
+    if not original_name and name in defaults.subagent_profiles:
+        raise WebUISettingsError("an agent with this name already exists")
+
+    profile = SubagentProfile(
+        description=requirements,
+        when_to_use=[requirements],
+        tools=["read_file", "search"],  # safe minimal default; adjust in Advanced
+        can_spawn=False,
+    )
+
+    if original_name and original_name in defaults.subagent_profiles:
+        del defaults.subagent_profiles[original_name]
+    defaults.subagent_profiles[name] = profile
+    save_config(config)
+
+    icons = _agent_icon_map(config)
+    if original_name and original_name in icons:
+        del icons[original_name]
+    icons[name] = icon
+    _save_agent_icon_map(config, icons)
+
+    return agent_profiles_payload()
+
+
+def delete_agent_profile(query: QueryParams) -> dict[str, Any]:
+    config = load_config()
+    name = (_query_first(query, "name") or "").strip()
+    if not name:
+        raise WebUISettingsError("agent name is required")
+    if name in {"study-coach", "review-teacher"}:
+        raise WebUISettingsError("this agent is managed by student mode, not here")
+    defaults = config.agents.defaults
+    if name not in defaults.subagent_profiles:
+        raise WebUISettingsError("agent not found")
+    del defaults.subagent_profiles[name]
+    save_config(config)
+
+    icons = _agent_icon_map(config)
+    if name in icons:
+        del icons[name]
+        _save_agent_icon_map(config, icons)
+
+    return agent_profiles_payload()

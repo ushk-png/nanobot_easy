@@ -26,14 +26,18 @@ from nanobot.webui.mcp_presets_api import mcp_presets_settings_action
 from nanobot.webui.nanobot_features_api import nanobot_features_action, nanobot_features_payload
 from nanobot.webui.settings_api import (
     WebUISettingsError,
+    agent_profiles_payload,
     create_model_configuration,
     decorate_settings_payload,
+    delete_agent_profile,
     login_oauth_provider,
     logout_oauth_provider,
     provider_models_payload,
+    save_agent_profile,
     settings_payload,
     settings_usage_payload,
     update_agent_settings,
+    update_agent_tools_settings,
     update_image_generation_settings,
     update_model_configuration,
     update_network_safety_settings,
@@ -117,6 +121,14 @@ class WebUISettingsRouter:
             return self._handle_settings_skill_governance_update(request)
         if path == "/api/settings/student-mode/update":
             return self._handle_settings_student_mode_update(request)
+        if path == "/api/settings/agent-tools/update":
+            return self._handle_settings_agent_tools_update(request)
+        if path == "/api/settings/agents":
+            return self._handle_settings_agents(request)
+        if path == "/api/settings/agents/save":
+            return self._handle_settings_agents_save(request)
+        if path == "/api/settings/agents/delete":
+            return self._handle_settings_agents_delete(request)
         if path == "/api/settings/cli-apps":
             return await self._handle_settings_cli_apps(request)
         if path == "/api/settings/cli-apps/install":
@@ -333,6 +345,38 @@ class WebUISettingsRouter:
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _handle_settings_agent_tools_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = update_agent_tools_settings(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _handle_settings_agents(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        return self._json_response(agent_profiles_payload())
+
+    def _handle_settings_agents_save(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = save_agent_profile(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(payload)
+
+    def _handle_settings_agents_delete(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = delete_agent_profile(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(payload)
 
     async def _handle_settings_cli_apps(self, request: WsRequest) -> Response:
         if not self._authorized(request):

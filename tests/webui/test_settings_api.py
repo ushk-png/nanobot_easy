@@ -1190,3 +1190,130 @@ def test_azure_openai_spec_no_longer_requires_api_key() -> None:
     spec = find_by_name("azure_openai")
     assert spec is not None
     assert _provider_requires_api_key(spec) is False
+
+
+def _isolated_config(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+
+def test_update_agent_tools_settings_toggles_built_in_tools(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.webui.settings_api import update_agent_tools_settings
+
+    _isolated_config(tmp_path, monkeypatch)
+
+    payload = update_agent_tools_settings(
+        {
+            "file_enabled": ["false"],
+            "cli_apps_enabled": ["false"],
+            "image_generation_enabled": ["true"],
+        }
+    )
+    assert payload["agent_tools"]["file_enabled"] is False
+    assert payload["agent_tools"]["cli_apps_enabled"] is False
+    assert payload["agent_tools"]["image_generation_enabled"] is True
+    # web/exec untouched -> still default-enabled
+    assert payload["agent_tools"]["web_enabled"] is True
+    assert payload["agent_tools"]["exec_enabled"] is True
+
+    from nanobot.config.loader import get_config_path
+
+    saved = load_config(get_config_path())
+    assert saved.tools.file.enable is False
+    assert saved.tools.cli_apps.enable is False
+    assert saved.tools.image_generation.enabled is True
+
+
+def test_agent_profiles_crud_round_trip(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from nanobot.webui.settings_api import (
+        agent_profiles_payload,
+        delete_agent_profile,
+        save_agent_profile,
+    )
+
+    _isolated_config(tmp_path, monkeypatch)
+
+    # create
+    created = save_agent_profile(
+        {
+            "name": ["schedule-keeper"],
+            "icon": ["\U0001f4c5"],
+            "requirements": ["일정과 마감을 챙기고 알림을 걸어줘요."],
+        }
+    )
+    names = {row["name"] for row in created["agents"]}
+    assert "schedule-keeper" in names
+    row = next(r for r in created["agents"] if r["name"] == "schedule-keeper")
+    assert row["icon"] == "\U0001f4c5"
+    assert row["description"] == "일정과 마감을 챙기고 알림을 걸어줘요."
+    assert row["when_to_use"] == ["일정과 마감을 챙기고 알림을 걸어줘요."]
+    assert row["can_spawn"] is False
+
+    # duplicate name rejected
+    with pytest.raises(WebUISettingsError):
+        save_agent_profile(
+            {"name": ["schedule-keeper"], "requirements": ["다른 설명"]},
+        )
+
+    # rename + update requirements
+    renamed = save_agent_profile(
+        {
+            "original_name": ["schedule-keeper"],
+            "name": ["일정 비서"],
+            "icon": ["\U0001f4c5"],
+            "requirements": ["새 요구사항"],
+        }
+    )
+    names_after_rename = {row["name"] for row in renamed["agents"]}
+    assert "일정 비서" in names_after_rename
+    assert "schedule-keeper" not in names_after_rename
+
+    # student-mode profile names are reserved
+    with pytest.raises(WebUISettingsError):
+        save_agent_profile({"name": ["study-coach"], "requirements": ["x"]})
+
+    # delete
+    after_delete = delete_agent_profile({"name": ["일정 비서"]})
+    assert after_delete["agents"] == []
+
+    # deleting a non-existent agent errors
+    with pytest.raises(WebUISettingsError):
+        delete_agent_profile({"name": ["일정 비서"]})
+
+    # deleting a student-mode profile through this endpoint is refused
+    with pytest.raises(WebUISettingsError):
+        delete_agent_profile({"name": ["study-coach"]})
+
+    assert agent_profiles_payload()["agents"] == []
+
+
+def test_agent_profiles_payload_hides_student_mode_profiles(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nanobot.config.schema import SubagentProfile
+    from nanobot.webui.settings_api import agent_profiles_payload
+
+    config_path = tmp_path / "config.json"
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "workspace")
+    config.agents.defaults.subagent_profiles["study-coach"] = SubagentProfile(
+        description="student mode profile",
+        when_to_use=["x"],
+    )
+    config.agents.defaults.subagent_profiles["my-agent"] = SubagentProfile(
+        description="user made this",
+        when_to_use=["y"],
+    )
+    save_config(config, config_path)
+    monkeypatch.setattr("nanobot.config.loader._current_config_path", config_path)
+
+    payload = agent_profiles_payload()
+    names = {row["name"] for row in payload["agents"]}
+    assert names == {"my-agent"}

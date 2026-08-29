@@ -43,7 +43,7 @@ interface SidebarProps {
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
   onOpenAgentManagement: () => void;
-  activeUtility?: "apps" | "skills" | "tools" | "automations" | null;
+  activeUtility?: "apps" | "skills" | "tools" | "automations" | "agent-management" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
   onExpand?: () => void;
@@ -189,6 +189,7 @@ export function Sidebar(props: SidebarProps) {
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.agentManagement", { defaultValue: "Agent management" })}
+          active={props.activeUtility === "agent-management"}
           onClick={props.onOpenAgentManagement}
           icon={<Bot className="h-4 w-4" />}
         />

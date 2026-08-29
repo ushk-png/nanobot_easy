@@ -86,7 +86,8 @@
       "apps": "Connections",
       "automations": "Automations",
       "tools": "Tools",
-      "skills": "Skills"
+      "skills": "Skills",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "Interface",

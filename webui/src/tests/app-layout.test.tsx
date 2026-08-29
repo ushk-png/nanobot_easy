@@ -324,6 +324,42 @@ describe("App layout", () => {
     ).toBeTruthy();
   });
 
+  it("opens Agent management from the main sidebar as a real screen", async () => {
+    mockFetchRoutes({
+      "/api/settings": {
+        ...baseSettingsPayload(),
+        agent_profiles: [
+          {
+            name: "study-buddy",
+            icon: "\u{1F4D8}",
+            description: "배운 내용을 정리하고 복습 계획을 세워줘요.",
+            when_to_use: ["배운 내용을 정리하고 복습 계획을 세워줘요."],
+            when_not_to_use: [],
+            tools: ["read_file", "search"],
+            skills: [],
+            can_spawn: false,
+          },
+        ],
+      },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Agent management" }));
+
+    expect(await screen.findByRole("heading", { name: "Agent management" })).toBeInTheDocument();
+    expect(screen.getByText("study-buddy")).toBeInTheDocument();
+    expect(screen.getByText("배운 내용을 정리하고 복습 계획을 세워줘요.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "+ Add a new agent" })).toBeInTheDocument();
+    expect(within(sidebar).getByRole("button", { name: "Agent management" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+    expect(document.title).toBe("Agent management · nanobot");
+  });
+
   it("opens Tools from the main sidebar", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),
@@ -351,8 +387,14 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Tools" }));
 
     expect(await screen.findByRole("heading", { name: "Tools" })).toBeInTheDocument();
-    expect(screen.getByText("Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.")).toBeInTheDocument();
-    expect(screen.getByText("YAML query tool")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Agent Tools are built-in abilities nanobot can use directly. Programs you connect from Apps are separate — turn this on to let nanobot actually run them.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Web search")).toBeInTheDocument();
+    expect(screen.getByText("Files")).toBeInTheDocument();
+    expect(screen.queryByText("YAML query tool")).not.toBeInTheDocument();
     expect(within(sidebar).getByRole("button", { name: "Tools" })).toHaveAttribute(
       "aria-current",
       "page",
@@ -2136,6 +2178,7 @@ describe("App layout", () => {
     fireEvent.click(appsButton);
 
     expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
+    expect(screen.getByText("Programs")).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
     expect(within(sidebar).getByRole("button", { name: "Connections" })).toHaveAttribute(

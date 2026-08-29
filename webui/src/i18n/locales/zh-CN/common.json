@@ -58,7 +58,10 @@
     "automations": "自动任务",
     "skills": {
       "title": "技能"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "返回聊天",
@@ -82,7 +85,9 @@
       "advanced": "安全",
       "apps": "应用",
       "automations": "自动任务",
-      "skills": "技能"
+      "skills": "技能",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "界面",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "选择项目",
         "default": "默认权限",
         "full": "完全访问权限"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "滚动到底部",
     "loadEarlier": "加载更早消息",

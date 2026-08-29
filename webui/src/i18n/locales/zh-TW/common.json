@@ -58,7 +58,10 @@
     "automations": "自動任務",
     "skills": {
       "title": "技能"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "返回聊天",
@@ -82,7 +85,9 @@
       "mcp": "MCP",
       "apps": "應用",
       "automations": "自動任務",
-      "skills": "技能"
+      "skills": "技能",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "介面",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "選擇專案",
         "default": "預設權限",
         "full": "完全存取權限"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "捲動到底部",
     "loadEarlier": "載入更早訊息",

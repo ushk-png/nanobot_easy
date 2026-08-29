@@ -86,7 +86,8 @@
       "apps": "연결",
       "automations": "자동화",
       "tools": "도구",
-      "skills": "스킬"
+      "skills": "스킬",
+      "agent-management": "에이전트 관리"
     },
     "sections": {
       "interface": "인터페이스",

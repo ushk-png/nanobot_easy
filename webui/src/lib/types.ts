@@ -605,6 +605,34 @@ export interface StudentModeSettingsUpdate {
   dailyReviewCronName?: string;
 }
 
+export interface AgentToolsSettingsUpdate {
+  webEnabled?: boolean;
+  fileEnabled?: boolean;
+  execEnabled?: boolean;
+  cliAppsEnabled?: boolean;
+  imageGenerationEnabled?: boolean;
+}
+
+export interface AgentProfileSaveInput {
+  originalName?: string;
+  name: string;
+  icon?: string;
+  requirements: string;
+}
+
+export interface AgentProfilesPayload {
+  agents: Array<{
+    name: string;
+    icon: string;
+    description: string;
+    when_to_use: string[];
+    when_not_to_use: string[];
+    tools: string[] | null;
+    skills: string[];
+    can_spawn: boolean;
+  }>;
+}
+
 export type RuntimeSurface = "browser" | "native";
 export type RestartBehavior = "none" | "nextTurn" | "engineRestart" | "appRestart";
 export type SettingsApplyStatus =
@@ -834,6 +862,23 @@ export interface SettingsPayload {
     review_queue_path: string;
     daily_review_cron_name: string;
   };
+  agent_tools?: {
+    web_enabled: boolean;
+    file_enabled: boolean;
+    exec_enabled: boolean;
+    cli_apps_enabled: boolean;
+    image_generation_enabled: boolean;
+  };
+  agent_profiles?: Array<{
+    name: string;
+    icon: string;
+    description: string;
+    when_to_use: string[];
+    when_not_to_use: string[];
+    tools: string[] | null;
+    skills: string[];
+    can_spawn: boolean;
+  }>;
   advanced: {
     restrict_to_workspace: boolean;
     workspace_sandbox?: {

@@ -58,7 +58,10 @@
     "automations": "自動タスク",
     "skills": {
       "title": "スキル"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "チャットに戻る",
@@ -82,7 +85,9 @@
       "mcp": "MCP",
       "apps": "アプリ",
       "automations": "自動タスク",
-      "skills": "スキル"
+      "skills": "スキル",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "インターフェース",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "プロジェクトを選択",
         "default": "既定の権限",
         "full": "フルアクセス"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "一番下へスクロール",
     "loadEarlier": "以前のメッセージを読み込む",
