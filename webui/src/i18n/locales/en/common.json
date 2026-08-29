@@ -54,9 +54,11 @@
       "label": "Language",
       "ariaLabel": "Change language"
     },
-    "apps": "Apps",
-    "tools": "App Tools",
+    "apps": "Connections",
+    "tools": "Tools",
     "automations": "Automations",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements.",
     "skills": {
       "title": "Skills"
     }
@@ -81,9 +83,9 @@
       "mcp": "MCP",
       "runtime": "System",
       "advanced": "Security",
-      "apps": "Apps",
+      "apps": "Connections",
       "automations": "Automations",
-      "tools": "App Tools",
+      "tools": "Tools",
       "skills": "Skills"
     },
     "sections": {

@@ -10,6 +10,7 @@ import os
 import re
 import time
 from contextlib import suppress
+from pathlib import Path
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
@@ -834,6 +835,32 @@ def settings_payload(
             "unified_session": defaults.unified_session,
         },
         "usage": token_usage_payload(timezone_name=defaults.timezone),
+        "skill_governance": {
+            "webui_skill_management": {
+                "enabled": config.tools.webui_skill_management.enabled,
+                "draft_expire_days": config.tools.webui_skill_management.draft_expire_days,
+                "red_flags": {
+                    "min_routing_passes": config.tools.webui_skill_management.red_flags.min_routing_passes,
+                    "security_risk_at_least": config.tools.webui_skill_management.red_flags.security_risk_at_least,
+                    "security_block_at_least": config.tools.webui_skill_management.red_flags.security_block_at_least,
+                    "duplicate_score_at_least": config.tools.webui_skill_management.red_flags.duplicate_score_at_least,
+                },
+            },
+            "external_tool_skills": {
+                "enabled": config.tools.external_tool_skills.enabled,
+                "allowed_install_domains": list(config.tools.external_tool_skills.allowed_install_domains),
+                "install_root": config.tools.external_tool_skills.install_root,
+                "deny_global_install": config.tools.external_tool_skills.deny_global_install,
+            },
+        },
+        "student_mode": {
+            "mode": config.student_mode.mode,
+            "coach_name": config.student_mode.coach_name,
+            "review_teacher_name": config.student_mode.review_teacher_name,
+            "study_log_path": config.student_mode.study_log_path,
+            "review_queue_path": config.student_mode.review_queue_path,
+            "daily_review_cron_name": config.student_mode.daily_review_cron_name,
+        },
         "advanced": {
             "restrict_to_workspace": config.tools.restrict_to_workspace,
             "workspace_sandbox": sandbox_status.as_dict(),
@@ -847,6 +874,7 @@ def settings_payload(
             "exec_sandbox": exec_config.sandbox or None,
             "exec_path_prepend_set": bool(exec_config.path_prepend),
             "exec_path_append_set": bool(exec_config.path_append),
+            "max_subagent_depth": defaults.max_subagent_depth,
         },
         "requires_restart": requires_restart,
         "version": _version_payload(),
@@ -1483,3 +1511,158 @@ def update_transcription_settings(query: QueryParams) -> dict[str, Any]:
     if changed:
         save_config(config)
     return settings_payload()
+
+
+def _parse_level(value: str | None, field: str) -> Literal["low", "medium", "high"] | None:
+    if value is None:
+        return None
+    level = value.strip().lower()
+    if level not in {"low", "medium", "high"}:
+        raise WebUISettingsError(f"{field} must be low, medium, or high")
+    return level  # type: ignore[return-value]
+
+
+def update_skill_governance_settings(query: QueryParams) -> dict[str, Any]:
+    config = load_config()
+    webui_skill = config.tools.webui_skill_management
+    red_flags = webui_skill.red_flags
+    external = config.tools.external_tool_skills
+    changed = False
+
+    raw_enabled = _query_first_alias(query, "webui_skill_management_enabled", "webuiSkillManagementEnabled")
+    if raw_enabled is not None:
+        enabled = _parse_bool(raw_enabled, "webui_skill_management_enabled")
+        if webui_skill.enabled != enabled:
+            webui_skill.enabled = enabled
+            changed = True
+
+    raw_external_enabled = _query_first_alias(query, "external_tool_skills_enabled", "externalToolSkillsEnabled")
+    if raw_external_enabled is not None:
+        enabled = _parse_bool(raw_external_enabled, "external_tool_skills_enabled")
+        if external.enabled != enabled:
+            external.enabled = enabled
+            changed = True
+
+    raw_draft_expire_days = _query_first_alias(query, "draft_expire_days", "draftExpireDays")
+    if raw_draft_expire_days is not None:
+        try:
+            draft_expire_days = int(raw_draft_expire_days)
+        except ValueError:
+            raise WebUISettingsError("draft_expire_days must be an integer") from None
+        if draft_expire_days < 1 or draft_expire_days > 365:
+            raise WebUISettingsError("draft_expire_days must be between 1 and 365")
+        if webui_skill.draft_expire_days != draft_expire_days:
+            webui_skill.draft_expire_days = draft_expire_days
+            changed = True
+
+    raw_min_routing_passes = _query_first_alias(query, "min_routing_passes", "minRoutingPasses")
+    if raw_min_routing_passes is not None:
+        try:
+            min_routing_passes = int(raw_min_routing_passes)
+        except ValueError:
+            raise WebUISettingsError("min_routing_passes must be an integer") from None
+        if min_routing_passes < 0 or min_routing_passes > 10:
+            raise WebUISettingsError("min_routing_passes must be between 0 and 10")
+        if red_flags.min_routing_passes != min_routing_passes:
+            red_flags.min_routing_passes = min_routing_passes
+            changed = True
+
+    security_risk_at_least = _parse_level(
+        _query_first_alias(query, "security_risk_at_least", "securityRiskAtLeast"),
+        "security_risk_at_least",
+    )
+    if security_risk_at_least is not None and red_flags.security_risk_at_least != security_risk_at_least:
+        red_flags.security_risk_at_least = security_risk_at_least
+        changed = True
+
+    security_block_at_least = _parse_level(
+        _query_first_alias(query, "security_block_at_least", "securityBlockAtLeast"),
+        "security_block_at_least",
+    )
+    if security_block_at_least is not None and red_flags.security_block_at_least != security_block_at_least:
+        red_flags.security_block_at_least = security_block_at_least
+        changed = True
+
+    raw_duplicate = _query_first_alias(query, "duplicate_score_at_least", "duplicateScoreAtLeast")
+    if raw_duplicate is not None:
+        try:
+            duplicate = float(raw_duplicate)
+        except ValueError:
+            raise WebUISettingsError("duplicate_score_at_least must be a number") from None
+        if duplicate < 0.0 or duplicate > 1.0:
+            raise WebUISettingsError("duplicate_score_at_least must be between 0.0 and 1.0")
+        if red_flags.duplicate_score_at_least != duplicate:
+            red_flags.duplicate_score_at_least = duplicate
+            changed = True
+
+    raw_domains = _query_first_alias(query, "allowed_install_domains", "allowedInstallDomains")
+    if raw_domains is not None:
+        domains = [item.strip().lower() for item in raw_domains.split(",") if item.strip()]
+        if not domains:
+            raise WebUISettingsError("allowed_install_domains must include at least one domain")
+        invalid = [domain for domain in domains if "/" in domain or ":" in domain or " " in domain]
+        if invalid:
+            raise WebUISettingsError("allowed_install_domains must be hostnames, not URLs")
+        if external.allowed_install_domains != domains:
+            external.allowed_install_domains = domains
+            changed = True
+
+    install_root = _query_first_alias(query, "install_root", "installRoot")
+    if install_root is not None:
+        install_root = install_root.strip()
+        if not install_root:
+            raise WebUISettingsError("install_root is required")
+        if Path(install_root).is_absolute() or ".." in Path(install_root).parts:
+            raise WebUISettingsError("install_root must be a relative workspace path")
+        if external.install_root != install_root:
+            external.install_root = install_root
+            changed = True
+
+    raw_deny_global_install = _query_first_alias(query, "deny_global_install", "denyGlobalInstall")
+    if raw_deny_global_install is not None:
+        deny_global_install = _parse_bool(raw_deny_global_install, "deny_global_install")
+        if external.deny_global_install != deny_global_install:
+            external.deny_global_install = deny_global_install
+            changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload(requires_restart=changed)
+
+
+def update_student_mode_settings(query: QueryParams) -> dict[str, Any]:
+    config = load_config()
+    student = config.student_mode
+    changed = False
+
+    mode = _query_first(query, "mode")
+    if mode is not None:
+        mode = mode.strip().lower()
+        if mode not in {"general", "student"}:
+            raise WebUISettingsError("mode must be general or student")
+        if student.mode != mode:
+            student.mode = mode  # type: ignore[assignment]
+            changed = True
+
+    for query_key, attr in [
+        ("coach_name", "coach_name"),
+        ("review_teacher_name", "review_teacher_name"),
+        ("study_log_path", "study_log_path"),
+        ("review_queue_path", "review_queue_path"),
+        ("daily_review_cron_name", "daily_review_cron_name"),
+    ]:
+        raw = _query_first_alias(query, query_key, "".join([query_key.split("_")[0], *[part.title() for part in query_key.split("_")[1:]]]))
+        if raw is None:
+            continue
+        value = raw.strip()
+        if not value:
+            raise WebUISettingsError(f"{query_key} is required")
+        if query_key.endswith("_path") and (Path(value).is_absolute() or ".." in Path(value).parts):
+            raise WebUISettingsError(f"{query_key} must be a relative workspace path")
+        if getattr(student, attr) != value:
+            setattr(student, attr, value)
+            changed = True
+
+    if changed:
+        save_config(config)
+    return settings_payload(requires_restart=changed)

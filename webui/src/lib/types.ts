@@ -581,6 +581,30 @@ export interface BootstrapResponse {
   runtime_capabilities?: RuntimeCapabilities;
 }
 
+export type SkillGovernanceLevel = "low" | "medium" | "high";
+
+export interface SkillGovernanceSettingsUpdate {
+  webuiSkillManagementEnabled?: boolean;
+  externalToolSkillsEnabled?: boolean;
+  draftExpireDays?: number;
+  minRoutingPasses?: number;
+  securityRiskAtLeast?: SkillGovernanceLevel;
+  securityBlockAtLeast?: SkillGovernanceLevel;
+  duplicateScoreAtLeast?: number;
+  allowedInstallDomains?: string[];
+  installRoot?: string;
+  denyGlobalInstall?: boolean;
+}
+
+export interface StudentModeSettingsUpdate {
+  mode?: "general" | "student";
+  coachName?: string;
+  reviewTeacherName?: string;
+  studyLogPath?: string;
+  reviewQueuePath?: string;
+  dailyReviewCronName?: string;
+}
+
 export type RuntimeSurface = "browser" | "native";
 export type RestartBehavior = "none" | "nextTurn" | "engineRestart" | "appRestart";
 export type SettingsApplyStatus =
@@ -784,6 +808,32 @@ export interface SettingsPayload {
     requests_30d: number;
     updated_at?: string | null;
   };
+  skill_governance?: {
+    webui_skill_management: {
+      enabled: boolean;
+      draft_expire_days: number;
+      red_flags: {
+        min_routing_passes: number;
+        security_risk_at_least: SkillGovernanceLevel;
+        security_block_at_least: SkillGovernanceLevel;
+        duplicate_score_at_least: number;
+      };
+    };
+    external_tool_skills: {
+      enabled: boolean;
+      allowed_install_domains: string[];
+      install_root: string;
+      deny_global_install: boolean;
+    };
+  };
+  student_mode?: {
+    mode: "general" | "student";
+    coach_name: string;
+    review_teacher_name: string;
+    study_log_path: string;
+    review_queue_path: string;
+    daily_review_cron_name: string;
+  };
   advanced: {
     restrict_to_workspace: boolean;
     workspace_sandbox?: {
@@ -805,6 +855,7 @@ export interface SettingsPayload {
     exec_sandbox?: string | null;
     exec_path_prepend_set: boolean;
     exec_path_append_set: boolean;
+    max_subagent_depth?: number;
   };
   requires_restart: boolean;
   restart_required_sections?: Array<"runtime" | "browser" | "image">;

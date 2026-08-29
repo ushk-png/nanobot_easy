@@ -28,6 +28,8 @@ import type {
   SessionAutomationsPayload,
   SettingsPayload,
   SettingsUpdate,
+  SkillGovernanceSettingsUpdate,
+  StudentModeSettingsUpdate,
   SidebarStatePayload,
   SkillDetail,
   SkillsPayload,
@@ -981,4 +983,44 @@ export async function updateTranscriptionSettings(
     `${base}/api/settings/transcription/update?${query}`,
     token,
   );
+}
+
+export async function updateSkillGovernanceSettings(
+  token: string,
+  update: SkillGovernanceSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  if (update.webuiSkillManagementEnabled !== undefined) {
+    query.set("webui_skill_management_enabled", String(update.webuiSkillManagementEnabled));
+  }
+  if (update.externalToolSkillsEnabled !== undefined) {
+    query.set("external_tool_skills_enabled", String(update.externalToolSkillsEnabled));
+  }
+  if (update.draftExpireDays !== undefined) query.set("draft_expire_days", String(update.draftExpireDays));
+  if (update.minRoutingPasses !== undefined) query.set("min_routing_passes", String(update.minRoutingPasses));
+  if (update.securityRiskAtLeast !== undefined) query.set("security_risk_at_least", update.securityRiskAtLeast);
+  if (update.securityBlockAtLeast !== undefined) query.set("security_block_at_least", update.securityBlockAtLeast);
+  if (update.duplicateScoreAtLeast !== undefined) query.set("duplicate_score_at_least", String(update.duplicateScoreAtLeast));
+  if (update.allowedInstallDomains !== undefined) {
+    query.set("allowed_install_domains", update.allowedInstallDomains.join(","));
+  }
+  if (update.installRoot !== undefined) query.set("install_root", update.installRoot);
+  if (update.denyGlobalInstall !== undefined) query.set("deny_global_install", String(update.denyGlobalInstall));
+  return request<SettingsPayload>(`${base}/api/settings/skill-governance/update?${query}`, token);
+}
+
+export async function updateStudentModeSettings(
+  token: string,
+  update: StudentModeSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  if (update.mode !== undefined) query.set("mode", update.mode);
+  if (update.coachName !== undefined) query.set("coach_name", update.coachName);
+  if (update.reviewTeacherName !== undefined) query.set("review_teacher_name", update.reviewTeacherName);
+  if (update.studyLogPath !== undefined) query.set("study_log_path", update.studyLogPath);
+  if (update.reviewQueuePath !== undefined) query.set("review_queue_path", update.reviewQueuePath);
+  if (update.dailyReviewCronName !== undefined) query.set("daily_review_cron_name", update.dailyReviewCronName);
+  return request<SettingsPayload>(`${base}/api/settings/student-mode/update?${query}`, token);
 }

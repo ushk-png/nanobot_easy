@@ -2,6 +2,7 @@ import type { UIMessage } from "@/lib/types";
 
 /** Match websocket/session scrub: keep header + Result body only; trim model tail. */
 const SUBAGENT_UI_RESULT_MAX_CHARS = 800;
+const SUBAGENT_HEADER_PATTERN = /^\[Subagent '([^']+)' (failed|completed successfully)\]/;
 
 /** Strip Task assignment + Summarize tail from persisted subagent announce blobs. */
 export function scrubSubagentAnnounceBody(
@@ -39,7 +40,10 @@ export function scrubSubagentAnnounceBody(
   }
 
   if (header && body) {
-    return `${header}\n\n${body}`;
+    const headerMatch = header.match(SUBAGENT_HEADER_PATTERN);
+    const label = headerMatch?.[1] ?? "subagent";
+    const status = headerMatch?.[2] === "failed" ? "failed" : "completed";
+    return `🤖 Delegated to ${label} · ${status}\n\n${body}`;
   }
   return header || body || stripped;
 }

@@ -753,7 +753,7 @@ export function ThreadShell({
               ? t("thread.composer.placeholderOpening")
               : t("thread.composer.placeholderHero")
           }
-          modelLabel={modelBadgeLabel}
+          modelLabel={modelBadge.needsSetup ? modelBadgeLabel : null}
           modelProvider={modelBadge.provider}
           modelProviderLabel={modelBadge.providerLabel}
           modelNeedsSetup={modelBadge.needsSetup}

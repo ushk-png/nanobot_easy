@@ -82,6 +82,7 @@ type ShellRoute = {
 
 const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "overview",
+  "easy-setup",
   "appearance",
   "models",
   "image",
@@ -289,6 +290,16 @@ function writeSessionUpdateChatIds(chatIds: Set<string>): void {
   } catch {
     // ignore storage errors (private mode, etc.)
   }
+}
+
+function onboardingNeeded(settings: SettingsPayload | null): boolean {
+  if (!settings) return false;
+  const provider = settings.agent.provider === "auto"
+    ? settings.agent.resolved_provider ?? settings.agent.provider
+    : settings.agent.provider;
+  const providerRow = settings.providers.find((item) => item.name === provider);
+  if (providerRow) return !providerRow.configured;
+  return !settings.agent.has_api_key;
 }
 
 function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePayload {
@@ -640,6 +651,13 @@ function Shell({
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (settingsSnapshot === null) return;
+    if (!onboardingNeeded(settingsSnapshot)) return;
+    if (readShellRoute().view === "settings") return;
+    navigate({ view: "settings", settingsSection: "easy-setup", activeKey: null }, { replace: true });
+  }, [navigate, settingsSnapshot]);
 
   useEffect(() => {
     try {
@@ -1212,6 +1230,27 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenAgentManagement = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate(defaultShellRoute());
+    setDraftWorkspaceScope(null);
+    setWorkspaceError(null);
+    setMobileSidebarOpen(false);
+    try {
+      const storageKey = "nanobot.webui.composerQueuedGuidance.v1:welcome";
+      const prompt = t("sidebar.agentManagementPrompt", {
+        defaultValue:
+          "에이전트 관리를 도와줘. 새 전담 에이전트를 만들거나 기존 에이전트 요구사항을 바꾸고 싶어.",
+      });
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify([{ id: `agent-management-${Date.now()}`, text: prompt }]),
+      );
+    } catch {
+      // localStorage is a convenience for pre-filling the chat composer.
+    }
+  }, [navigate, t]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1423,6 +1462,7 @@ function Shell({
     onOpenSkills,
     onOpenTools,
     onOpenSearch: onOpenSessionSearch,
+    onOpenAgentManagement,
     activeUtility:
       view === "apps" || view === "automations" || view === "skills" || view === "tools"
         ? view
