@@ -7,8 +7,8 @@ WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
 NANOBOT_BIN="${NANOBOT_BIN:-$SCRIPT_DIR/.venv/bin/nanobot}"
 RUNTIME_DIR="${NANOBOT_RUNTIME_DIR:-$SCRIPT_DIR/.local/run}"
 LOG_DIR="${NANOBOT_LOG_DIR:-$SCRIPT_DIR/.local/logs}"
-PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-skill-gateway.pid}"
-LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-skill-gateway.log}"
+PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-easy-gateway.pid}"
+LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-easy-gateway.log}"
 ENV_FILE="${NANOBOT_ENV_FILE:-$SCRIPT_DIR/.local/env}"
 WEBUI_DIST_INDEX="$SCRIPT_DIR/nanobot/web/dist/index.html"
 
@@ -17,7 +17,7 @@ mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$WORKSPACE"
 if [[ ! -x "$NANOBOT_BIN" ]]; then
   echo "nanobot executable not found: $NANOBOT_BIN" >&2
   echo "Running repo-local installer first..." >&2
-  "$SCRIPT_DIR/install-nanobot-skill.sh"
+  "$SCRIPT_DIR/install-nanobot-easy.sh"
 fi
 
 if [[ ! -x "$NANOBOT_BIN" ]]; then
@@ -28,7 +28,7 @@ fi
 if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
   echo "WebUI bundle not found: $WEBUI_DIST_INDEX" >&2
   echo "Running installer to build the WebUI bundle..." >&2
-  NANOBOT_SKIP_WIZARD=1 "$SCRIPT_DIR/install-nanobot-skill.sh"
+  NANOBOT_SKIP_WIZARD=1 "$SCRIPT_DIR/install-nanobot-easy.sh"
 fi
 
 if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
@@ -172,7 +172,7 @@ PY
 if [[ -f "$PID_FILE" ]]; then
   pid="$(cat "$PID_FILE" 2>/dev/null || true)"
   if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
-    echo "nanobot_skill gateway is already running: pid=$pid"
+    echo "nanobot-easy gateway is already running: pid=$pid"
     echo "log: $LOG_FILE"
     start_companion_gateways
     exit 0
@@ -210,13 +210,13 @@ sleep 2
 if kill -0 "$pid" 2>/dev/null; then
   for _ in {1..20}; do
     if ! kill -0 "$pid" 2>/dev/null; then
-      echo "nanobot_skill gateway exited during startup. Recent log:" >&2
+      echo "nanobot-easy gateway exited during startup. Recent log:" >&2
       tail -n 80 "$LOG_FILE" >&2 || true
       rm -f "$PID_FILE"
       exit 1
     fi
     if curl -fsS --max-time 1 "http://$GATEWAY_HOST:$GATEWAY_PORT/health" >/dev/null 2>&1; then
-      echo "nanobot_skill gateway started: pid=$pid"
+      echo "nanobot-easy gateway started: pid=$pid"
       echo "config: $CONFIG"
       echo "workspace: $WORKSPACE"
       echo "health: http://$GATEWAY_HOST:$GATEWAY_PORT/health"
@@ -228,13 +228,13 @@ if kill -0 "$pid" 2>/dev/null; then
     fi
     sleep 0.5
   done
-  echo "nanobot_skill gateway started but health check did not become ready yet: pid=$pid"
+  echo "nanobot-easy gateway started but health check did not become ready yet: pid=$pid"
   echo "config: $CONFIG"
   echo "workspace: $WORKSPACE"
   echo "webui: http://$WEBUI_HOST:$WEBUI_PORT/"
   echo "log: $LOG_FILE"
 else
-  echo "nanobot_skill gateway failed to start. Recent log:" >&2
+  echo "nanobot-easy gateway failed to start. Recent log:" >&2
   tail -n 80 "$LOG_FILE" >&2 || true
   rm -f "$PID_FILE"
   exit 1

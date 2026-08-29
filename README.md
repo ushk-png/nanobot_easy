@@ -1,8 +1,8 @@
-# nanobot-skill
+# nanobot-easy
 
 **믿고 맡길 수 있는 개인용 AI 에이전트.**
 
-에이전트에게 일을 맡길 때 늘 걸리는 세 가지가 있습니다. *제대로 알아들었을까, 엉뚱한 짓을 하진 않을까, 지난번에 말한 걸 기억할까.* nanobot-skill은 이 세 가지를 **감이 아니라 확인 가능한 형태로** 해결하려는 프로젝트입니다.
+에이전트에게 일을 맡길 때 늘 걸리는 세 가지가 있습니다. *제대로 알아들었을까, 엉뚱한 짓을 하진 않을까, 지난번에 말한 걸 기억할까.* nanobot-easy은 이 세 가지를 **감이 아니라 확인 가능한 형태로** 해결하려는 프로젝트입니다.
 
 [nanobot](https://github.com/HKUDS/nanobot)(홍콩대 HKUDS)에서 분기해 독립적으로 발전시키고 있습니다. 원본이 "가볍고 다재다능한 에이전트"를 지향한다면, 이쪽은 **좁고 깊게 — 정확하고, 안전하고, 초보자도 쓸 수 있게**를 지향합니다.
 
@@ -15,13 +15,13 @@ Python 3.11 이상, Git, 그리고 WebUI 빌드를 위한 Node.js/npm 또는 Bun
 ### Linux / Ubuntu
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
+git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
 Ubuntu에서 Python venv 패키지가 아예 없거나 `sudo`를 사용할 수 없는 환경이면 먼저 아래를 실행한 뒤 다시 설치하세요.
@@ -34,23 +34,23 @@ sudo apt install -y python3 python3-venv python3-pip git curl
 ### macOS
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
+git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
-macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 설치/실행하고 싶으면 `install-nanobot-skill.command`와 `start-nanobot-skill.command`를 사용할 수 있습니다.
+macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 설치/실행하고 싶으면 `install-nanobot-easy.command`와 `start-nanobot-easy.command`를 사용할 수 있습니다.
 
 ### Windows
 
 PowerShell에서:
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\install.bat
+git clone https://github.com/ushk-png/nanobot-easy.git; cd nanobot-easy; .\install.bat
 ```
 
 실행:
@@ -86,7 +86,7 @@ Windows 설치 파일은 `.venv`가 없으면 생성하고, WebUI 번들이 없�
 
 에이전트에 작업 방식(스킬)을 하나둘 추가하다 보면 반드시 겪는 일이 있습니다. **새 스킬을 넣었더니 멀쩡하던 게 엉뚱하게 반응하기 시작하는 것.** 스킬이 서로 트리거를 뺏기 때문인데, 보통은 눈치채지도 못한 채 품질이 무너집니다.
 
-nanobot-skill에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한다"는 판정 기준이 함께 저장됩니다. 그래서 스킬을 추가할 때마다 **기존 스킬이 여전히 제대로 잡히는지 자동으로 회귀 검증**됩니다. 어떤 스킬이 얼마나 자주 불리는지, 성공률은 얼마인지도 명령 한 줄로 확인할 수 있습니다.
+nanobot-easy에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한다"는 판정 기준이 함께 저장됩니다. 그래서 스킬을 추가할 때마다 **기존 스킬이 여전히 제대로 잡히는지 자동으로 회귀 검증**됩니다. 어떤 스킬이 얼마나 자주 불리는지, 성공률은 얼마인지도 명령 한 줄로 확인할 수 있습니다.
 
 ### 스킬을 직접 쓰지 않아도 됩니다
 
@@ -108,7 +108,7 @@ nanobot-skill에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 �
 
 ### 개발자가 아니어도 켜서 씁니다
 
-윈도우에서는 `install.bat` → `start-nanobot.bat`, macOS Finder에서는 `.command` 파일, Linux/macOS 터미널에서는 `install-nanobot-skill.sh` → `start-nanobot-skill.sh` 순서로 실행하면 됩니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
+윈도우에서는 `install.bat` → `start-nanobot.bat`, macOS Finder에서는 `.command` 파일, Linux/macOS 터미널에서는 `install-nanobot-easy.sh` → `start-nanobot-easy.sh` 순서로 실행하면 됩니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
 
 ---
 
@@ -126,7 +126,7 @@ nanobot-skill에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 �
 
 원본 nanobot에서 2026년 7월 분기한 뒤 독립적으로 운영합니다. 기능을 그대로 따라가지 않습니다. 넓은 채널 연동이나 최신 기능이 필요하다면 [원본](https://github.com/HKUDS/nanobot)이 더 나은 선택입니다.
 
-처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-skill-usage-ko.md)부터 보시길 권합니다. 설정은 [configuration.md](./docs/configuration.md), 학습자용 배포는 [학생 모드 안내](./docs/student-mode-distribution-ko.md)를 참고하세요.
+처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-easy-usage-ko.md)부터 보시길 권합니다. 설정은 [configuration.md](./docs/configuration.md), 학습자용 배포는 [학생 모드 안내](./docs/student-mode-distribution-ko.md)를 참고하세요.
 
 ## 기여
 

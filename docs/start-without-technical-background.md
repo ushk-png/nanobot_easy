@@ -70,24 +70,24 @@ For the setup path:
 
 ## 4. Install nanobot
 
-The easiest path is the repo-local installer. It creates a `.venv` inside the downloaded folder, installs nanobot-skill there, builds the WebUI bundle, then starts the setup wizard. Because editable Python installs skip the packaged WebUI build hook, you need Node.js/npm or Bun installed. On Ubuntu/Debian it detects missing Python venv support and tries to install `python3-venv` and `python3-pip` before continuing.
+The easiest path is the repo-local installer. It creates a `.venv` inside the downloaded folder, installs nanobot-easy there, builds the WebUI bundle, then starts the setup wizard. Because editable Python installs skip the packaged WebUI build hook, you need Node.js/npm or Bun installed. On Ubuntu/Debian it detects missing Python venv support and tries to install `python3-venv` and `python3-pip` before continuing.
 
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
+git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\install.bat
+git clone https://github.com/ushk-png/nanobot-easy.git; cd nanobot-easy; .\install.bat
 ```
 
 To preview what the installer would do without changing your environment, pass `--dry-run`:
 
 ```bash
-./install-nanobot-skill.sh --dry-run
+./install-nanobot-easy.sh --dry-run
 ```
 
 ```powershell
@@ -296,7 +296,7 @@ It is normal for most providers to say `not set`. Only the provider you selected
 Start the local browser UI:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
 This starts nanobot and opens `http://127.0.0.1:8765` in your browser. Leave the terminal open while you use the WebUI. Enter the WebUI password you set in the wizard if the browser asks for one.
@@ -316,10 +316,10 @@ Hello! How can I help you today?
 If nanobot is not installed, rerun the installer:
 
 ```bash
-./install-nanobot-skill.sh
+./install-nanobot-easy.sh
 ```
 
-On Windows, run `.\start-nanobot.bat` from PowerShell. On macOS, you can double-click `install-nanobot-skill.command` and `start-nanobot-skill.command` in Finder.
+On Windows, run `.\start-nanobot.bat` from PowerShell. On macOS, you can double-click `install-nanobot-easy.command` and `start-nanobot-easy.command` in Finder.
 
 Once this works, nanobot can help with its own next setup step. In the browser UI, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to add one provider preset or configure one chat app.
 
@@ -348,14 +348,14 @@ Skip these until the first local message works:
 
 ## Next Steps
 
-After the first reply works, choose only one next goal. Use `./start-nanobot-skill.sh` on Linux/macOS or `.\start-nanobot.bat` on Windows whenever you want to open the WebUI again. Chat apps use the same gateway service underneath.
+After the first reply works, choose only one next goal. Use `./start-nanobot-easy.sh` on Linux/macOS or `.\start-nanobot.bat` on Windows whenever you want to open the WebUI again. Chat apps use the same gateway service underneath.
 
 ### Open the Browser UI Again
 
 Run:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
 On Windows:
@@ -364,7 +364,7 @@ On Windows:
 .\start-nanobot.bat
 ```
 
-The browser UI uses `http://127.0.0.1:8765` by default. To stop the Linux/macOS gateway later, run `./stop-nanobot-skill.sh`. More details are in [`webui.md`](./webui.md).
+The browser UI uses `http://127.0.0.1:8765` by default. To stop the Linux/macOS gateway later, run `./stop-nanobot-easy.sh`. More details are in [`webui.md`](./webui.md).
 
 ### Connect a Chat App
 

@@ -1,19 +1,19 @@
-# nanobot_skill 설치 및 사용 안내서
+# nanobot-easy 설치 및 사용 안내서
 
-이 문서는 GitHub의 `ushk-png/nanobot_skill` 저장소를 처음 내려받은 사용자가 Linux, macOS, Windows에서 설치하고 실행하는 방법을 정리합니다.
+이 문서는 GitHub의 `ushk-png/nanobot-easy` 저장소를 처음 내려받은 사용자가 Linux, macOS, Windows에서 설치하고 실행하는 방법을 정리합니다.
 
 ## 빠른 시작
 
 ### Linux / Ubuntu
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
+git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
 Ubuntu/Debian에서 `python3 -m venv`가 동작하지 않으면 설치 스크립트가 `python3-venv`와 `python3-pip` 설치를 시도합니다. WebUI 번들 빌드를 위해 Node.js/npm 또는 Bun도 필요합니다. `sudo`가 없거나 자동 설치가 막힌 환경에서는 먼저 아래를 실행하세요.
@@ -26,23 +26,23 @@ sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
 ### macOS
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
+git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
-Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 실행하려면 `install-nanobot-skill.command`와 `start-nanobot-skill.command`를 사용하세요.
+Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 실행하려면 `install-nanobot-easy.command`와 `start-nanobot-easy.command`를 사용하세요.
 
 ### Windows
 
 PowerShell에서:
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\install.bat
+git clone https://github.com/ushk-png/nanobot-easy.git; cd nanobot-easy; .\install.bat
 ```
 
 실행:
@@ -55,7 +55,7 @@ Python이 없다면 python.org에서 Python 3.11 이상을 설치하고, 설치 
 
 ## 설치 스크립트가 하는 일
 
-Linux/macOS의 `install-nanobot-skill.sh`와 Windows의 `install-nanobot-skill.ps1`은 같은 흐름을 수행합니다.
+Linux/macOS의 `install-nanobot-easy.sh`와 Windows의 `install-nanobot-easy.ps1`은 같은 흐름을 수행합니다.
 
 1. Python 3.11 이상을 찾습니다.
 2. 저장소 내부에 `.venv`를 만들거나 기존 `.venv`를 재사용합니다.
@@ -67,7 +67,7 @@ Linux/macOS의 `install-nanobot-skill.sh`와 Windows의 `install-nanobot-skill.p
 기본 설치 extras는 `telegram,documents`입니다. 필요하면 환경변수로 바꿀 수 있습니다.
 
 ```bash
-NANOBOT_SKILL_EXTRAS=telegram,documents,pdf ./install-nanobot-skill.sh
+NANOBOT_SKILL_EXTRAS=telegram,documents,pdf ./install-nanobot-easy.sh
 ```
 
 Windows PowerShell:
@@ -82,7 +82,7 @@ $env:NANOBOT_SKILL_EXTRAS="telegram,documents,pdf"
 Linux/macOS:
 
 ```bash
-./start-nanobot-skill.sh
+./start-nanobot-easy.sh
 ```
 
 Windows:
@@ -93,13 +93,13 @@ Windows:
 
 실행 스크립트는 `.venv`가 없거나 WebUI 번들이 없으면 설치 스크립트를 먼저 실행하고, `.local/config.json`이 없으면 설정 wizard를 실행합니다. 따라서 fresh clone 이후에도 실행 스크립트 하나로 설치 누락을 복구할 수 있습니다.
 
-Linux/macOS의 `start-nanobot-skill.sh`는 gateway를 background process로 띄우고 다음 정보를 출력합니다.
+Linux/macOS의 `start-nanobot-easy.sh`는 gateway를 background process로 띄우고 다음 정보를 출력합니다.
 
 - 설정 파일: `.local/config.json`
 - workspace: `.local/workspace`
 - health endpoint: 기본 `http://127.0.0.1:18790/health`
 - WebUI: 기본 `http://127.0.0.1:8765/`
-- 로그: `.local/logs/nanobot-skill-gateway.log`
+- 로그: `.local/logs/nanobot-easy-gateway.log`
 
 Windows의 `start-nanobot.bat`은 repo-local 설정으로 `nanobot webui --background`를 실행합니다.
 
@@ -151,14 +151,14 @@ Windows에서는 `.venv\Scripts\python.exe -m nanobot ...` 형태로 실행하�
 Linux/macOS:
 
 ```bash
-./stop-nanobot-skill.sh
-./restart-nanobot-skill.sh
+./stop-nanobot-easy.sh
+./restart-nanobot-easy.sh
 ```
 
 로그 확인:
 
 ```bash
-tail -f .local/logs/nanobot-skill-gateway.log
+tail -f .local/logs/nanobot-easy-gateway.log
 ```
 
 ## 스킬 구조

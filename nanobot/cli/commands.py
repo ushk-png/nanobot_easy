@@ -2300,7 +2300,7 @@ _WORKSPACE_WALK_MAX_LEVELS = 6
 # ``.skillstore/skillstore.db`` file (the SkillStore marker).
 _WORKSPACE_CANDIDATE_RELATIVES: tuple[str, ...] = (
     ".",                    # cwd itself has .skillstore/ (some layouts)
-    ".local/workspace",     # nanobot_skill runtime layout
+    ".local/workspace",     # nanobot-easy runtime layout
     ".nanobot/workspace",   # in-repo alternative layout
     "workspace",            # plain subdir
 )

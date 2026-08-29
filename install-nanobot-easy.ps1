@@ -150,7 +150,7 @@ function Invoke-OnboardIfNeeded {
 
 Set-Location $ScriptDir
 if (-not (Test-Path (Join-Path $ScriptDir "pyproject.toml"))) {
-    Fail "run this script from the nanobot_skill repository checkout"
+    Fail "run this script from the nanobot-easy repository checkout"
 }
 
 $Python = Find-Python
@@ -171,9 +171,9 @@ $VenvPython = New-NanobotVenv $Python
 & $VenvPython -m pip install --upgrade pip
 if ($LASTEXITCODE -ne 0) { Fail "pip upgrade failed." }
 & $VenvPython -m pip install -e ".[${Extras}]"
-if ($LASTEXITCODE -ne 0) { Fail "nanobot_skill editable install failed." }
+if ($LASTEXITCODE -ne 0) { Fail "nanobot-easy editable install failed." }
 
-Write-Info "Installed nanobot_skill:"
+Write-Info "Installed nanobot-easy:"
 $env:PYTHONPATH = if ($env:PYTHONPATH) { "$ScriptDir;$env:PYTHONPATH" } else { $ScriptDir }
 & $VenvPython -m nanobot --version
 if ($LASTEXITCODE -ne 0) { Fail "nanobot command could not be started after installation." }
@@ -182,4 +182,4 @@ Ensure-WebuiDist
 Invoke-OnboardIfNeeded $VenvPython
 
 Write-Info "Installation complete."
-Write-Info "Run nanobot_skill with: start-nanobot.bat"
+Write-Info "Run nanobot-easy with: start-nanobot.bat"

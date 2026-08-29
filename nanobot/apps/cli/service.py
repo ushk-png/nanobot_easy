@@ -1019,7 +1019,7 @@ If the user attached `@{name}` in chat, treat that as the selected app for the c
 Prefer machine-readable output when the CLI supports `--json`.
 """
 
-    def _with_nanobot_skill_note(self, content: str, app: dict[str, Any]) -> str:
+    def _with_nanobot_easy_note(self, content: str, app: dict[str, Any]) -> str:
         marker = "<!-- nanobot-cli-app-note -->"
         if marker in content:
             return content
@@ -1040,7 +1040,7 @@ Use the `run_cli_app` tool with `name="{name}"` for command execution. Do not in
         path = self._skill_path(str(app["name"]))
         path.parent.mkdir(parents=True, exist_ok=True)
         content = self._fetch_skill_content(app) or self._fallback_skill(app)
-        content = self._with_nanobot_skill_note(content, app)
+        content = self._with_nanobot_easy_note(content, app)
         path.write_text(content, encoding="utf-8")
         return path
 
