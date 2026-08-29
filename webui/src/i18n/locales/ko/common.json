@@ -54,9 +54,11 @@
       "label": "언어",
       "ariaLabel": "언어 변경"
     },
-    "apps": "앱",
-    "tools": "앱 툴",
+    "apps": "연결",
+    "tools": "도구",
     "automations": "자동화",
+    "agentManagement": "에이전트 관리",
+    "agentManagementPrompt": "에이전트 관리를 도와줘. 새 전담 에이전트를 만들거나 기존 에이전트 요구사항을 바꾸고 싶어.",
     "skills": {
       "title": "스킬"
     }
@@ -81,9 +83,9 @@
       "advanced": "보안",
       "cliApps": "CLI 앱",
       "mcp": "MCP",
-      "apps": "앱",
+      "apps": "연결",
       "automations": "자동화",
-      "tools": "앱 툴",
+      "tools": "도구",
       "skills": "스킬"
     },
     "sections": {

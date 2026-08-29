@@ -304,10 +304,11 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "Connections" });
     const skillsButton = within(sidebar).getByRole("button", { name: "Skills" });
-    const toolsButton = within(sidebar).getByRole("button", { name: "App Tools" });
+    const toolsButton = within(sidebar).getByRole("button", { name: "Tools" });
     const automationsButton = within(sidebar).getByRole("button", { name: "Automations" });
+    const agentManagementButton = within(sidebar).getByRole("button", { name: "Agent management" });
 
     expect(appsButton.compareDocumentPosition(skillsButton) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
@@ -315,6 +316,10 @@ describe("App layout", () => {
       .toBeTruthy();
     expect(
       toolsButton.compareDocumentPosition(automationsButton) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      automationsButton.compareDocumentPosition(agentManagementButton) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
@@ -343,16 +348,16 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    fireEvent.click(within(sidebar).getByRole("button", { name: "App Tools" }));
+    fireEvent.click(within(sidebar).getByRole("button", { name: "Tools" }));
 
-    expect(await screen.findByRole("heading", { name: "App Tools" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Tools" })).toBeInTheDocument();
     expect(screen.getByText("Read-only ledger of external programs from workspace/app-tools/installed.md. Agent Tools are separate callable nanobot functions. Actions stay in chat.")).toBeInTheDocument();
     expect(screen.getByText("YAML query tool")).toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "App Tools" })).toHaveAttribute(
+    expect(within(sidebar).getByRole("button", { name: "Tools" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("App Tools · nanobot");
+    expect(document.title).toBe("Tools · nanobot");
   });
 
   it("opens Skills from the main sidebar", async () => {
@@ -1948,7 +1953,7 @@ describe("App layout", () => {
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     const searchButton = within(sidebar).getByRole("button", { name: "Search" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "Connections" });
     expect(searchButton.compareDocumentPosition(appsButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(sidebar).getByRole("button", { name: "Settings" }));
 
@@ -1971,7 +1976,7 @@ describe("App layout", () => {
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Image" })).toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Web" })).toBeInTheDocument();
-    expect(within(settingsNav).queryByRole("button", { name: "Apps" })).not.toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Connections" })).not.toBeInTheDocument();
     expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
@@ -2126,18 +2131,18 @@ describe("App layout", () => {
 
     await waitFor(() => expect(connectSpy).toHaveBeenCalled());
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
-    const appsButton = within(sidebar).getByRole("button", { name: "Apps" });
+    const appsButton = within(sidebar).getByRole("button", { name: "Connections" });
 
     fireEvent.click(appsButton);
 
-    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: "Sidebar navigation" })).toBeInTheDocument();
     expect(screen.queryByRole("navigation", { name: "Settings sections" })).not.toBeInTheDocument();
-    expect(within(sidebar).getByRole("button", { name: "Apps" })).toHaveAttribute(
+    expect(within(sidebar).getByRole("button", { name: "Connections" })).toHaveAttribute(
       "aria-current",
       "page",
     );
-    expect(document.title).toBe("Apps · nanobot");
+    expect(document.title).toBe("Connections · nanobot");
   });
 
   it("returns from settings to the blank start page when no session was active", async () => {

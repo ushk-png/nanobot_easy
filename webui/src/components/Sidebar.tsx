@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
 import {
   Archive,
+  Bot,
   Brain,
   CalendarClock,
   Menu,
@@ -41,6 +42,7 @@ interface SidebarProps {
   onOpenTools: () => void;
   onOpenAutomations: () => void;
   onOpenSearch: () => void;
+  onOpenAgentManagement: () => void;
   activeUtility?: "apps" | "skills" | "tools" | "automations" | null;
   onToggleArchived: () => void;
   onCollapse: () => void;
@@ -183,6 +185,12 @@ export function Sidebar(props: SidebarProps) {
           onClick={props.onOpenAutomations}
           active={props.activeUtility === "automations"}
           icon={<CalendarClock className="h-4 w-4" />}
+        />
+        <SidebarActionButton
+          collapsed={collapsed}
+          label={t("sidebar.agentManagement", { defaultValue: "Agent management" })}
+          onClick={props.onOpenAgentManagement}
+          icon={<Bot className="h-4 w-4" />}
         />
         {props.archivedCount ? (
           <SidebarActionButton

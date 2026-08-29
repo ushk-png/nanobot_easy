@@ -13,7 +13,7 @@ Result:
 oops
 
 Summarize this naturally for the user.`;
-    expect(scrubSubagentAnnounceBody(raw)).toBe("[Subagent 'A' failed]\n\noops");
+    expect(scrubSubagentAnnounceBody(raw)).toBe("🤖 Delegated to A · failed\n\noops");
   });
 
   it("handles CRLF", () => {
@@ -36,6 +36,6 @@ Summarize this naturally for the user.`;
     ];
     const out = scrubSubagentUiMessages(messages);
     expect(out[0]).toBe(messages[0]);
-    expect(out[1].content).toBe("[Subagent 'C' failed]\n\nshort");
+    expect(out[1].content).toBe("🤖 Delegated to C · failed\n\nshort");
   });
 });

@@ -1230,6 +1230,27 @@ function Shell({
     setMobileSidebarOpen(false);
   }, [activeKey, navigate]);
 
+  const onOpenAgentManagement = useCallback(() => {
+    setSessionSearchOpen(false);
+    navigate(defaultShellRoute());
+    setDraftWorkspaceScope(null);
+    setWorkspaceError(null);
+    setMobileSidebarOpen(false);
+    try {
+      const storageKey = "nanobot.webui.composerQueuedGuidance.v1:welcome";
+      const prompt = t("sidebar.agentManagementPrompt", {
+        defaultValue:
+          "에이전트 관리를 도와줘. 새 전담 에이전트를 만들거나 기존 에이전트 요구사항을 바꾸고 싶어.",
+      });
+      window.localStorage.setItem(
+        storageKey,
+        JSON.stringify([{ id: `agent-management-${Date.now()}`, text: prompt }]),
+      );
+    } catch {
+      // localStorage is a convenience for pre-filling the chat composer.
+    }
+  }, [navigate, t]);
+
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
       navigate({
@@ -1441,6 +1462,7 @@ function Shell({
     onOpenSkills,
     onOpenTools,
     onOpenSearch: onOpenSessionSearch,
+    onOpenAgentManagement,
     activeUtility:
       view === "apps" || view === "automations" || view === "skills" || view === "tools"
         ? view
