@@ -23,4 +23,4 @@ if [[ -z "${REES_TELEGRAM_BOT_TOKEN:-}" ]]; then
   exit 1
 fi
 
-exec "$SCRIPT_DIR/start-nanobot-skill.sh"
+exec "$SCRIPT_DIR/start-nanobot-easy.sh"

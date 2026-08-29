@@ -14,7 +14,7 @@ DRY_RUN=0
 
 usage() {
   cat <<'EOF'
-Usage: ./install-nanobot-skill.sh [--dry-run] [--skip-wizard]
+Usage: ./install-nanobot-easy.sh [--dry-run] [--skip-wizard]
 
 Creates a repo-local .venv, installs this checkout in editable mode, then
 runs the first-run wizard for .local/config.json when needed.
@@ -46,7 +46,7 @@ done
 find_python() {
   if [[ -n "$PYTHON_BIN" ]]; then
     command -v "$PYTHON_BIN" >/dev/null 2>&1 || fail "PYTHON=$PYTHON_BIN was not found"
-    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || fail "nanobot_skill requires Python 3.11 or newer"
+    "$PYTHON_BIN" - <<'PY' >/dev/null 2>&1 || fail "nanobot-easy requires Python 3.11 or newer"
 import sys
 raise SystemExit(0 if sys.version_info >= (3, 11) else 1)
 PY
@@ -117,7 +117,7 @@ Install Python venv support and rerun. Examples:
   Arch: sudo pacman -S --needed python python-pip nodejs npm git curl
 
 Then run:
-  ./install-nanobot-skill.sh
+  ./install-nanobot-easy.sh
 EOF
     exit 1
   }
@@ -217,7 +217,7 @@ run_onboard_if_needed() {
 
 main() {
   cd "$SCRIPT_DIR"
-  [[ -f "$SCRIPT_DIR/pyproject.toml" ]] || fail "run this script from the nanobot_skill repository checkout"
+  [[ -f "$SCRIPT_DIR/pyproject.toml" ]] || fail "run this script from the nanobot-easy repository checkout"
 
   local py
   py="$(find_python)" || fail "Python 3.11 or newer was not found. Install Python first, then rerun this script."
@@ -228,7 +228,7 @@ main() {
     info "Dry run: would install: pip install -e .[$EXTRAS]"
     info "Dry run: would build WebUI dist with bun or npm if nanobot/web/dist/index.html is missing"
     info "Dry run: would create config with: nanobot onboard --config $CONFIG --workspace $WORKSPACE --wizard"
-    info "Dry run: would run with: ./start-nanobot-skill.sh"
+    info "Dry run: would run with: ./start-nanobot-easy.sh"
     exit 0
   fi
 
@@ -237,14 +237,14 @@ main() {
   "$VENV_DIR/bin/python" -m pip install --upgrade pip
   "$VENV_DIR/bin/python" -m pip install -e ".[${EXTRAS}]"
 
-  info "Installed nanobot_skill:"
+  info "Installed nanobot-easy:"
   PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" --version
 
   ensure_webui_dist
   run_onboard_if_needed
 
   info "Installation complete."
-  info "Run nanobot_skill with: ./start-nanobot-skill.sh"
+  info "Run nanobot-easy with: ./start-nanobot-easy.sh"
 }
 
 main "$@"

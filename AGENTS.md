@@ -75,7 +75,7 @@ order:
 4. Default: `~/.nanobot/workspace` (nanobot's global default)
 
 The CLI **always** prints the resolved path to stderr on the first line, e.g.
-`nanobot skill: workspace=/…/nanobot_skill/.local/workspace (source=discovered)`.
+`nanobot skill: workspace=/…/nanobot-easy/.local/workspace (source=discovered)`.
 If auto-discovery falls back to the default while the current dir looks like a
 project (has `pyproject.toml`, `.git`, or `package.json`) an additional warning
 prompts the user to set `NANOBOT_WORKSPACE` or pass `--workspace`.

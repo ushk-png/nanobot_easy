@@ -95,7 +95,7 @@ def test_exec_blocks_killing_current_gateway_pid():
     """The agent must not kill its own gateway from inside exec."""
     tool = ExecTool()
     for command in (
-        f"kill {os.getpid()} && sleep 2 && ./start-nanobot-skill.sh",
+        f"kill {os.getpid()} && sleep 2 && ./start-nanobot-easy.sh",
         f"/bin/kill -TERM {os.getpid()}",
     ):
         result = tool._guard_command(command, "/tmp")

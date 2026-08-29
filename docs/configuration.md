@@ -2316,7 +2316,7 @@ in the inbox forever.
 
 For the browser workflow, see [`webui.md#skills`](./webui.md#skills). For a
 project-local Korean runbook, see
-[`nanobot-skill-usage-ko.md#webui에서-스킬-관리하기`](./nanobot-skill-usage-ko.md#webui에서-스킬-관리하기).
+[`nanobot-easy-usage-ko.md#webui에서-스킬-관리하기`](./nanobot-easy-usage-ko.md#webui에서-스킬-관리하기).
 
 ## External Tool Skills
 
