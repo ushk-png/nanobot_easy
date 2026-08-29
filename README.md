@@ -10,7 +10,7 @@
 
 ## 바로 설치하고 실행하기
 
-Python 3.11 이상과 Git이 필요합니다. 설치 스크립트는 저장소 안에 `.venv`를 만들고, `.local/config.json`이 없으면 첫 설정 wizard를 실행합니다. Ubuntu/Debian에서 `venv` 지원이 빠져 있으면 `python3-venv`와 `python3-pip` 설치를 시도한 뒤 다음 단계로 진행합니다.
+Python 3.11 이상, Git, 그리고 WebUI 빌드를 위한 Node.js/npm 또는 Bun이 필요합니다. 설치 스크립트는 저장소 안에 `.venv`를 만들고, editable install 뒤 `nanobot/web/dist` WebUI 번들을 직접 빌드합니다. `.local/config.json`이 없으면 첫 설정 wizard를 실행합니다. Ubuntu/Debian에서 `venv` 지원이 빠져 있으면 `python3-venv`와 `python3-pip` 설치를 시도한 뒤 다음 단계로 진행합니다.
 
 ### Linux / Ubuntu
 
@@ -43,7 +43,7 @@ git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && .
 ./start-nanobot-skill.sh
 ```
 
-macOS에 Python 3.11 이상이 없다면 python.org 또는 Homebrew로 Python을 설치한 뒤 다시 실행하세요.
+macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 설치/실행하고 싶으면 `install-nanobot-skill.command`와 `start-nanobot-skill.command`를 사용할 수 있습니다.
 
 ### Windows
 
@@ -59,7 +59,7 @@ git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\ins
 .\start-nanobot.bat
 ```
 
-Windows 설치 파일은 `.venv`가 없으면 생성하고, `.local\config.json`이 없으면 wizard를 실행합니다. Python이 없으면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 켠 뒤 다시 실행하세요.
+Windows 설치 파일은 `.venv`가 없으면 생성하고, WebUI 번들이 없으면 Node.js/npm 또는 Bun으로 빌드하며, `.local\config.json`이 없으면 wizard를 실행합니다. Python이 없으면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 켠 뒤 다시 실행하세요. Node.js/npm이 없으면 nodejs.org에서 LTS 버전을 설치한 뒤 다시 실행하세요.
 
 > 원본 `nanobot-ai`와 같은 환경에 동시 설치하지 마세요. 이 저장소는 repo-local `.venv`를 사용해 분리 실행하는 것을 기본으로 합니다.
 
@@ -108,7 +108,7 @@ nanobot-skill에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 �
 
 ### 개발자가 아니어도 켜서 씁니다
 
-윈도우에서는 `install.bat` → `start-nanobot.bat`, Linux/macOS에서는 `install-nanobot-skill.sh` → `start-nanobot-skill.sh` 순서로 실행하면 됩니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
+윈도우에서는 `install.bat` → `start-nanobot.bat`, macOS Finder에서는 `.command` 파일, Linux/macOS 터미널에서는 `install-nanobot-skill.sh` → `start-nanobot-skill.sh` 순서로 실행하면 됩니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
 
 ---
 

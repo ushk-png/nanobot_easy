@@ -5,6 +5,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV_DIR="${NANOBOT_SKILL_VENV:-$SCRIPT_DIR/.venv}"
 CONFIG="${NANOBOT_CONFIG:-$SCRIPT_DIR/.local/config.json}"
 WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
+WEBUI_DIR="$SCRIPT_DIR/webui"
+WEBUI_DIST="$SCRIPT_DIR/nanobot/web/dist"
 PYTHON_BIN="${PYTHON:-}"
 EXTRAS="${NANOBOT_SKILL_EXTRAS:-telegram,documents}"
 SKIP_WIZARD="${NANOBOT_SKIP_WIZARD:-0}"
@@ -24,6 +26,7 @@ Environment overrides:
   NANOBOT_WORKSPACE      workspace path, default ./.local/workspace
   NANOBOT_SKILL_EXTRAS   package extras, default telegram,documents
   NANOBOT_SKIP_WIZARD=1  do not run onboard wizard
+  NANOBOT_FORCE_WEBUI_BUILD=1 rebuild WebUI even when dist exists
 EOF
 }
 
@@ -108,15 +111,90 @@ create_venv() {
 
 Could not create a virtual environment.
 
-On Ubuntu/Debian, install venv support and rerun:
-  sudo apt update
-  sudo apt install -y python3 python3-venv python3-pip git curl
+Install Python venv support and rerun. Examples:
+  Ubuntu/Debian: sudo apt update && sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
+  Fedora: sudo dnf install -y python3 python3-pip nodejs npm git curl
+  Arch: sudo pacman -S --needed python python-pip nodejs npm git curl
 
 Then run:
   ./install-nanobot-skill.sh
 EOF
     exit 1
   }
+}
+
+pick_webui_runner() {
+  for candidate in bun npm; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+      printf '%s\n' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+maybe_install_linux_node_support() {
+  if [[ "$(uname -s 2>/dev/null || true)" != "Linux" ]]; then
+    return 1
+  fi
+  if ! command -v apt-get >/dev/null 2>&1; then
+    return 1
+  fi
+
+  info "Node.js/npm was not found. Trying to install nodejs and npm with apt..."
+  if command -v sudo >/dev/null 2>&1; then
+    sudo apt-get update
+    sudo apt-get install -y nodejs npm
+  elif [[ "${EUID:-$(id -u)}" = "0" ]]; then
+    apt-get update
+    apt-get install -y nodejs npm
+  else
+    info "sudo is not available. Please run: su -c 'apt-get update && apt-get install -y nodejs npm'"
+    return 1
+  fi
+
+  command -v npm >/dev/null 2>&1
+}
+
+ensure_webui_dist() {
+  local index_html="$WEBUI_DIST/index.html"
+  if [[ -f "$index_html" && "${NANOBOT_FORCE_WEBUI_BUILD:-0}" != "1" ]]; then
+    info "Using existing WebUI build: $WEBUI_DIST"
+    return 0
+  fi
+
+  [[ -f "$WEBUI_DIR/package.json" ]] || fail "webui/package.json was not found; cannot build WebUI bundle"
+
+  local runner
+  if ! runner="$(pick_webui_runner)"; then
+    maybe_install_linux_node_support || true
+  fi
+  if ! runner="$(pick_webui_runner)"; then
+    cat >&2 <<'EOF'
+
+WebUI build requires Bun or Node.js/npm because editable Python installs do not run the packaged WebUI build hook.
+
+Install one of these, then rerun the installer:
+  macOS: brew install node
+  Ubuntu/Debian: sudo apt install -y nodejs npm
+  Fedora: sudo dnf install -y nodejs npm
+  Arch: sudo pacman -S --needed nodejs npm
+  Bun option: https://bun.sh/docs/installation
+EOF
+    exit 1
+  fi
+
+  info "Building WebUI bundle with $runner..."
+  if [[ "$runner" = "bun" ]]; then
+    (cd "$WEBUI_DIR" && bun install && bun run build)
+  elif [[ -f "$WEBUI_DIR/package-lock.json" ]]; then
+    (cd "$WEBUI_DIR" && npm ci && npm run build)
+  else
+    (cd "$WEBUI_DIR" && npm install && npm run build)
+  fi
+
+  [[ -f "$index_html" ]] || fail "WebUI build finished but $index_html is missing"
+  info "WebUI build ready: $WEBUI_DIST"
 }
 
 run_onboard_if_needed() {
@@ -148,6 +226,7 @@ main() {
   if [[ "$DRY_RUN" = "1" ]]; then
     info "Dry run: would create or reuse venv: $VENV_DIR"
     info "Dry run: would install: pip install -e .[$EXTRAS]"
+    info "Dry run: would build WebUI dist with bun or npm if nanobot/web/dist/index.html is missing"
     info "Dry run: would create config with: nanobot onboard --config $CONFIG --workspace $WORKSPACE --wizard"
     info "Dry run: would run with: ./start-nanobot-skill.sh"
     exit 0
@@ -161,6 +240,7 @@ main() {
   info "Installed nanobot_skill:"
   PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" --version
 
+  ensure_webui_dist
   run_onboard_if_needed
 
   info "Installation complete."

@@ -10,6 +10,7 @@ LOG_DIR="${NANOBOT_LOG_DIR:-$SCRIPT_DIR/.local/logs}"
 PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-skill-gateway.pid}"
 LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-skill-gateway.log}"
 ENV_FILE="${NANOBOT_ENV_FILE:-$SCRIPT_DIR/.local/env}"
+WEBUI_DIST_INDEX="$SCRIPT_DIR/nanobot/web/dist/index.html"
 
 mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$WORKSPACE"
 
@@ -21,6 +22,17 @@ fi
 
 if [[ ! -x "$NANOBOT_BIN" ]]; then
   echo "nanobot executable still not found after install: $NANOBOT_BIN" >&2
+  exit 1
+fi
+
+if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
+  echo "WebUI bundle not found: $WEBUI_DIST_INDEX" >&2
+  echo "Running installer to build the WebUI bundle..." >&2
+  NANOBOT_SKIP_WIZARD=1 "$SCRIPT_DIR/install-nanobot-skill.sh"
+fi
+
+if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
+  echo "WebUI bundle still not found after install: $WEBUI_DIST_INDEX" >&2
   exit 1
 fi
 
@@ -92,6 +104,18 @@ if [[ -f "$PAGEAGENT_ENV_FILE" ]]; then
   source "$PAGEAGENT_ENV_FILE"
   set +a
 fi
+
+open_browser_if_available() {
+  if [[ "${NANOBOT_OPEN_BROWSER:-1}" == "0" ]]; then
+    return 0
+  fi
+  local url="$1"
+  if command -v open >/dev/null 2>&1; then
+    open "$url" >/dev/null 2>&1 || true
+  elif command -v xdg-open >/dev/null 2>&1; then
+    xdg-open "$url" >/dev/null 2>&1 || true
+  fi
+}
 
 start_companion_gateways() {
   if [[ "${NANOBOT_START_COMPANIONS:-1}" == "0" ]]; then
@@ -198,6 +222,7 @@ if kill -0 "$pid" 2>/dev/null; then
       echo "health: http://$GATEWAY_HOST:$GATEWAY_PORT/health"
       echo "webui: http://$WEBUI_HOST:$WEBUI_PORT/"
       echo "log: $LOG_FILE"
+      open_browser_if_available "http://$WEBUI_HOST:$WEBUI_PORT/"
       start_companion_gateways
       exit 0
     fi

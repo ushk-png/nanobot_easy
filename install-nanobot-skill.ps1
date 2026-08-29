@@ -9,6 +9,8 @@ $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvDir = if ($env:NANOBOT_SKILL_VENV) { $env:NANOBOT_SKILL_VENV } else { Join-Path $ScriptDir ".venv" }
 $ConfigPath = if ($env:NANOBOT_CONFIG) { $env:NANOBOT_CONFIG } else { Join-Path $ScriptDir ".local\config.json" }
 $WorkspacePath = if ($env:NANOBOT_WORKSPACE) { $env:NANOBOT_WORKSPACE } else { Join-Path $ScriptDir ".local\workspace" }
+$WebuiDir = Join-Path $ScriptDir "webui"
+$WebuiDist = Join-Path $ScriptDir "nanobot\web\dist"
 $Extras = if ($env:NANOBOT_SKILL_EXTRAS) { $env:NANOBOT_SKILL_EXTRAS } else { "telegram,documents" }
 
 function Write-Info {
@@ -69,6 +71,60 @@ function New-NanobotVenv {
     return $VenvPython
 }
 
+function Find-WebuiRunner {
+    foreach ($Candidate in @("bun", "npm")) {
+        if (Get-Command $Candidate -ErrorAction SilentlyContinue) {
+            return $Candidate
+        }
+    }
+    return $null
+}
+
+function Ensure-WebuiDist {
+    $IndexHtml = Join-Path $WebuiDist "index.html"
+    if ((Test-Path $IndexHtml) -and $env:NANOBOT_FORCE_WEBUI_BUILD -ne "1") {
+        Write-Info "Using existing WebUI build: $WebuiDist"
+        return
+    }
+
+    if (-not (Test-Path (Join-Path $WebuiDir "package.json"))) {
+        Fail "webui\package.json was not found; cannot build WebUI bundle."
+    }
+
+    $Runner = Find-WebuiRunner
+    if (-not $Runner) {
+        Fail "WebUI build requires Bun or Node.js/npm because editable Python installs do not run the packaged WebUI build hook. Install Node.js from https://nodejs.org/ or Bun from https://bun.sh/docs/installation, then rerun install.bat."
+    }
+
+    Write-Info "Building WebUI bundle with $Runner..."
+    Push-Location $WebuiDir
+    try {
+        if ($Runner -eq "bun") {
+            & bun install
+            if ($LASTEXITCODE -ne 0) { Fail "bun install failed." }
+            & bun run build
+            if ($LASTEXITCODE -ne 0) { Fail "bun run build failed." }
+        } elseif (Test-Path (Join-Path $WebuiDir "package-lock.json")) {
+            & npm ci
+            if ($LASTEXITCODE -ne 0) { Fail "npm ci failed." }
+            & npm run build
+            if ($LASTEXITCODE -ne 0) { Fail "npm run build failed." }
+        } else {
+            & npm install
+            if ($LASTEXITCODE -ne 0) { Fail "npm install failed." }
+            & npm run build
+            if ($LASTEXITCODE -ne 0) { Fail "npm run build failed." }
+        }
+    } finally {
+        Pop-Location
+    }
+
+    if (-not (Test-Path $IndexHtml)) {
+        Fail "WebUI build finished but $IndexHtml is missing."
+    }
+    Write-Info "WebUI build ready: $WebuiDist"
+}
+
 function Invoke-OnboardIfNeeded {
     param([string]$VenvPython)
     New-Item -ItemType Directory -Force -Path (Split-Path -Parent $ConfigPath) *> $null
@@ -104,6 +160,7 @@ Write-Info "Using Python: $Version"
 if ($DryRun) {
     Write-Info "Dry run: would create or reuse venv: $VenvDir"
     Write-Info "Dry run: would install: pip install -e .[$Extras]"
+    Write-Info "Dry run: would build WebUI dist with bun or npm if nanobot\web\dist\index.html is missing"
     Write-Info "Dry run: would create config with: nanobot onboard --config $ConfigPath --workspace $WorkspacePath --wizard"
     Write-Info "Dry run: would run with: start-nanobot.bat"
     exit 0
@@ -121,6 +178,7 @@ $env:PYTHONPATH = if ($env:PYTHONPATH) { "$ScriptDir;$env:PYTHONPATH" } else { $
 & $VenvPython -m nanobot --version
 if ($LASTEXITCODE -ne 0) { Fail "nanobot command could not be started after installation." }
 
+Ensure-WebuiDist
 Invoke-OnboardIfNeeded $VenvPython
 
 Write-Info "Installation complete."
