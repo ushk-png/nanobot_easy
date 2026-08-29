@@ -32,7 +32,7 @@ git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && .
 git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\install.bat
 ```
 
-The installer creates a repo-local `.venv`, installs this checkout in editable mode, then starts `nanobot onboard --config .local/config.json --workspace .local/workspace --wizard` when the config does not exist. On Ubuntu/Debian it detects missing `venv` support and tries to install `python3-venv` and `python3-pip` before continuing.
+The installer creates a repo-local `.venv`, installs this checkout in editable mode, builds the WebUI bundle into `nanobot/web/dist`, then starts `nanobot onboard --config .local/config.json --workspace .local/workspace --wizard` when the config does not exist. Editable Python installs skip the packaged WebUI build hook, so the installer requires Bun or Node.js/npm for this step. On Ubuntu/Debian it detects missing `venv` support and tries to install `python3-venv` and `python3-pip` before continuing.
 
 To preview the plan without changing your environment, pass `--dry-run`:
 
@@ -48,19 +48,19 @@ If Ubuntu/Debian cannot create a virtual environment and sudo is unavailable, in
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
 ```
 
-If your shell cannot find `nanobot` after a pip install, run the module form:
+If your shell cannot find `nanobot` after a manual pip install, run the module form:
 
 ```bash
 python -m nanobot --version
 python -m nanobot onboard
 ```
 
-On Windows, `~` in the docs means your user profile directory, for example `C:\Users\you`.
+On macOS, Finder double-click can use `install-nanobot-skill.command` and `start-nanobot-skill.command`. On Linux desktop environments, shell scripts may open in an editor unless the file manager is configured to execute scripts, so the documented Linux path is intentionally one command in a terminal.
 
-The docs use `python` in commands. If your system exposes Python 3.11+ as `python3` or `py`, use that command in the same place, for example `python3 -m pip install nanobot-ai` or `py -m nanobot --version`.
+The docs use `python` in commands. If your system exposes Python 3.11+ as `python3` or `py`, use that command in the same place.
 
 ## 2. Initialize
 
