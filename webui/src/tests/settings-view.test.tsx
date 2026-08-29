@@ -242,7 +242,7 @@ describe("SettingsView Apps catalog", () => {
 
     renderSettingsView();
 
-    expect(await screen.findByRole("heading", { name: "Apps" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Connections" })).toBeInTheDocument();
     expect(await screen.findByText("AnyGen")).toBeInTheDocument();
     const uninstall = screen.getByRole("button", { name: "Uninstall CLI" });
 

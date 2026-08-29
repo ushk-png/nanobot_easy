@@ -73,7 +73,7 @@ const SIDEBAR_RAIL_WIDTH = 56;
 const MOBILE_SIDEBAR_WIDTH = `min(${SIDEBAR_WIDTH}px, calc(100vw - 0.75rem))`;
 const TOKEN_REFRESH_MARGIN_MS = 30_000;
 const TOKEN_REFRESH_MIN_DELAY_MS = 5_000;
-type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "tools";
+type ShellView = "chat" | "settings" | "apps" | "automations" | "skills" | "tools" | "agent-management";
 type ShellRoute = {
   view: ShellView;
   activeKey: string | null;
@@ -92,6 +92,7 @@ const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "automations",
   "skills",
   "tools",
+  "agent-management",
   "runtime",
   "advanced",
 ];
@@ -105,7 +106,13 @@ function defaultShellRoute(): ShellRoute {
 }
 
 function shellViewForSettingsSection(section: SettingsSectionKey): ShellView {
-  if (section === "apps" || section === "automations" || section === "skills" || section === "tools") {
+  if (
+    section === "apps" ||
+    section === "automations" ||
+    section === "skills" ||
+    section === "tools" ||
+    section === "agent-management"
+  ) {
     return section;
   }
   return "settings";
@@ -144,6 +151,9 @@ function readShellRoute(): ShellRoute {
   }
   if (path === "/tools") {
     return { view: "tools", activeKey, settingsSection: "tools" };
+  }
+  if (path === "/agent-management") {
+    return { view: "agent-management", activeKey, settingsSection: "agent-management" };
   }
   if (path.startsWith("/chat/")) {
     const encoded = path.slice("/chat/".length);
@@ -1232,24 +1242,9 @@ function Shell({
 
   const onOpenAgentManagement = useCallback(() => {
     setSessionSearchOpen(false);
-    navigate(defaultShellRoute());
-    setDraftWorkspaceScope(null);
-    setWorkspaceError(null);
+    navigate({ view: "agent-management", activeKey, settingsSection: "agent-management" });
     setMobileSidebarOpen(false);
-    try {
-      const storageKey = "nanobot.webui.composerQueuedGuidance.v1:welcome";
-      const prompt = t("sidebar.agentManagementPrompt", {
-        defaultValue:
-          "에이전트 관리를 도와줘. 새 전담 에이전트를 만들거나 기존 에이전트 요구사항을 바꾸고 싶어.",
-      });
-      window.localStorage.setItem(
-        storageKey,
-        JSON.stringify([{ id: `agent-management-${Date.now()}`, text: prompt }]),
-      );
-    } catch {
-      // localStorage is a convenience for pre-filling the chat composer.
-    }
-  }, [navigate, t]);
+  }, [activeKey, navigate]);
 
   const onSettingsSectionChange = useCallback(
     (section: SettingsSectionKey) => {
@@ -1438,6 +1433,12 @@ function Shell({
       });
       return;
     }
+    if (view === "agent-management") {
+      document.title = t("app.documentTitle.chat", {
+        title: t("settings.nav.agentManagement", { defaultValue: "Agent management" }),
+      });
+      return;
+    }
     document.title = activeSession
       ? t("app.documentTitle.chat", { title: headerTitle })
       : t("app.documentTitle.base");
@@ -1464,7 +1465,11 @@ function Shell({
     onOpenSearch: onOpenSessionSearch,
     onOpenAgentManagement,
     activeUtility:
-      view === "apps" || view === "automations" || view === "skills" || view === "tools"
+      view === "apps" ||
+      view === "automations" ||
+      view === "skills" ||
+      view === "tools" ||
+      view === "agent-management"
         ? view
         : null,
     onToggleArchived,

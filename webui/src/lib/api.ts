@@ -30,6 +30,9 @@ import type {
   SettingsUpdate,
   SkillGovernanceSettingsUpdate,
   StudentModeSettingsUpdate,
+  AgentToolsSettingsUpdate,
+  AgentProfileSaveInput,
+  AgentProfilesPayload,
   SidebarStatePayload,
   SkillDetail,
   SkillsPayload,
@@ -1023,4 +1026,50 @@ export async function updateStudentModeSettings(
   if (update.reviewQueuePath !== undefined) query.set("review_queue_path", update.reviewQueuePath);
   if (update.dailyReviewCronName !== undefined) query.set("daily_review_cron_name", update.dailyReviewCronName);
   return request<SettingsPayload>(`${base}/api/settings/student-mode/update?${query}`, token);
+}
+
+export async function updateAgentToolsSettings(
+  token: string,
+  update: AgentToolsSettingsUpdate,
+  base: string = "",
+): Promise<SettingsPayload> {
+  const query = new URLSearchParams();
+  if (update.webEnabled !== undefined) query.set("web_enabled", String(update.webEnabled));
+  if (update.fileEnabled !== undefined) query.set("file_enabled", String(update.fileEnabled));
+  if (update.execEnabled !== undefined) query.set("exec_enabled", String(update.execEnabled));
+  if (update.cliAppsEnabled !== undefined) query.set("cli_apps_enabled", String(update.cliAppsEnabled));
+  if (update.imageGenerationEnabled !== undefined) {
+    query.set("image_generation_enabled", String(update.imageGenerationEnabled));
+  }
+  return request<SettingsPayload>(`${base}/api/settings/agent-tools/update?${query}`, token);
+}
+
+export async function fetchAgentProfiles(
+  token: string,
+  base: string = "",
+): Promise<AgentProfilesPayload> {
+  return request<AgentProfilesPayload>(`${base}/api/settings/agents`, token);
+}
+
+export async function saveAgentProfile(
+  token: string,
+  input: AgentProfileSaveInput,
+  base: string = "",
+): Promise<AgentProfilesPayload> {
+  const query = new URLSearchParams();
+  if (input.originalName) query.set("original_name", input.originalName);
+  query.set("name", input.name);
+  if (input.icon) query.set("icon", input.icon);
+  query.set("requirements", input.requirements);
+  return request<AgentProfilesPayload>(`${base}/api/settings/agents/save?${query}`, token);
+}
+
+export async function deleteAgentProfile(
+  token: string,
+  name: string,
+  base: string = "",
+): Promise<AgentProfilesPayload> {
+  const query = new URLSearchParams();
+  query.set("name", name);
+  return request<AgentProfilesPayload>(`${base}/api/settings/agents/delete?${query}`, token);
 }

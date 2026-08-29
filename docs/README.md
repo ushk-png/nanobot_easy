@@ -52,7 +52,7 @@ If a local `nanobot agent` session can already answer normally, you can also ask
 
 | Goal | Read | Outcome |
 |---|---|---|
-| Open the bundled browser UI | [`webui.md`](./webui.md) | `nanobot webui`, chat workspace, Apps, Skills, Automations, and settings |
+| Open the bundled browser UI | [`webui.md`](./webui.md) | `nanobot webui`, chat workspace, Connections, Agent Tools, Agent Management, Skills, Automations, and settings |
 | Inspect or operate skills | [`nanobot-easy-usage-ko.md`](./nanobot-easy-usage-ko.md) and [`cli-reference.md#skill-registry`](./cli-reference.md#skill-registry) | Skill usage, registry commands, and lifecycle reports |
 | Connect Telegram, Discord, WeChat, Slack, Email, Mattermost, or another chat app | [`chat-apps.md`](./chat-apps.md) | A gateway-backed chat channel with access control |
 | Use slash commands and automations | [`chat-commands.md`](./chat-commands.md) | Pairing, model presets, local triggers, heartbeat tasks, and chat-side controls |

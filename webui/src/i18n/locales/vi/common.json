@@ -58,7 +58,10 @@
     "automations": "Tự động hóa",
     "skills": {
       "title": "Kỹ năng"
-    }
+    },
+    "tools": "Tools",
+    "agentManagement": "Agent management",
+    "agentManagementPrompt": "Help me manage agents. I want to create a dedicated agent or change an existing agent's requirements."
   },
   "settings": {
     "backToChat": "Quay lại chat",
@@ -82,7 +85,9 @@
       "mcp": "MCP",
       "apps": "Ứng dụng",
       "automations": "Tự động hóa",
-      "skills": "Kỹ năng"
+      "skills": "Kỹ năng",
+      "tools": "Tools",
+      "agent-management": "Agent management"
     },
     "sections": {
       "interface": "Giao diện",
@@ -988,7 +993,8 @@
         "projectPlaceholder": "Chọn dự án",
         "default": "Quyền mặc định",
         "full": "Toàn quyền truy cập"
-      }
+      },
+      "attachFile": "Attach file"
     },
     "scrollToBottom": "Cuộn xuống cuối",
     "loadEarlier": "Tải tin nhắn trước đó",
