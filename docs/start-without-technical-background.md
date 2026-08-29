@@ -70,7 +70,7 @@ For the setup path:
 
 ## 4. Install nanobot
 
-The easiest path is the repo-local installer. It creates a `.venv` inside the downloaded folder, installs nanobot-skill there, then starts the setup wizard. On Ubuntu/Debian it detects missing Python venv support and tries to install `python3-venv` and `python3-pip` before continuing.
+The easiest path is the repo-local installer. It creates a `.venv` inside the downloaded folder, installs nanobot-skill there, builds the WebUI bundle, then starts the setup wizard. Because editable Python installs skip the packaged WebUI build hook, you need Node.js/npm or Bun installed. On Ubuntu/Debian it detects missing Python venv support and tries to install `python3-venv` and `python3-pip` before continuing.
 
 **macOS / Linux**
 
@@ -94,11 +94,11 @@ To preview what the installer would do without changing your environment, pass `
 .\install.bat -DryRun
 ```
 
-If Ubuntu/Debian cannot create a virtual environment and automatic prerequisite installation is blocked, run this once and retry:
+If Ubuntu/Debian cannot create a virtual environment, or if Node.js/npm is missing and automatic prerequisite installation is blocked, run this once and retry:
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
 ```
 
 Then check that nanobot is installed:
@@ -319,7 +319,7 @@ If nanobot is not installed, rerun the installer:
 ./install-nanobot-skill.sh
 ```
 
-On Windows, run `.\start-nanobot.bat` from PowerShell.
+On Windows, run `.\start-nanobot.bat` from PowerShell. On macOS, you can double-click `install-nanobot-skill.command` and `start-nanobot-skill.command` in Finder.
 
 Once this works, nanobot can help with its own next setup step. In the browser UI, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to add one provider preset or configure one chat app.
 

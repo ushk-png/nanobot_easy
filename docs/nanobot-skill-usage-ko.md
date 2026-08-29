@@ -16,11 +16,11 @@ git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && .
 ./start-nanobot-skill.sh
 ```
 
-Ubuntu/Debian에서 `python3 -m venv`가 동작하지 않으면 설치 스크립트가 `python3-venv`와 `python3-pip` 설치를 시도합니다. `sudo`가 없거나 자동 설치가 막힌 환경에서는 먼저 아래를 실행하세요.
+Ubuntu/Debian에서 `python3 -m venv`가 동작하지 않으면 설치 스크립트가 `python3-venv`와 `python3-pip` 설치를 시도합니다. WebUI 번들 빌드를 위해 Node.js/npm 또는 Bun도 필요합니다. `sudo`가 없거나 자동 설치가 막힌 환경에서는 먼저 아래를 실행하세요.
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
 ```
 
 ### macOS
@@ -35,7 +35,7 @@ git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && .
 ./start-nanobot-skill.sh
 ```
 
-Python 3.11 이상이 없다면 python.org 또는 Homebrew로 설치한 뒤 다시 실행하세요.
+Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 실행하려면 `install-nanobot-skill.command`와 `start-nanobot-skill.command`를 사용하세요.
 
 ### Windows
 
@@ -51,7 +51,7 @@ git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\ins
 .\start-nanobot.bat
 ```
 
-Python이 없다면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 선택한 뒤 PowerShell을 새로 열어 다시 실행하세요.
+Python이 없다면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 선택한 뒤 PowerShell을 새로 열어 다시 실행하세요. Node.js/npm이 없다면 nodejs.org에서 LTS 버전을 설치하세요.
 
 ## 설치 스크립트가 하는 일
 
@@ -60,8 +60,9 @@ Linux/macOS의 `install-nanobot-skill.sh`와 Windows의 `install-nanobot-skill.p
 1. Python 3.11 이상을 찾습니다.
 2. 저장소 내부에 `.venv`를 만들거나 기존 `.venv`를 재사용합니다.
 3. venv에 pip를 준비하고 이 저장소를 editable mode로 설치합니다.
-4. `.local/config.json`이 없으면 첫 설정 wizard를 실행합니다.
-5. `.local/workspace`를 준비합니다.
+4. editable install에서는 Python 빌드 훅이 WebUI 번들을 만들지 않으므로, `bun` 또는 `npm`으로 `nanobot/web/dist`를 직접 빌드합니다.
+5. `.local/config.json`이 없으면 첫 설정 wizard를 실행합니다.
+6. `.local/workspace`를 준비합니다.
 
 기본 설치 extras는 `telegram,documents`입니다. 필요하면 환경변수로 바꿀 수 있습니다.
 
@@ -90,7 +91,7 @@ Windows:
 .\start-nanobot.bat
 ```
 
-실행 스크립트는 `.venv`가 없으면 설치 스크립트를 먼저 실행하고, `.local/config.json`이 없으면 설정 wizard를 실행합니다. 따라서 fresh clone 이후에도 실행 스크립트 하나로 설치 누락을 복구할 수 있습니다.
+실행 스크립트는 `.venv`가 없거나 WebUI 번들이 없으면 설치 스크립트를 먼저 실행하고, `.local/config.json`이 없으면 설정 wizard를 실행합니다. 따라서 fresh clone 이후에도 실행 스크립트 하나로 설치 누락을 복구할 수 있습니다.
 
 Linux/macOS의 `start-nanobot-skill.sh`는 gateway를 background process로 띄우고 다음 정보를 출력합니다.
 
