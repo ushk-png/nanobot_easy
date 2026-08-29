@@ -456,7 +456,7 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
             "  nanobot:",
             "    requires:",
             "      bins:",
-            "        - definitely-missing-nanobot-skill-cli",
+            "        - definitely-missing-nanobot-easy-cli",
             "      env:",
             "        - DEFINITELY_MISSING_NANOBOT_SKILL_ENV",
             "---",
@@ -502,7 +502,7 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
         unavailable = next(skill for skill in body["skills"] if skill["name"] == "zz-unavailable-skill")
         assert unavailable["available"] is False
         assert unavailable["unavailable_reason"] == (
-            "CLI: definitely-missing-nanobot-skill-cli, "
+            "CLI: definitely-missing-nanobot-easy-cli, "
             "ENV: DEFINITELY_MISSING_NANOBOT_SKILL_ENV"
         )
 
@@ -514,9 +514,9 @@ async def test_webui_skills_route_requires_token_and_hides_paths(
         detail_body = detail.json()
         assert "path" not in detail_body
         assert detail_body["requirements"] == {
-            "bins": ["definitely-missing-nanobot-skill-cli"],
+            "bins": ["definitely-missing-nanobot-easy-cli"],
             "env": ["DEFINITELY_MISSING_NANOBOT_SKILL_ENV"],
-            "missing_bins": ["definitely-missing-nanobot-skill-cli"],
+            "missing_bins": ["definitely-missing-nanobot-easy-cli"],
             "missing_env": ["DEFINITELY_MISSING_NANOBOT_SKILL_ENV"],
         }
         assert "Use the missing CLI and env var." in detail_body["raw_markdown"]
