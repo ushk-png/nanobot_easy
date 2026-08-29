@@ -71,6 +71,7 @@ Windows 설치 파일은 `.venv`가 없으면 생성하고, WebUI 번들이 없�
 - AI가 파일을 지우거나 메일을 보내는 게 불안해서 자동화를 못 맡기고 있던 분
 - 대화 때마다 배경 설명을 다시 하는 게 지겨운 분
 - 개발자가 아닌 가족·학생에게 로컬 AI를 쥐여주고 싶은 분
+- WebUI에서 연결, 내장 Agent Tools, 에이전트 관리, 자동화를 한곳에서 다루고 싶은 분
 
 ## 이런 분에게는 원본이 낫습니다
 
@@ -126,7 +127,7 @@ nanobot-easy에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한
 
 원본 nanobot에서 2026년 7월 분기한 뒤 독립적으로 운영합니다. 기능을 그대로 따라가지 않습니다. 넓은 채널 연동이나 최신 기능이 필요하다면 [원본](https://github.com/HKUDS/nanobot)이 더 나은 선택입니다.
 
-처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-easy-usage-ko.md)부터 보시길 권합니다. 설정은 [configuration.md](./docs/configuration.md), 학습자용 배포는 [학생 모드 안내](./docs/student-mode-distribution-ko.md)를 참고하세요.
+처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-easy-usage-ko.md)부터 보시길 권합니다. 브라우저 화면은 [WebUI 안내](./docs/webui.md), 설정은 [configuration.md](./docs/configuration.md), 학습자용 배포는 [학생 모드 안내](./docs/student-mode-distribution-ko.md)를 참고하세요.
 
 ## 기여
 

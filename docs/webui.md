@@ -1,8 +1,8 @@
 # WebUI
 
 The WebUI is nanobot's browser workbench for persistent chat sessions, visible
-agent activity, workspace controls, Apps, Skills, settings, and Automations in
-one place.
+agent activity, workspace controls, Connections, Agent Tools, Agent Management,
+Skills, settings, and Automations in one place.
 
 The published `nanobot-ai` wheel already includes the WebUI bundle. You only need
 the `webui/` source directory when you are changing the frontend itself.
@@ -57,8 +57,10 @@ gateway health endpoint, `18790` by default, is not the browser UI.
 | Agent activity | See thinking, tool calls, file activity, command output, and generated artifacts in context |
 | Workspace | Pick the project workspace before asking for file or shell work |
 | Access | Choose the access mode for local capabilities allowed by your gateway configuration |
-| Composer | Send text, images, voice input, slash commands, and `@` mentions for Apps or MCP presets |
-| Apps | Install, test, update, and use local CLI App adapters and MCP presets |
+| Composer | Send text, images, voice input, slash commands, and `@` mentions for Programs or MCP presets |
+| Connections | Enable built-in integrations, manage optional feature dependencies, and review local Programs/MCP presets |
+| Tools | Toggle built-in Agent Tools such as web search, file access, command execution, image generation, and external-program execution |
+| Agent Management | Create, edit, and delete user-managed subagent profiles from a dedicated screen |
 | Skills | Inspect, create, test, register, and lifecycle-manage skills when management is enabled |
 | Automations | Review, search, run, pause, edit, and delete scheduled and local-trigger agent turns |
 | Settings | Adjust models, providers, image generation, voice, web tools, runtime, and safety options |
@@ -87,21 +89,23 @@ available to this WebUI session.
 ## Composer
 
 The composer supports plain messages, image attachments, voice input when
-transcription is configured, slash commands, and `@` mentions for installed Apps
-or MCP presets. The model badge shows the current model or preset and links back
-to model settings when setup is incomplete.
+transcription is configured, slash commands, and `@` mentions for installed
+Programs or MCP presets. The model badge links back to model settings when setup
+is incomplete; when the model is already configured, the home composer keeps the
+hero cleaner by hiding the connected-model badge.
 
 For image generation, configure an image provider first and then use the WebUI
 image mode from the composer. See [`image-generation.md`](./image-generation.md)
 for provider setup and output behavior.
 
-## Apps
+## Connections and Programs
 
-Open Apps from the sidebar or settings navigation to manage integrations that
-nanobot can call from a chat. Nanobot features can enable built-in channels and
-optional capabilities such as `bedrock` or `documents`. CLI Apps install local
-adapters that nanobot runs on your machine; they do not modify the native apps
-themselves. MCP presets add predefined MCP server configurations.
+Open Connections from the sidebar or settings navigation to manage integrations
+that nanobot can call from a chat. Nanobot features can enable built-in channels
+and optional capabilities such as `bedrock` or `documents`. The Programs section
+shows local CLI App adapters that nanobot can run on your machine; these are
+external App Tools, not the same thing as built-in Agent Tools. MCP presets add
+predefined MCP server configurations.
 
 Enabling a Nanobot feature may install Python packages into the environment
 running nanobot. By default, the WebUI can install missing packages only when
@@ -119,8 +123,32 @@ extraction tools without requiring an API key. This does not replace nanobot's
 built-in web search provider; mention the Firecrawl MCP preset with `@` when a
 turn needs Firecrawl's richer web data tools.
 
-After an App or MCP preset is available, mention it from the composer with `@`
-to attach that capability to the next message.
+After a Program or MCP preset is available, mention it from the composer with
+`@` to attach that capability to the next message.
+
+## Agent Tools
+
+Open Tools from the sidebar to control built-in Agent Tools. This screen is for
+runtime capabilities exposed to nanobot itself, such as web search/fetch, file
+access, shell command execution, image generation, and permission to run external
+Programs. It is separate from Connections: Connections manages integrations and
+installed Programs; Tools controls whether the agent may use those capability
+classes during a turn.
+
+Some toggles affect gateway/runtime behavior and may require restart. The WebUI
+shows the restart requirement when a setting cannot take effect immediately.
+
+## Agent Management
+
+Open Agent Management from the sidebar to manage user-created subagent profiles.
+This is a real settings screen, not a shortcut that only pre-fills a chat
+message. Use it to create or rename an agent, choose a display icon, describe
+when that agent should be used, and delete profiles after confirmation.
+
+Student-mode seeded profiles such as `study-coach` and `review-teacher` are not
+shown here because they are managed by the mode setup flow. User-created agents
+are backed by nanobot's subagent profile configuration; display icons are stored
+as workspace-local UI metadata.
 
 ## Skills
 
@@ -180,12 +208,13 @@ require confirmation and return verified skills to `candidate` for revalidation.
 See [`configuration.md#webui-skill-management`](./configuration.md#webui-skill-management)
 for the management capability flag and red-flag thresholds.
 
-If external tool skills have written `<workspace>/tools/installed.md`, the left
-sidebar shows a Tools screen with an installed-tools ledger. The Skills view also
-shows the same read-only summary. The ledger shows the tool name, description,
-install date, version, last recorded status, and last check time, but it does not
-provide delete, update, start, or stop buttons. Ask in chat for those actions so
-the normal setup/usage skill routing and confirmation rules apply.
+If external tool skills have written `<workspace>/tools/installed.md`, the
+Connections view can show those local Programs as a read-only installed-tools
+ledger. The Skills view may also show the same summary. The ledger shows the tool
+name, description, install date, version, last recorded status, and last check
+time, but it does not provide delete, update, start, or stop buttons. Ask in chat
+for those actions so the normal setup/usage skill routing and confirmation rules
+apply.
 
 ## Automations
 
@@ -244,8 +273,9 @@ with the content that should be delivered.
 
 Settings is the control surface for the browser session and gateway-backed
 runtime configuration. Use it to review or adjust model presets, provider
-visibility, image generation, voice transcription, web tools, Apps, Automations,
-Skills, runtime identity, and advanced safety controls.
+visibility, image generation, voice transcription, Agent Tools, Connections,
+Automations, Skills, Agent Management, runtime identity, and advanced safety
+controls.
 
 Some settings take effect immediately. Runtime settings that affect the gateway
 or agent process may require a restart; the WebUI shows that requirement next to
@@ -273,10 +303,10 @@ The gateway refuses to start with `host` set to `"0.0.0.0"` unless `token` or
 `http://<your-ip>:8765` from the other device and enter the secret in the login
 form.
 
-Remote WebUI clients can view Apps and toggle already-installed features with a
-valid token, but they cannot install missing Python packages by default. To allow
-trusted remote admins to install optional feature dependencies from the WebUI,
-opt in explicitly:
+Remote WebUI clients can view Connections and toggle already-installed features
+with a valid token, but they cannot install missing Python packages by default.
+To allow trusted remote admins to install optional feature dependencies from the
+WebUI, opt in explicitly:
 
 ```json
 {
