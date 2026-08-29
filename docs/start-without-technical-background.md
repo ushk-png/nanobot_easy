@@ -70,55 +70,36 @@ For the setup path:
 
 ## 4. Install nanobot
 
-The easiest path is the one-command installer. It installs or upgrades nanobot, then starts the setup wizard. On macOS and Linux it avoids system-wide pip installs by using an active virtual environment, `uv`, `pipx`, or a managed venv under `~/.nanobot/venv`.
+The easiest path is the repo-local installer. It creates a `.venv` inside the downloaded folder, installs nanobot-skill there, then starts the setup wizard. On Ubuntu/Debian it detects missing Python venv support and tries to install `python3-venv` and `python3-pip` before continuing.
 
 **macOS / Linux**
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh
+git clone https://github.com/ushk-png/nanobot_skill.git && cd nanobot_skill && ./install-nanobot-skill.sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1 | iex
+git clone https://github.com/ushk-png/nanobot_skill.git; cd nanobot_skill; .\install.bat
 ```
 
-These commands install the stable PyPI package. To preview what the installer would do without changing your environment, pass `--dry-run`:
+To preview what the installer would do without changing your environment, pass `--dry-run`:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dry-run
+./install-nanobot-skill.sh --dry-run
 ```
 
 ```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1))) --dry-run
+.\install.bat -DryRun
 ```
 
-Use the development installer only when a maintainer asks you to test the current `main` branch:
+If Ubuntu/Debian cannot create a virtual environment and automatic prerequisite installation is blocked, run this once and retry:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.sh | sh -s -- --dev
+sudo apt update
+sudo apt install -y python3 python3-venv python3-pip git curl
 ```
-
-```powershell
-& ([scriptblock]::Create((irm https://raw.githubusercontent.com/HKUDS/nanobot/main/scripts/install.ps1))) --dev
-```
-
-If the command says `curl` or `irm` is not found, or it cannot download from GitHub, use one of the manual install commands below.
-
-If `uv` is installed, use:
-
-```bash
-uv tool install nanobot-ai
-```
-
-If you prefer pip, use it only inside an environment you control:
-
-```bash
-python -m pip install nanobot-ai
-```
-
-If pip reports `externally-managed-environment` on macOS or Linux, go back to the one-command installer, use `uv tool install nanobot-ai`, use `pipx install nanobot-ai`, or create a virtual environment first.
 
 Then check that nanobot is installed:
 
@@ -193,8 +174,8 @@ The wizard creates or updates:
 
 | Path | Meaning |
 |---|---|
-| `~/.nanobot/config.json` | Settings file. |
-| `~/.nanobot/workspace/` | Working folder for memory, sessions, and generated files. |
+| `.local/config.json` | Settings file. |
+| `.local/workspace/` | Working folder for memory, sessions, and generated files. |
 
 If Quick Start finished successfully, skip to [Open the WebUI](#7-open-the-webui). The next two sections are only for manual setup.
 
@@ -238,7 +219,7 @@ Notice the comma after the `providers` block. JSON needs commas between sibling 
 
 Use this only if the wizard is unavailable or you prefer opening the file yourself.
 
-Run `nanobot onboard` first if `~/.nanobot/config.json` does not exist yet.
+Run `PYTHONPATH=. .venv/bin/nanobot onboard --config .local/config.json --workspace .local/workspace` first if `.local/config.json` does not exist yet.
 
 Use one of these commands:
 
@@ -251,13 +232,13 @@ notepad "$env:USERPROFILE\.nanobot\config.json"
 **macOS**
 
 ```bash
-open -e ~/.nanobot/config.json
+open -e .local/config.json
 ```
 
 **Linux**
 
 ```bash
-xdg-open ~/.nanobot/config.json
+xdg-open .local/config.json
 ```
 
 If this is a brand-new install and you have not configured anything else yet, replace the file with this minimal config:
@@ -305,17 +286,17 @@ Save the file.
 First check that nanobot can read the saved setup:
 
 ```bash
-nanobot status
+PYTHONPATH=. .venv/bin/nanobot status --config .local/config.json --workspace .local/workspace
 ```
 
-This should show the config file path, workspace path, and the active model or preset. If `nanobot` is not found, use `python -m nanobot status`, `python3 -m nanobot status`, or `py -m nanobot status`, matching the Python command that worked in step 2.
+This should show the config file path, workspace path, and the active model or preset. On Windows, use `.venv\Scripts\python.exe -m nanobot status --config .local\config.json --workspace .local\workspace`.
 
 It is normal for most providers to say `not set`. Only the provider you selected for the active preset needs to look configured.
 
 Start the local browser UI:
 
 ```bash
-nanobot webui
+./start-nanobot-skill.sh
 ```
 
 This starts nanobot and opens `http://127.0.0.1:8765` in your browser. Leave the terminal open while you use the WebUI. Enter the WebUI password you set in the wizard if the browser asks for one.
@@ -332,13 +313,13 @@ If that works, nanobot is installed and can call the model. You should see a nor
 Hello! How can I help you today?
 ```
 
-If `nanobot` is not found, run:
+If nanobot is not installed, rerun the installer:
 
 ```bash
-python -m nanobot webui
+./install-nanobot-skill.sh
 ```
 
-Use `python3 -m nanobot webui` or `py -m nanobot webui` if that is the Python command that worked in step 2.
+On Windows, run `.\start-nanobot.bat` from PowerShell.
 
 Once this works, nanobot can help with its own next setup step. In the browser UI, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to add one provider preset or configure one chat app.
 
@@ -367,21 +348,23 @@ Skip these until the first local message works:
 
 ## Next Steps
 
-After the first reply works, choose only one next goal. Keep the terminal that runs `nanobot webui` open whenever you use the WebUI. Chat apps use the same gateway service underneath.
+After the first reply works, choose only one next goal. Use `./start-nanobot-skill.sh` on Linux/macOS or `.\start-nanobot.bat` on Windows whenever you want to open the WebUI again. Chat apps use the same gateway service underneath.
 
 ### Open the Browser UI Again
 
 Run:
 
 ```bash
-nanobot webui
+./start-nanobot-skill.sh
 ```
 
-Leave that terminal open; the browser should open automatically.
+On Windows:
 
-To stop the WebUI later, return to the gateway terminal and press `Ctrl+C`.
+```powershell
+.\start-nanobot.bat
+```
 
-If `nanobot` is not found, run `python -m nanobot webui`, `python3 -m nanobot webui`, or `py -m nanobot webui`, matching the Python command that worked earlier. More details are in [`webui.md`](./webui.md).
+The browser UI uses `http://127.0.0.1:8765` by default. To stop the Linux/macOS gateway later, run `./stop-nanobot-skill.sh`. More details are in [`webui.md`](./webui.md).
 
 ### Connect a Chat App
 

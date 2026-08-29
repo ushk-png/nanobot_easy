@@ -1,22 +1,23 @@
 @echo off
 setlocal
 
-if exist "%USERPROFILE%\.nanobot\venv\Scripts\python.exe" (
-  "%USERPROFILE%\.nanobot\venv\Scripts\python.exe" -m nanobot webui
-  exit /b %ERRORLEVEL%
+set "SCRIPT_DIR=%~dp0"
+set "VENV_PY=%SCRIPT_DIR%.venv\Scripts\python.exe"
+set "CONFIG=%SCRIPT_DIR%.local\config.json"
+set "WORKSPACE=%SCRIPT_DIR%.local\workspace"
+
+if not exist "%VENV_PY%" (
+  echo Local virtual environment was not found. Running installer first...
+  call "%SCRIPT_DIR%install.bat"
+  if errorlevel 1 exit /b %ERRORLEVEL%
 )
 
-where uv >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-  uv tool run --from nanobot-ai nanobot webui
-  exit /b %ERRORLEVEL%
+if not exist "%CONFIG%" (
+  echo Config was not found. Running first-run setup wizard...
+  "%VENV_PY%" -m nanobot onboard --config "%CONFIG%" --workspace "%WORKSPACE%" --wizard
+  if errorlevel 1 exit /b %ERRORLEVEL%
 )
 
-where nanobot >nul 2>nul
-if %ERRORLEVEL% EQU 0 (
-  nanobot webui
-  exit /b %ERRORLEVEL%
-)
-
-echo Error: nanobot was not found. Run install.bat first.
-exit /b 1
+set "PYTHONPATH=%SCRIPT_DIR%;%PYTHONPATH%"
+"%VENV_PY%" -m nanobot webui --config "%CONFIG%" --workspace "%WORKSPACE%" --background
+exit /b %ERRORLEVEL%

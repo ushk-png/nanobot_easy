@@ -15,13 +15,26 @@ mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$WORKSPACE"
 
 if [[ ! -x "$NANOBOT_BIN" ]]; then
   echo "nanobot executable not found: $NANOBOT_BIN" >&2
-  echo "Create the venv first, then install this project in editable mode." >&2
+  echo "Running repo-local installer first..." >&2
+  "$SCRIPT_DIR/install-nanobot-skill.sh"
+fi
+
+if [[ ! -x "$NANOBOT_BIN" ]]; then
+  echo "nanobot executable still not found after install: $NANOBOT_BIN" >&2
   exit 1
 fi
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "config not found: $CONFIG" >&2
-  echo "Run: PYTHONPATH=. .venv/bin/nanobot onboard --config .local/config.json --workspace .local/workspace --wizard" >&2
+  echo "Starting first-run setup wizard..." >&2
+  PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$NANOBOT_BIN" onboard \
+    --config "$CONFIG" \
+    --workspace "$WORKSPACE" \
+    --wizard
+fi
+
+if [[ ! -f "$CONFIG" ]]; then
+  echo "config still not found after setup: $CONFIG" >&2
   exit 1
 fi
 
