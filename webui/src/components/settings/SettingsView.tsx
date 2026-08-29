@@ -110,6 +110,8 @@ import {
   updateNetworkSafetySettings,
   updateProviderSettings,
   updateSettings,
+  updateSkillGovernanceSettings,
+  updateStudentModeSettings,
   updateTranscriptionSettings,
   updateWebSearchSettings,
 } from "@/lib/api";
@@ -139,9 +141,12 @@ import type {
   NanobotFeaturesPayload,
   NetworkSafetySettingsUpdate,
   ProviderModelsPayload,
+  SkillGovernanceLevel,
+  SkillGovernanceSettingsUpdate,
   SessionAutomationJob,
   SettingsPayload,
   SkillSummary,
+  StudentModeSettingsUpdate,
   TranscriptionSettingsUpdate,
   WebSearchSettingsUpdate,
   WebuiDefaultAccessMode,
@@ -149,6 +154,7 @@ import type {
 
 export type SettingsSectionKey =
   | "overview"
+  | "easy-setup"
   | "appearance"
   | "models"
   | "image"
@@ -437,6 +443,65 @@ const DEFAULT_NETWORK_SAFETY_FORM: NetworkSafetySettingsUpdate = {
   webuiDefaultAccessMode: "default",
 };
 
+const DEFAULT_SKILL_GOVERNANCE_FORM: Required<SkillGovernanceSettingsUpdate> = {
+  webuiSkillManagementEnabled: false,
+  externalToolSkillsEnabled: false,
+  draftExpireDays: 30,
+  minRoutingPasses: 7,
+  securityRiskAtLeast: "medium",
+  securityBlockAtLeast: "high",
+  duplicateScoreAtLeast: 0.8,
+  allowedInstallDomains: ["github.com", "pypi.org", "files.pythonhosted.org", "registry.npmjs.org"],
+  installRoot: "tools",
+  denyGlobalInstall: true,
+};
+
+const DEFAULT_STUDENT_MODE_FORM: Required<StudentModeSettingsUpdate> = {
+  mode: "general",
+  coachName: "담임 선생님",
+  reviewTeacherName: "엘르 선생님",
+  studyLogPath: "study_log.jsonl",
+  reviewQueuePath: "review_queue.jsonl",
+  dailyReviewCronName: "student-mode-daily-review",
+};
+
+function skillGovernanceFormFromPayload(payload: SettingsPayload): Required<SkillGovernanceSettingsUpdate> {
+  const governance = payload.skill_governance;
+  if (!governance) return DEFAULT_SKILL_GOVERNANCE_FORM;
+  return {
+    webuiSkillManagementEnabled: governance.webui_skill_management.enabled,
+    externalToolSkillsEnabled: governance.external_tool_skills.enabled,
+    draftExpireDays: governance.webui_skill_management.draft_expire_days,
+    minRoutingPasses: governance.webui_skill_management.red_flags.min_routing_passes,
+    securityRiskAtLeast: governance.webui_skill_management.red_flags.security_risk_at_least,
+    securityBlockAtLeast: governance.webui_skill_management.red_flags.security_block_at_least,
+    duplicateScoreAtLeast: governance.webui_skill_management.red_flags.duplicate_score_at_least,
+    allowedInstallDomains: governance.external_tool_skills.allowed_install_domains,
+    installRoot: governance.external_tool_skills.install_root,
+    denyGlobalInstall: governance.external_tool_skills.deny_global_install,
+  };
+}
+
+function studentModeFormFromPayload(payload: SettingsPayload): Required<StudentModeSettingsUpdate> {
+  const student = payload.student_mode;
+  if (!student) return DEFAULT_STUDENT_MODE_FORM;
+  return {
+    mode: student.mode,
+    coachName: student.coach_name,
+    reviewTeacherName: student.review_teacher_name,
+    studyLogPath: student.study_log_path,
+    reviewQueuePath: student.review_queue_path,
+    dailyReviewCronName: student.daily_review_cron_name,
+  };
+}
+
+function agentProviderIsConfigured(payload: SettingsPayload): boolean {
+  const provider = payload.agent.provider === "auto"
+    ? payload.agent.resolved_provider ?? payload.agent.provider
+    : payload.agent.provider;
+  return settingsProviderConfigured(payload, provider);
+}
+
 function agentDraftFromPayload(payload: SettingsPayload): AgentSettingsDraft {
   const fallbackDefault = defaultPreset(payload);
   const activePresetName = modelPresetValue(payload);
@@ -575,6 +640,8 @@ export function SettingsView({
   const [imageGenerationSaving, setImageGenerationSaving] = useState(false);
   const [transcriptionSaving, setTranscriptionSaving] = useState(false);
   const [networkSafetySaving, setNetworkSafetySaving] = useState(false);
+  const [skillGovernanceSaving, setSkillGovernanceSaving] = useState(false);
+  const [studentModeSaving, setStudentModeSaving] = useState(false);
   const [hostEngineApplying, setHostEngineApplying] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeSection, setActiveSection] = useState<SettingsSectionKey>(initialSection);
@@ -623,6 +690,12 @@ export function SettingsView({
   const [networkSafetyForm, setNetworkSafetyForm] = useState<NetworkSafetySettingsUpdate>(() =>
     initialSettings ? networkSafetyFormFromPayload(initialSettings) : DEFAULT_NETWORK_SAFETY_FORM,
   );
+  const [skillGovernanceForm, setSkillGovernanceForm] = useState<Required<SkillGovernanceSettingsUpdate>>(
+    () => initialSettings ? skillGovernanceFormFromPayload(initialSettings) : DEFAULT_SKILL_GOVERNANCE_FORM,
+  );
+  const [studentModeForm, setStudentModeForm] = useState<Required<StudentModeSettingsUpdate>>(
+    () => initialSettings ? studentModeFormFromPayload(initialSettings) : DEFAULT_STUDENT_MODE_FORM,
+  );
 
   useEffect(() => {
     setActiveSection(initialSection);
@@ -654,6 +727,8 @@ export function SettingsView({
     setImageGenerationForm(imageGenerationFormFromPayload(payload));
     setTranscriptionForm(transcriptionFormFromPayload(payload));
     setNetworkSafetyForm(networkSafetyFormFromPayload(payload));
+    setSkillGovernanceForm(skillGovernanceFormFromPayload(payload));
+    setStudentModeForm(studentModeFormFromPayload(payload));
     if (payload.restart_required_sections) {
       setPendingRestartSections(pendingRestartSectionsFromPayload(payload));
     }
@@ -929,6 +1004,18 @@ export function SettingsView({
     );
   }, [networkSafetyForm, settings]);
 
+  const skillGovernanceDirty = useMemo(() => {
+    if (!settings) return false;
+    const current = skillGovernanceFormFromPayload(settings);
+    return JSON.stringify(skillGovernanceForm) !== JSON.stringify(current);
+  }, [settings, skillGovernanceForm]);
+
+  const studentModeDirty = useMemo(() => {
+    if (!settings) return false;
+    const current = studentModeFormFromPayload(settings);
+    return JSON.stringify(studentModeForm) !== JSON.stringify(current);
+  }, [settings, studentModeForm]);
+
   const configuredModelProviderOptions = useMemo(
     () =>
       settings?.providers
@@ -1153,6 +1240,42 @@ export function SettingsView({
       setError((err as Error).message);
     } finally {
       setNetworkSafetySaving(false);
+    }
+  };
+
+  const saveSkillGovernanceSettings = async () => {
+    if (!settings || !skillGovernanceDirty || skillGovernanceSaving) return;
+    setSkillGovernanceSaving(true);
+    try {
+      const payload = await updateSkillGovernanceSettings(token, skillGovernanceForm);
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setSkillGovernanceSaving(false);
+    }
+  };
+
+  const saveStudentModeSettings = async () => {
+    if (!settings || !studentModeDirty || studentModeSaving) return;
+    setStudentModeSaving(true);
+    try {
+      const payload = await updateStudentModeSettings(token, studentModeForm);
+      applyPayload(payload);
+      if (payload.requires_restart) {
+        setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
+      }
+      await maybeRestartHostEngine(payload);
+      setError(null);
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setStudentModeSaving(false);
     }
   };
 
@@ -1564,6 +1687,50 @@ export function SettingsView({
             onSelectSection={selectSection}
           />
         );
+      case "easy-setup":
+        return (
+          <EasySetupSettings
+            token={token}
+            settings={settings}
+            form={form}
+            setForm={setForm}
+            modelDirty={modelDirty}
+            savingModel={saving}
+            showBrandLogos={localPrefs.brandLogos}
+            providerSaving={providerSaving}
+            providerForms={providerForms}
+            visibleProviderKeys={visibleProviderKeys}
+            editingProviderKeys={editingProviderKeys}
+            onChangeProviderForm={(provider, value) =>
+              setProviderForms((prev) => ({
+                ...prev,
+                [provider]: {
+                  apiKey: prev[provider]?.apiKey ?? "",
+                  apiBase: prev[provider]?.apiBase ?? "",
+                  apiType: prev[provider]?.apiType ?? "auto",
+                  ...value,
+                },
+              }))
+            }
+            onToggleProviderKey={toggleProviderKeyVisibility}
+            onToggleProviderKeyEditing={toggleProviderKeyEditing}
+            onSaveProvider={saveProvider}
+            onProviderOAuthLogin={(provider) => runProviderOAuth(provider, "login")}
+            onSaveModel={saveModelSettings}
+            skillGovernanceForm={skillGovernanceForm}
+            setSkillGovernanceForm={setSkillGovernanceForm}
+            skillGovernanceDirty={skillGovernanceDirty}
+            skillGovernanceSaving={skillGovernanceSaving}
+            onSaveSkillGovernance={saveSkillGovernanceSettings}
+            studentModeForm={studentModeForm}
+            setStudentModeForm={setStudentModeForm}
+            studentModeDirty={studentModeDirty}
+            studentModeSaving={studentModeSaving}
+            onSaveStudentMode={saveStudentModeSettings}
+            onSelectSection={selectSection}
+            onBackToChat={onBackToChat}
+          />
+        );
       case "appearance":
         return (
           <AppearanceSettings
@@ -1907,6 +2074,406 @@ export function SettingsView({
   );
 }
 
+function EasySetupSettings({
+  token,
+  settings,
+  form,
+  setForm,
+  modelDirty,
+  savingModel,
+  showBrandLogos,
+  providerSaving,
+  providerForms,
+  visibleProviderKeys,
+  editingProviderKeys,
+  onChangeProviderForm,
+  onToggleProviderKey,
+  onToggleProviderKeyEditing,
+  onSaveProvider,
+  onProviderOAuthLogin,
+  onSaveModel,
+  skillGovernanceForm,
+  setSkillGovernanceForm,
+  skillGovernanceDirty,
+  skillGovernanceSaving,
+  onSaveSkillGovernance,
+  studentModeForm,
+  setStudentModeForm,
+  studentModeDirty,
+  studentModeSaving,
+  onSaveStudentMode,
+  onSelectSection,
+  onBackToChat,
+}: {
+  token: string;
+  settings: SettingsPayload;
+  form: AgentSettingsDraft;
+  setForm: Dispatch<SetStateAction<AgentSettingsDraft>>;
+  modelDirty: boolean;
+  savingModel: boolean;
+  showBrandLogos: boolean;
+  providerSaving: string | null;
+  providerForms: Record<string, ProviderForm>;
+  visibleProviderKeys: Record<string, boolean>;
+  editingProviderKeys: Record<string, boolean>;
+  onChangeProviderForm: (provider: string, value: Partial<ProviderForm>) => void;
+  onToggleProviderKey: (provider: string) => void;
+  onToggleProviderKeyEditing: (provider: string) => void;
+  onSaveProvider: (provider: string) => void;
+  onProviderOAuthLogin: (provider: string) => void;
+  onSaveModel: () => void;
+  skillGovernanceForm: Required<SkillGovernanceSettingsUpdate>;
+  setSkillGovernanceForm: Dispatch<SetStateAction<Required<SkillGovernanceSettingsUpdate>>>;
+  skillGovernanceDirty: boolean;
+  skillGovernanceSaving: boolean;
+  onSaveSkillGovernance: () => void;
+  studentModeForm: Required<StudentModeSettingsUpdate>;
+  setStudentModeForm: Dispatch<SetStateAction<Required<StudentModeSettingsUpdate>>>;
+  studentModeDirty: boolean;
+  studentModeSaving: boolean;
+  onSaveStudentMode: () => void;
+  onSelectSection: (section: SettingsSectionKey) => void;
+  onBackToChat: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const primaryProviders = ["openai", "anthropic", "google", "ollama"];
+  const providerOptions = settings.providers.filter((provider) => primaryProviders.includes(provider.name));
+  const currentProvider = settings.providers.find((provider) => provider.name === form.provider) ?? null;
+  const providerConfigured = agentProviderIsConfigured(settings);
+
+  return (
+    <div className="space-y-8">
+      <section className="overflow-hidden rounded-[26px] border border-border/45 bg-card/90 shadow-[0_18px_65px_rgba(15,23,42,0.075)]">
+        <div className="grid gap-0 lg:grid-cols-[260px_1fr]">
+          <div className="border-b border-border/45 bg-muted/35 p-5 lg:border-b-0 lg:border-r">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              nanobot-easy
+            </p>
+            <h2 className="mt-3 text-[22px] font-medium leading-tight text-foreground">
+              {tx("settings.easySetup.title", "First-run setup, available anytime")}
+            </h2>
+            <p className="mt-3 text-[13px] leading-6 text-muted-foreground">
+              {tx(
+                "settings.easySetup.description",
+                "Connect a model first. Messenger, tools, governance, and student mode can be refined here or in their detailed settings sections.",
+              )}
+            </p>
+            <div className="mt-5 space-y-3 text-[12px] text-muted-foreground">
+              <SetupWire label="Model" live={providerConfigured} value={currentProvider?.label ?? settings.agent.provider} />
+              <SetupWire label="Messenger" live={false} value="Configure in App Tools / channels" />
+              <SetupWire label="Tools · Skills" live value="Managed by existing catalogs" />
+            </div>
+          </div>
+          <div className="space-y-7 p-5">
+            <SettingsSectionTitle>{tx("settings.easySetup.modelTitle", "1. Model quick connect")}</SettingsSectionTitle>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {providerOptions.map((provider) => (
+                <button
+                  type="button"
+                  key={provider.name}
+                  onClick={() => setForm((prev) => ({ ...prev, provider: provider.name }))}
+                  className={cn(
+                    "flex min-h-[84px] items-start gap-3 rounded-[18px] border p-4 text-left transition-colors",
+                    form.provider === provider.name
+                      ? "border-primary/55 bg-primary/5"
+                      : "border-border/55 bg-background hover:bg-muted/45",
+                  )}
+                >
+                  <ProviderPickerIcon provider={provider.name} showBrandLogos={showBrandLogos} />
+                  <span className="min-w-0">
+                    <span className="block text-[14px] font-medium text-foreground">{provider.label}</span>
+                    <span className="mt-1 block text-[12px] leading-5 text-muted-foreground">
+                      {provider.auth_type === "oauth"
+                        ? tx("settings.easySetup.oauthProvider", "OAuth login")
+                        : provider.default_api_base
+                          ? provider.default_api_base
+                          : provider.configured
+                            ? tx("settings.easySetup.configured", "Configured")
+                            : provider.api_key_hint ?? tx("settings.easySetup.apiKey", "API key")}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <SettingsGroup>
+              <SettingsRow
+                title={tx("settings.easySetup.activeModel", "Default model")}
+                description={tx("settings.easySetup.activeModelHelp", "Choose the model ID used by the default preset.")}
+              >
+                <div className="flex flex-wrap justify-end gap-2">
+                  <ProviderPicker
+                    providers={settings.providers.map((provider) => ({ name: provider.name, label: provider.label }))}
+                    value={form.provider}
+                    emptyLabel={tx("settings.models.provider", "Provider")}
+                    showProviderLogos={showBrandLogos}
+                    onChange={(provider) => setForm((prev) => ({ ...prev, provider }))}
+                  />
+                  <ModelIdPicker
+                    token={token}
+                    settings={settings}
+                    provider={form.provider}
+                    value={form.model}
+                    showProviderLogos={showBrandLogos}
+                    onChange={(model) => setForm((prev) => ({ ...prev, model }))}
+                  />
+                  <Button size="sm" className="rounded-full" onClick={onSaveModel} disabled={!modelDirty || savingModel}>
+                    {savingModel ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+                    {tx("settings.actions.save", "Save")}
+                  </Button>
+                </div>
+              </SettingsRow>
+            </SettingsGroup>
+            {currentProvider ? (
+              <ProviderQuickConnectRow
+                provider={currentProvider}
+                form={providerForms[currentProvider.name] ?? { apiKey: "", apiBase: currentProvider.api_base ?? currentProvider.default_api_base ?? "", apiType: currentProvider.api_type ?? "auto" }}
+                saving={providerSaving === currentProvider.name}
+                keyVisible={!!visibleProviderKeys[currentProvider.name]}
+                keyEditing={!!editingProviderKeys[currentProvider.name]}
+                showBrandLogos={showBrandLogos}
+                onChange={(value) => onChangeProviderForm(currentProvider.name, value)}
+                onToggleKey={() => onToggleProviderKey(currentProvider.name)}
+                onToggleKeyEditing={() => onToggleProviderKeyEditing(currentProvider.name)}
+                onSave={() => onSaveProvider(currentProvider.name)}
+                onOAuthLogin={() => onProviderOAuthLogin(currentProvider.name)}
+              />
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <div className="grid gap-6 xl:grid-cols-2">
+        <SkillGovernanceQuickPanel
+          form={skillGovernanceForm}
+          dirty={skillGovernanceDirty}
+          saving={skillGovernanceSaving}
+          onChange={setSkillGovernanceForm}
+          onSave={onSaveSkillGovernance}
+        />
+        <StudentModeQuickPanel
+          form={studentModeForm}
+          dirty={studentModeDirty}
+          saving={studentModeSaving}
+          onChange={setStudentModeForm}
+          onSave={onSaveStudentMode}
+        />
+      </div>
+
+      <SettingsGroup>
+        <SettingsRow
+          title={tx("settings.easySetup.moreTools", "Tools, skills, and messengers")}
+          description={tx("settings.easySetup.moreToolsHelp", "Use the existing App Tools, Skills, and Web sections for the full catalogs instead of duplicating them here.")}
+        >
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => onSelectSection("apps")}>{tx("settings.nav.apps", "Apps")}</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => onSelectSection("skills")}>{tx("settings.nav.skills", "Skills")}</Button>
+            <Button size="sm" variant="outline" className="rounded-full" onClick={() => onSelectSection("tools")}>{tx("settings.nav.tools", "Tools")}</Button>
+            <Button size="sm" className="rounded-full" onClick={onBackToChat} disabled={!providerConfigured}>{tx("settings.easySetup.startChat", "Start chatting")}</Button>
+          </div>
+        </SettingsRow>
+      </SettingsGroup>
+    </div>
+  );
+}
+
+function SetupWire({ label, live, value }: { label: string; live: boolean; value: string }) {
+  return (
+    <div className="flex items-start gap-2">
+      <span className={cn("mt-1 h-2.5 w-2.5 rounded-full border", live ? "border-emerald-600 bg-emerald-600" : "border-border bg-background")} />
+      <span className="min-w-0">
+        <span className="block font-medium text-foreground">{label}</span>
+        <span className={cn("block truncate font-mono text-[11px]", live ? "text-emerald-700 dark:text-emerald-400" : "text-muted-foreground")}>{value}</span>
+      </span>
+    </div>
+  );
+}
+
+function ProviderQuickConnectRow({
+  provider,
+  form,
+  saving,
+  keyVisible,
+  keyEditing,
+  showBrandLogos,
+  onChange,
+  onToggleKey,
+  onToggleKeyEditing,
+  onSave,
+  onOAuthLogin,
+}: {
+  provider: SettingsPayload["providers"][number];
+  form: ProviderForm;
+  saving: boolean;
+  keyVisible: boolean;
+  keyEditing: boolean;
+  showBrandLogos: boolean;
+  onChange: (value: Partial<ProviderForm>) => void;
+  onToggleKey: () => void;
+  onToggleKeyEditing: () => void;
+  onSave: () => void;
+  onOAuthLogin: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  if (provider.auth_type === "oauth") {
+    return (
+      <SettingsGroup>
+        <SettingsRow
+          title={provider.label}
+          description={provider.oauth_account ? provider.oauth_account : tx("settings.easySetup.oauthHelp", "Connect this provider with the browser OAuth flow.")}
+        >
+          <Button size="sm" className="rounded-full" onClick={onOAuthLogin} disabled={saving}>
+            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="mr-1.5 h-3.5 w-3.5" />}
+            {provider.configured ? tx("settings.actions.reconnect", "Reconnect") : tx("settings.actions.connect", "Connect")}
+          </Button>
+        </SettingsRow>
+      </SettingsGroup>
+    );
+  }
+  const needsKey = provider.api_key_required ?? true;
+  const canSave = provider.configured || !needsKey || form.apiKey.trim().length > 0 || form.apiBase.trim().length > 0;
+  return (
+    <SettingsGroup>
+      <SettingsRow
+        title={provider.label}
+        description={provider.configured ? tx("settings.easySetup.providerConfigured", "Credentials are saved locally in config.json.") : tx("settings.easySetup.providerHelp", "Paste an API key or local compatible endpoint.")}
+      >
+        <div className="grid w-full max-w-[520px] gap-2 sm:grid-cols-[1fr_auto]">
+          <div className="flex items-center gap-2 rounded-full border border-input bg-background px-3">
+            <ProviderPickerIcon provider={provider.name} showBrandLogos={showBrandLogos} />
+            <Input
+              type={keyVisible ? "text" : "password"}
+              value={form.apiKey}
+              onChange={(event) => onChange({ apiKey: event.target.value })}
+              placeholder={provider.configured && !keyEditing ? "••••••••••••" : provider.api_key_hint ?? "API key"}
+              className="h-8 border-0 bg-transparent px-0 text-[13px] shadow-none focus-visible:ring-0"
+              disabled={provider.configured && !keyEditing}
+            />
+            <button type="button" className="text-muted-foreground" onClick={onToggleKey} aria-label="Toggle API key visibility">
+              {keyVisible ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+            </button>
+          </div>
+          <Button size="sm" className="rounded-full" onClick={onSave} disabled={!canSave || saving}>
+            {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+            {provider.configured && !keyEditing ? tx("settings.actions.saved", "Saved") : tx("settings.actions.save", "Save")}
+          </Button>
+          {provider.default_api_base || provider.api_base ? (
+            <Input
+              value={form.apiBase}
+              onChange={(event) => onChange({ apiBase: event.target.value })}
+              placeholder={provider.default_api_base ?? "http://localhost:11434/v1"}
+              className="h-8 rounded-full text-[13px] sm:col-span-2"
+            />
+          ) : null}
+          {provider.configured ? (
+            <button type="button" className="justify-self-start text-[12px] text-muted-foreground underline underline-offset-4 sm:col-span-2" onClick={onToggleKeyEditing}>
+              {keyEditing ? tx("settings.actions.cancel", "Cancel") : tx("settings.easySetup.replaceKey", "Replace saved key")}
+            </button>
+          ) : null}
+        </div>
+      </SettingsRow>
+    </SettingsGroup>
+  );
+}
+
+function SkillGovernanceQuickPanel({
+  form,
+  dirty,
+  saving,
+  onChange,
+  onSave,
+}: {
+  form: Required<SkillGovernanceSettingsUpdate>;
+  dirty: boolean;
+  saving: boolean;
+  onChange: Dispatch<SetStateAction<Required<SkillGovernanceSettingsUpdate>>>;
+  onSave: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  const domainText = form.allowedInstallDomains.join(", ");
+  return (
+    <section className="space-y-3">
+      <SettingsSectionTitle>{tx("settings.easySetup.governance", "Skill governance")}</SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow title="webui_skill_management.enabled" description={tx("settings.easySetup.skillApprovalHelp", "Review and approve skill drafts inside WebUI.")}>
+          <ToggleButton checked={form.webuiSkillManagementEnabled} label={form.webuiSkillManagementEnabled ? "On" : "Off"} onChange={(webuiSkillManagementEnabled) => onChange((prev) => ({ ...prev, webuiSkillManagementEnabled }))} />
+        </SettingsRow>
+        <SettingsRow title="security_block_at_least" description={tx("settings.easySetup.securityBlockHelp", "Schema value is low / medium / high, not a numeric slider.")}>
+          <SegmentedControl value={form.securityBlockAtLeast} options={[{ value: "low", label: "낮음" }, { value: "medium", label: "중간" }, { value: "high", label: "높음" }]} onChange={(securityBlockAtLeast) => onChange((prev) => ({ ...prev, securityBlockAtLeast: securityBlockAtLeast as SkillGovernanceLevel }))} />
+        </SettingsRow>
+        <SettingsRow title="security_risk_at_least" description={tx("settings.easySetup.securityRiskHelp", "Flag drafts at this risk level or above.")}>
+          <SegmentedControl value={form.securityRiskAtLeast} options={[{ value: "low", label: "낮음" }, { value: "medium", label: "중간" }, { value: "high", label: "높음" }]} onChange={(securityRiskAtLeast) => onChange((prev) => ({ ...prev, securityRiskAtLeast: securityRiskAtLeast as SkillGovernanceLevel }))} />
+        </SettingsRow>
+        <SettingsRow title="draft_expire_days" description="1–365">
+          <Input type="number" min={1} max={365} value={form.draftExpireDays} onChange={(event) => onChange((prev) => ({ ...prev, draftExpireDays: Number(event.target.value) }))} className="h-8 w-24 rounded-full text-right" />
+        </SettingsRow>
+        <SettingsRow title="duplicate_score_at_least" description="0.0–1.0, default 0.8">
+          <Input type="number" min={0} max={1} step={0.01} value={form.duplicateScoreAtLeast} onChange={(event) => onChange((prev) => ({ ...prev, duplicateScoreAtLeast: Number(event.target.value) }))} className="h-8 w-24 rounded-full text-right" />
+        </SettingsRow>
+        <SettingsRow title="external_tool_skills.allowed_install_domains" description={domainText}>
+          <Input value={domainText} onChange={(event) => onChange((prev) => ({ ...prev, allowedInstallDomains: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} className="h-8 max-w-[340px] rounded-full text-[12px]" />
+        </SettingsRow>
+        <SettingsRow title="external_tool_skills.install_root" description="Relative workspace path, default tools">
+          <Input value={form.installRoot} onChange={(event) => onChange((prev) => ({ ...prev, installRoot: event.target.value }))} className="h-8 w-36 rounded-full text-[12px]" />
+        </SettingsRow>
+        <SettingsRow title="external_tool_skills.deny_global_install">
+          <ToggleButton checked={form.denyGlobalInstall} label={form.denyGlobalInstall ? "On" : "Off"} onChange={(denyGlobalInstall) => onChange((prev) => ({ ...prev, denyGlobalInstall }))} />
+        </SettingsRow>
+        <SettingsRow title={tx("settings.actions.save", "Save")}>
+          <Button size="sm" className="rounded-full" onClick={onSave} disabled={!dirty || saving}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}{tx("settings.actions.save", "Save")}</Button>
+        </SettingsRow>
+      </SettingsGroup>
+    </section>
+  );
+}
+
+function StudentModeQuickPanel({
+  form,
+  dirty,
+  saving,
+  onChange,
+  onSave,
+}: {
+  form: Required<StudentModeSettingsUpdate>;
+  dirty: boolean;
+  saving: boolean;
+  onChange: Dispatch<SetStateAction<Required<StudentModeSettingsUpdate>>>;
+  onSave: () => void;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
+  return (
+    <section className="space-y-3">
+      <SettingsSectionTitle>{tx("settings.easySetup.studentMode", "Student mode")}</SettingsSectionTitle>
+      <SettingsGroup>
+        <SettingsRow title="student_mode.mode" description="general | student">
+          <SegmentedControl value={form.mode} options={[{ value: "general", label: "일반" }, { value: "student", label: "학생" }]} onChange={(mode) => onChange((prev) => ({ ...prev, mode: mode as "general" | "student" }))} />
+        </SettingsRow>
+        <SettingsRow title="coach_name" description="Default: 담임 선생님">
+          <Input value={form.coachName} onChange={(event) => onChange((prev) => ({ ...prev, coachName: event.target.value }))} className="h-8 w-44 rounded-full" />
+        </SettingsRow>
+        <SettingsRow title="review_teacher_name" description="Default: 엘르 선생님">
+          <Input value={form.reviewTeacherName} onChange={(event) => onChange((prev) => ({ ...prev, reviewTeacherName: event.target.value }))} className="h-8 w-44 rounded-full" />
+        </SettingsRow>
+        <SettingsRow title="study_log_path" description="Workspace-relative path">
+          <Input value={form.studyLogPath} onChange={(event) => onChange((prev) => ({ ...prev, studyLogPath: event.target.value }))} className="h-8 w-48 rounded-full font-mono text-[12px]" />
+        </SettingsRow>
+        <SettingsRow title="review_queue_path" description="Workspace-relative path">
+          <Input value={form.reviewQueuePath} onChange={(event) => onChange((prev) => ({ ...prev, reviewQueuePath: event.target.value }))} className="h-8 w-48 rounded-full font-mono text-[12px]" />
+        </SettingsRow>
+        <SettingsRow title="daily_review_cron_name">
+          <Input value={form.dailyReviewCronName} onChange={(event) => onChange((prev) => ({ ...prev, dailyReviewCronName: event.target.value }))} className="h-8 w-44 rounded-full font-mono text-[12px]" />
+        </SettingsRow>
+        <SettingsRow title={tx("settings.actions.save", "Save")}>
+          <Button size="sm" className="rounded-full" onClick={onSave} disabled={!dirty || saving}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}{tx("settings.actions.save", "Save")}</Button>
+        </SettingsRow>
+      </SettingsGroup>
+    </section>
+  );
+}
+
 function InstalledToolsSettings({ installedTools }: { installedTools: InstalledExternalTool[] }) {
   return (
     <div className="space-y-4">
@@ -1923,6 +2490,7 @@ function InstalledToolsSettings({ installedTools }: { installedTools: InstalledE
 
 const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fallback: string }> = [
   { key: "overview", icon: Activity, fallback: "Overview" },
+  { key: "easy-setup", icon: Sparkles, fallback: "Easy setup" },
   { key: "appearance", icon: Palette, fallback: "Appearance" },
   { key: "models", icon: SlidersHorizontal, fallback: "Models" },
   { key: "image", icon: ImageIcon, fallback: "Image" },

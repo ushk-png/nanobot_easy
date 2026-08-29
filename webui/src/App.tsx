@@ -82,6 +82,7 @@ type ShellRoute = {
 
 const SETTINGS_SECTION_KEYS: SettingsSectionKey[] = [
   "overview",
+  "easy-setup",
   "appearance",
   "models",
   "image",
@@ -289,6 +290,16 @@ function writeSessionUpdateChatIds(chatIds: Set<string>): void {
   } catch {
     // ignore storage errors (private mode, etc.)
   }
+}
+
+function onboardingNeeded(settings: SettingsPayload | null): boolean {
+  if (!settings) return false;
+  const provider = settings.agent.provider === "auto"
+    ? settings.agent.resolved_provider ?? settings.agent.provider
+    : settings.agent.provider;
+  const providerRow = settings.providers.find((item) => item.name === provider);
+  if (providerRow) return !providerRow.configured;
+  return !settings.agent.has_api_key;
 }
 
 function normalizeWorkspaceScope(scope: WorkspaceScopePayload): WorkspaceScopePayload {
@@ -640,6 +651,13 @@ function Shell({
       cancelled = true;
     };
   }, [token]);
+
+  useEffect(() => {
+    if (settingsSnapshot === null) return;
+    if (!onboardingNeeded(settingsSnapshot)) return;
+    if (readShellRoute().view === "settings") return;
+    navigate({ view: "settings", settingsSection: "easy-setup", activeKey: null }, { replace: true });
+  }, [navigate, settingsSnapshot]);
 
   useEffect(() => {
     try {
