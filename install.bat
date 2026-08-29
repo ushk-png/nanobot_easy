@@ -2,10 +2,10 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "INSTALL_PS1=%SCRIPT_DIR%scripts\install.ps1"
+set "INSTALL_PS1=%SCRIPT_DIR%install-nanobot-skill.ps1"
 
 if not exist "%INSTALL_PS1%" (
-  echo Error: scripts\install.ps1 was not found next to install.bat.
+  echo Error: install-nanobot-skill.ps1 was not found next to install.bat.
   exit /b 1
 )
 
