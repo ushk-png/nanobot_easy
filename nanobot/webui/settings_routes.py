@@ -38,6 +38,8 @@ from nanobot.webui.settings_api import (
     update_model_configuration,
     update_network_safety_settings,
     update_provider_settings,
+    update_skill_governance_settings,
+    update_student_mode_settings,
     update_transcription_settings,
     update_web_search_settings,
 )
@@ -111,6 +113,10 @@ class WebUISettingsRouter:
             return self._handle_settings_transcription_update(request)
         if path == "/api/settings/network-safety/update":
             return self._handle_settings_network_safety_update(request)
+        if path == "/api/settings/skill-governance/update":
+            return self._handle_settings_skill_governance_update(request)
+        if path == "/api/settings/student-mode/update":
+            return self._handle_settings_student_mode_update(request)
         if path == "/api/settings/cli-apps":
             return await self._handle_settings_cli_apps(request)
         if path == "/api/settings/cli-apps/install":
@@ -306,6 +312,24 @@ class WebUISettingsRouter:
             return self._unauthorized()
         try:
             payload = update_network_safety_settings(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _handle_settings_skill_governance_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = update_skill_governance_settings(self._query(request))
+        except WebUISettingsError as e:
+            return self._error_response(e.status, e.message)
+        return self._json_response(self._with_restart_state(payload, section="runtime"))
+
+    def _handle_settings_student_mode_update(self, request: WsRequest) -> Response:
+        if not self._authorized(request):
+            return self._unauthorized()
+        try:
+            payload = update_student_mode_settings(self._query(request))
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
         return self._json_response(self._with_restart_state(payload, section="runtime"))
