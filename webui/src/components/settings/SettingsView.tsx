@@ -1340,7 +1340,15 @@ export function SettingsView({
       setExpandedProvider(providerName);
       setError(null);
     } catch (err) {
-      setError((err as Error).message);
+      const message = err instanceof Error ? err.message : String(err);
+      setError(
+        action === "login" && /timed out/i.test(message)
+          ? t("settings.byok.oauth.loginTimedOut", {
+              defaultValue:
+                "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again.",
+            })
+          : message,
+      );
     } finally {
       setProviderSaving(null);
     }
@@ -3671,6 +3679,14 @@ function ModelsSettings({
               </Button>
             </SettingsRow>
           ) : null}
+          {selectedProviderSigningIn ? (
+            <p className="px-3 pb-1 text-[12px] leading-5 text-muted-foreground">
+              {tx(
+                "settings.oauth.signInWaiting",
+                "A sign-in window has opened. This will continue automatically once you finish signing in.",
+              )}
+            </p>
+          ) : null}
           <SettingsRow
             title={t("settings.rows.model")}
             description={t("settings.help.model")}
@@ -4621,6 +4637,7 @@ function AutomationsSettings({
   const jobs = payload?.jobs ?? [];
   const locale = i18n.resolvedLanguage || i18n.language;
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [simpleView, setSimpleView] = useState(true);
   const filtered = useMemo(() => {
     const searchTokens = parseAutomationSearchQuery(query);
     return sortAutomationJobs(jobs, sort)
@@ -4661,6 +4678,26 @@ function AutomationsSettings({
 
   return (
     <div className="space-y-5">
+      <div className="flex items-center justify-end">
+        <button
+          type="button"
+          onClick={() => setSimpleView((prev) => !prev)}
+          className="text-[12px] font-medium text-primary hover:underline"
+        >
+          {simpleView
+            ? tx("settings.automations.showAdvanced", "Show advanced view")
+            : tx("settings.automations.showSimple", "Show simple view")}
+        </button>
+      </div>
+      {simpleView ? (
+        <SimpleAutomationsList
+          jobs={jobs}
+          loading={loading}
+          error={error}
+          onAction={onAction}
+        />
+      ) : (
+        <>
       <section className="shrink-0">
         <div className="mx-auto flex w-full max-w-[56rem] flex-col gap-3">
           <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
@@ -4793,6 +4830,92 @@ function AutomationsSettings({
           ) : null}
         </div>
       )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function SimpleAutomationsList({
+  jobs,
+  loading,
+  error,
+  onAction,
+}: {
+  jobs: SessionAutomationJob[];
+  loading: boolean;
+  error: string | null;
+  onAction: (action: AutomationAction, job: SessionAutomationJob) => void | Promise<void>;
+}) {
+  const { t } = useTranslation();
+  const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
+    t(key, { defaultValue: fallback, ...(values ?? {}) });
+
+  if (error) {
+    return (
+      <div className="flex items-center gap-2 rounded-[18px] border border-destructive/20 bg-destructive/5 px-4 py-3 text-[13px] text-destructive">
+        <CircleAlert className="h-4 w-4 shrink-0" aria-hidden />
+        <span>{error}</span>
+      </div>
+    );
+  }
+
+  if (loading && !jobs.length) {
+    return (
+      <div className="flex h-32 items-center justify-center rounded-[18px] border border-border/45 bg-card/80 text-[13px] text-muted-foreground">
+        <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+        {tx("settings.automations.loading", "Loading automations...")}
+      </div>
+    );
+  }
+
+  if (!jobs.length) {
+    return (
+      <div className="rounded-[18px] border border-dashed border-border/60 bg-card/60 px-5 py-8 text-center text-[13px] text-muted-foreground">
+        <p>{tx("settings.automations.empty", "No automations yet.")}</p>
+        <p className="mt-1.5 text-[12px]">
+          {tx(
+            "settings.automations.simpleEmptyHint",
+            'Ask the agent something like "remind me to review every evening at 8" and it shows up here automatically.',
+          )}
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {jobs.map((job) => (
+        <div
+          key={job.id}
+          className="flex items-center gap-3 rounded-[14px] border border-border/60 bg-card/70 px-4 py-3"
+        >
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-[13.5px] font-medium text-foreground">
+              {job.name || job.id}
+            </p>
+            <p className="truncate text-[12px] text-muted-foreground">
+              {formatAutomationNext(job, tx)}
+            </p>
+          </div>
+          {job.protected ? (
+            <span className="shrink-0 rounded-full bg-muted/60 px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+              {tx("settings.automations.protected", "Protected")}
+            </span>
+          ) : (
+            <ToggleButton
+              checked={job.enabled}
+              onChange={() => onAction(job.enabled ? "disable" : "enable", job)}
+              label={
+                job.enabled
+                  ? tx("common.on", "On")
+                  : tx("common.off", "Off")
+              }
+              ariaLabel={job.name || job.id}
+            />
+          )}
+        </div>
+      ))}
     </div>
   );
 }

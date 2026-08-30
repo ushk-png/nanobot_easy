@@ -295,6 +295,9 @@
         "baseUrlRequired": "SearXNG cần Base URL.",
         "missingCredential": "Thêm thông tin bắt buộc trước khi lưu.",
         "saveHint": "Thay đổi áp dụng cho các yêu cầu web search mới."
+      },
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
       }
     },
     "overview": {
@@ -616,7 +619,10 @@
         "cronRequired": "Biểu thức cron là bắt buộc.",
         "timeRequired": "Thời gian chạy là bắt buộc.",
         "futureRequired": "Thời gian chạy phải ở tương lai."
-      }
+      },
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view"
     },
     "oauth": {
       "authentication": "Xác thực OAuth",
@@ -629,7 +635,8 @@
       "signInRequired": "Cần đăng nhập",
       "signInBeforeSaving": "Inicia sesión antes de guardar este proveedor OAuth como proveedor activo.",
       "signedIn": "Đã đăng nhập",
-      "notSignedIn": "Chưa đăng nhập"
+      "notSignedIn": "Chưa đăng nhập",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in."
     },
     "skills": {
       "description": "Xem các kỹ năng chỉ dẫn mà agent này có thể tải trong cuộc trò chuyện.",

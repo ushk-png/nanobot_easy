@@ -295,6 +295,9 @@
         "baseUrlRequired": "SearXNG 需要 Base URL。",
         "missingCredential": "填寫必要憑證後才能儲存。",
         "saveHint": "變更會套用到新的 web search 請求。"
+      },
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
       }
     },
     "overview": {
@@ -616,7 +619,10 @@
         "cronRequired": "Cron 表達式不能為空。",
         "timeRequired": "執行時間不能為空。",
         "futureRequired": "執行時間必須晚於目前時間。"
-      }
+      },
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view"
     },
     "oauth": {
       "authentication": "OAuth 認證",
@@ -629,7 +635,8 @@
       "signInRequired": "需要登入",
       "signInBeforeSaving": "將此 OAuth 供應商設為目前模型供應商前，請先登入。",
       "signedIn": "已登入",
-      "notSignedIn": "未登入"
+      "notSignedIn": "未登入",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in."
     },
     "skills": {
       "description": "查看此 agent 在對話中可以載入的指令技能。",

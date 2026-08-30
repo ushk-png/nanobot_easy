@@ -372,6 +372,9 @@
     },
     "byok": {
       "description": "Bring your own provider keys. Nanobot reads these values from the current config and only configured providers can be selected in General.",
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
+      },
       "configured": "Configured",
       "notConfigured": "Not configured",
       "configuredSection": "Configured",
@@ -514,6 +517,9 @@
       "noMatches": "No automations match this view.",
       "empty": "No automations yet.",
       "emptyHint": "Create one from where it should run so nanobot keeps the right context.",
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view",
       "oneShot": "One-time",
       "systemTask": "System-managed automation",
       "localTrigger": "Local trigger",
@@ -628,6 +634,7 @@
       "signInHelp": "Sign in from this device; no API key is stored in config.",
       "signInRequired": "Sign in required",
       "signInBeforeSaving": "Sign in before saving this OAuth provider as the active model provider.",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in.",
       "signedIn": "Signed in",
       "notSignedIn": "Not signed in"
     },

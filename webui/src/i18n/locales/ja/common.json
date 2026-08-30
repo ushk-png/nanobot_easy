@@ -295,6 +295,9 @@
         "baseUrlRequired": "SearXNG には Base URL が必要です。",
         "missingCredential": "保存する前に必要な認証情報を入力してください。",
         "saveHint": "変更は新しい web search リクエストに適用されます。"
+      },
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
       }
     },
     "overview": {
@@ -616,7 +619,10 @@
         "cronRequired": "Cron 式は必須です。",
         "timeRequired": "実行日時は必須です。",
         "futureRequired": "実行日時は現在より後にしてください。"
-      }
+      },
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view"
     },
     "oauth": {
       "authentication": "OAuth 認証",
@@ -629,7 +635,8 @@
       "signInRequired": "サインインが必要です",
       "signInBeforeSaving": "この OAuth プロバイダーをアクティブなモデルプロバイダーとして保存する前にサインインしてください。",
       "signedIn": "サインイン済み",
-      "notSignedIn": "未サインイン"
+      "notSignedIn": "未サインイン",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in."
     },
     "skills": {
       "description": "このエージェントが会話中に読み込める指示スキルを確認します。",
