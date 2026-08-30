@@ -15,7 +15,7 @@ Python 3.11 이상, Git, 그리고 WebUI 빌드를 위한 Node.js/npm 또는 Bun
 ### Linux / Ubuntu
 
 ```bash
-git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
@@ -34,7 +34,7 @@ sudo apt install -y python3 python3-venv python3-pip git curl
 ### macOS
 
 ```bash
-git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 실행:
@@ -50,7 +50,7 @@ macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로
 PowerShell에서:
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot-easy.git; cd nanobot-easy; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy; cd nanobot-easy; .\install.bat
 ```
 
 실행:
