@@ -38,11 +38,10 @@ fi
 
 if [[ ! -f "$CONFIG" ]]; then
   echo "config not found: $CONFIG" >&2
-  echo "Starting first-run setup wizard..." >&2
+  echo "Creating a default config — finish setup in the browser (WebUI) once nanobot-easy starts." >&2
   PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$NANOBOT_BIN" onboard \
     --config "$CONFIG" \
-    --workspace "$WORKSPACE" \
-    --wizard
+    --workspace "$WORKSPACE"
 fi
 
 if [[ ! -f "$CONFIG" ]]; then
