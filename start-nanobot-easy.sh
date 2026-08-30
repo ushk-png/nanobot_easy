@@ -292,10 +292,28 @@ PY
 if [[ -f "$PID_FILE" ]]; then
   pid="$(cat "$PID_FILE" 2>/dev/null || true)"
   if [[ -n "${pid:-}" ]] && kill -0 "$pid" 2>/dev/null; then
-    echo "nanobot-easy gateway is already running: pid=$pid"
-    echo "log: $LOG_FILE"
-    start_companion_gateways
-    exit 0
+    # A gateway is already running, but if the code has changed since *that*
+    # process was launched, it's still running the old Python/WebUI it had
+    # in memory at startup -- no amount of rebuilding on disk fixes that
+    # without an actual restart. Auto-restart in that case instead of
+    # silently leaving the user talking to stale code.
+    stale_running=0
+    if [[ -d "$SCRIPT_DIR/nanobot" ]] && find "$SCRIPT_DIR/nanobot" -type f -name '*.py' -newer "$PID_FILE" -print -quit 2>/dev/null | grep -q .; then
+      stale_running=1
+    fi
+    if [[ "$stale_running" != "1" && -d "$WEBUI_SRC_DIR/src" ]] && find "$WEBUI_SRC_DIR/src" -type f -newer "$PID_FILE" -print -quit 2>/dev/null | grep -q .; then
+      stale_running=1
+    fi
+    if [[ "$stale_running" == "1" ]]; then
+      echo "nanobot-easy gateway is running (pid=$pid) but the code has changed since it started." >&2
+      echo "restarting so the update actually takes effect..." >&2
+      "$SCRIPT_DIR/stop-nanobot-easy.sh" || true
+    else
+      echo "nanobot-easy gateway is already running: pid=$pid"
+      echo "log: $LOG_FILE"
+      start_companion_gateways
+      exit 0
+    fi
   fi
   rm -f "$PID_FILE"
 fi
