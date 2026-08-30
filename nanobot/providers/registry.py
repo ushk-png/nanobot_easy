@@ -583,6 +583,17 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         is_local=True,
         default_api_base="http://localhost:8000/v3",
     ),
+    # SGLang (local, OpenAI-compatible) — https://github.com/sgl-project/sglang
+    ProviderSpec(
+        name="sglang",
+        keywords=("sglang", "sgl-project"),
+        env_key="",
+        display_name="SGLang",
+        backend="openai_compat",
+        is_local=True,
+        detect_by_base_keyword="30000",
+        default_api_base="http://localhost:30000/v1",
+    ),
     # === NVIDIA NIM (NVIDIA Inference Microservices) =======================
     # Keys start with "nvapi-", base URL at integrate.api.nvidia.com
     ProviderSpec(

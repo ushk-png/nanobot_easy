@@ -432,6 +432,148 @@ describe("App layout", () => {
     expect(screen.queryByRole("navigation", { name: "Sidebar navigation" })).not.toBeInTheDocument();
   });
 
+  it("connects OpenAI Codex via OAuth from inside the OpenAI card, dual-path with API key", async () => {
+    const payload = baseSettingsPayload();
+    const unconfiguredProviders = [
+      { name: "openai", label: "OpenAI", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "sk-" },
+      { name: "anthropic", label: "Claude", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "sk-ant-" },
+      { name: "google", label: "Gemini", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "AIza" },
+      { name: "openai_codex", label: "OpenAI Codex", configured: false, auth_type: "oauth", oauth_login_supported: true },
+      { name: "ollama", label: "Ollama", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:11434/v1" },
+      { name: "lm_studio", label: "LM Studio", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:1234/v1" },
+      { name: "vllm", label: "vLLM", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "" },
+      { name: "sglang", label: "SGLang", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:30000/v1" },
+      { name: "ovms", label: "OpenVINO Model Server", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:8000/v3" },
+      { name: "atomic_chat", label: "Atomic Chat", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:1337/v1" },
+    ];
+    const configuredCodexProviders = unconfiguredProviders.map((p) =>
+      p.name === "openai_codex" ? { ...p, configured: true, oauth_account: "me@example.com" } : p,
+    );
+
+    mockFetchRoutes({
+      "/api/settings": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers: unconfiguredProviders,
+      },
+      "/api/settings/nanobot-features": { features: [], enabled_count: 0 },
+      "/api/settings/provider/oauth-login?provider=openai_codex": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers: configuredCodexProviders,
+      },
+      "/api/settings/model-configurations/update?name=default&provider=openai_codex&model=openai%2Fgpt-4o": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers: configuredCodexProviders,
+      },
+      "/api/settings/provider-models?provider=openai_codex": {
+        provider: "openai_codex",
+        label: "OpenAI Codex",
+        status: "available",
+        catalog_kind: "official",
+        models: [{ id: "openai-codex/gpt-5.1-codex", label: "gpt-5.1-codex" }],
+        model_count: 1,
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    expect(await screen.findByText("어떤 모델로 대화할까요?")).toBeInTheDocument();
+
+    // The OpenAI card is selected by default (resolved_provider fallback) --
+    // it must show BOTH the Codex OAuth button and the API key field, not
+    // just one or the other.
+    expect(screen.getByText("OpenAI Codex")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /OpenAI로 로그인해서 연결/ })).toBeInTheDocument();
+    expect(screen.getByText("또는")).toBeInTheDocument();
+    expect(screen.getByLabelText("API 키")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI로 로그인해서 연결/ }));
+    // First click only switches the panel into "codex mode" (matches the
+    // mockup: reveals the confirm button + a way back to the API key field).
+    expect(screen.getByRole("button", { name: /API 키로 대신 연결/ })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /OpenAI로 로그인해서 연결/ }));
+
+    // Real backend call, real response -- not a fake local-only toggle.
+    await waitFor(() => expect(screen.getByText("연결됨")).toBeInTheDocument());
+    expect(screen.getByText("me@example.com")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "다음" })).not.toBeDisabled();
+  });
+
+  it("lets a local backend be picked and shows its real model list after connecting", async () => {
+    const payload = baseSettingsPayload();
+    const providers = [
+      { name: "openai", label: "OpenAI", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "sk-" },
+      { name: "anthropic", label: "Claude", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "sk-ant-" },
+      { name: "google", label: "Gemini", configured: false, auth_type: "api_key", api_key_required: true, api_key_hint: "AIza" },
+      { name: "openai_codex", label: "OpenAI Codex", configured: false, auth_type: "oauth", oauth_login_supported: true },
+      { name: "ollama", label: "Ollama", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:11434/v1" },
+      { name: "lm_studio", label: "LM Studio", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:1234/v1" },
+      { name: "vllm", label: "vLLM", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "" },
+      { name: "sglang", label: "SGLang", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:30000/v1" },
+      { name: "ovms", label: "OpenVINO Model Server", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:8000/v3" },
+      { name: "atomic_chat", label: "Atomic Chat", configured: false, auth_type: "api_key", api_key_required: false, default_api_base: "http://localhost:1337/v1" },
+    ];
+    const connectedProviders = providers.map((p) =>
+      p.name === "lm_studio" ? { ...p, configured: true, api_base: "http://localhost:1234/v1" } : p,
+    );
+
+    mockFetchRoutes({
+      "/api/settings": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers,
+      },
+      "/api/settings/nanobot-features": { features: [], enabled_count: 0 },
+      "/api/settings/provider/update?provider=lm_studio&api_base=http%3A%2F%2Flocalhost%3A1234%2Fv1": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers: connectedProviders,
+      },
+      "/api/settings/model-configurations/update?name=default&provider=lm_studio&model=openai%2Fgpt-4o": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+        providers: connectedProviders,
+      },
+      "/api/settings/provider-models?provider=lm_studio": {
+        provider: "lm_studio",
+        label: "LM Studio",
+        status: "available",
+        catalog_kind: "local",
+        models: [
+          { id: "qwen2.5-coder", label: "qwen2.5-coder" },
+          { id: "llama3.1", label: "llama3.1" },
+        ],
+        model_count: 2,
+      },
+    });
+
+    render(<App />);
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+    expect(await screen.findByText("어떤 모델로 대화할까요?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^▣ 로컬 모델/ }));
+    // Each local backend is its own real provider, not one generic "local".
+    expect(screen.getByRole("button", { name: /^Ollama$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^LM Studio$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^vLLM$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^SGLang$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^OpenVINO Model Server$/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /^Atomic Chat$/ })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /^LM Studio$/ }));
+    expect(screen.getByLabelText("서버 주소")).toHaveValue("http://localhost:1234/v1");
+
+    fireEvent.click(screen.getByRole("button", { name: "연결 확인" }));
+
+    // The user's actual question: does a real local connection ask which
+    // model to use? It must, once connected -- pulled from the real server.
+    await waitFor(() => expect(screen.getByLabelText("모델 선택")).toBeInTheDocument());
+    expect(screen.getByRole("option", { name: "qwen2.5-coder" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "llama3.1" })).toBeInTheDocument();
+  });
+
   it("opens Skills from the main sidebar", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),

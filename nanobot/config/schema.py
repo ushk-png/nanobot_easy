@@ -284,6 +284,7 @@ class ProvidersConfig(Base):
     lm_studio: ProviderConfig = Field(default_factory=ProviderConfig)  # LM Studio local models
     atomic_chat: ProviderConfig = Field(default_factory=ProviderConfig)  # Atomic Chat local models
     ovms: ProviderConfig = Field(default_factory=ProviderConfig)  # OpenVINO Model Server (OVMS)
+    sglang: ProviderConfig = Field(default_factory=ProviderConfig)  # SGLang local models
     gemini: ProviderConfig = Field(default_factory=ProviderConfig)
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     kimi_coding: ProviderConfig = Field(default_factory=ProviderConfig)  # Kimi Coding Plan (Anthropic Messages API)

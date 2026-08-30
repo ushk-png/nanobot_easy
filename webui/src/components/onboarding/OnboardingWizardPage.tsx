@@ -11,11 +11,24 @@ import {
   fetchNanobotFeatures,
   enableNanobotFeature,
   disableNanobotFeature,
+  fetchProviderModels,
 } from "@/lib/api";
 import type { SettingsPayload, NanobotFeatureInfo, NanobotFeaturesPayload } from "@/lib/types";
 import "./onboarding-wizard.css";
 
-const PRIMARY_PROVIDERS = ["openai", "anthropic", "google", "ollama"];
+// The "로컬 모델" card is a category, not one real provider — each local
+// backend is its own registered provider name in nanobot/providers/registry.py.
+const LOCAL_BACKENDS: Array<{ id: string; name: string; base: string }> = [
+  { id: "ollama", name: "Ollama", base: "http://localhost:11434/v1" },
+  { id: "lm_studio", name: "LM Studio", base: "http://localhost:1234/v1" },
+  { id: "vllm", name: "vLLM", base: "" },
+  { id: "sglang", name: "SGLang", base: "http://localhost:30000/v1" },
+  { id: "ovms", name: "OpenVINO Model Server", base: "http://localhost:8000/v3" },
+  { id: "atomic_chat", name: "Atomic Chat", base: "http://localhost:1337/v1" },
+];
+const LOCAL_BACKEND_IDS = LOCAL_BACKENDS.map((b) => b.id);
+
+const PRIMARY_PROVIDERS = ["openai", "anthropic", "google"];
 const PROVIDER_MARK: Record<string, { icon: string; bg: string; fg: string }> = {
   openai: { icon: "●", bg: "#E4F5F0", fg: "#0E8A6C" },
   anthropic: { icon: "◆", bg: "#FBEAE3", fg: "#C15F3C" },
@@ -40,6 +53,11 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
   const [providerBusy, setProviderBusy] = useState(false);
   const [otherModal, setOtherModal] = useState<"provider" | "channel" | null>(null);
   const [otherQuery, setOtherQuery] = useState("");
+  const [codexMode, setCodexMode] = useState(false);
+  const [showLocalPicker, setShowLocalPicker] = useState(false);
+  const [availableModels, setAvailableModels] = useState<{ id: string; label?: string }[]>([]);
+  const [modelsLoading, setModelsLoading] = useState(false);
+  const [selectedModelId, setSelectedModelId] = useState<string | null>(null);
 
   const [nanobotFeatures, setNanobotFeatures] = useState<NanobotFeaturesPayload | null>(null);
   const [featuresLoading, setFeaturesLoading] = useState(true);
@@ -90,7 +108,9 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
   const providers = settings?.providers ?? [];
   const primaryProviders = providers.filter((p) => PRIMARY_PROVIDERS.includes(p.name));
   const selectedProvider = providers.find((p) => p.name === selectedProviderName) ?? null;
-  const providerConfigured = Boolean(selectedProvider?.configured);
+  const effectiveProviderName = codexMode ? "openai_codex" : selectedProviderName;
+  const effectiveProvider = providers.find((p) => p.name === effectiveProviderName) ?? null;
+  const providerConfigured = Boolean(effectiveProvider?.configured);
 
   const channels = (nanobotFeatures?.features ?? []).filter((f) => f.type === "channel");
   const primaryChannelNames = ["telegram", "whatsapp", "slack"];
@@ -118,23 +138,95 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
 
   const pickProvider = (name: string) => {
     setSelectedProviderName(name);
+    setShowLocalPicker(false);
+    setCodexMode(false);
     setApiKeyInput("");
+    setAvailableModels([]);
+    setSelectedModelId(null);
     const p = providers.find((x) => x.name === name);
     setApiBaseInput(p?.api_base ?? p?.default_api_base ?? "");
   };
 
+  const pickLocalCard = () => {
+    setShowLocalPicker(true);
+    setCodexMode(false);
+    const current = LOCAL_BACKEND_IDS.includes(selectedProviderName ?? "") ? selectedProviderName! : "ollama";
+    pickLocalBackendInner(current);
+  };
+  const pickLocalBackendInner = (id: string) => {
+    setSelectedProviderName(id);
+    setApiKeyInput("");
+    setAvailableModels([]);
+    setSelectedModelId(null);
+    const backend = LOCAL_BACKENDS.find((b) => b.id === id);
+    const p = providers.find((x) => x.name === id);
+    setApiBaseInput(p?.api_base || backend?.base || "");
+  };
+  const pickLocalBackend = (id: string) => pickLocalBackendInner(id);
+
+  const startCodex = () => {
+    setCodexMode(true);
+    setError(null);
+  };
+  const backToApiKey = () => {
+    setCodexMode(false);
+    setError(null);
+  };
+
+  const loadModels = async (providerName: string) => {
+    setModelsLoading(true);
+    try {
+      const payload = await fetchProviderModels(token, providerName);
+      const models = payload.models.map((m) => ({ id: m.id, label: m.label ?? m.id }));
+      setAvailableModels(models);
+      if (models.length) {
+        setSelectedModelId(models[0].id);
+        if (settings) {
+          const defaultPresetName = settings.model_presets?.find((p) => p.is_default)?.name ?? "default";
+          await updateModelConfiguration(token, {
+            name: defaultPresetName,
+            provider: providerName,
+            model: models[0].id,
+          })
+            .then(setSettings)
+            .catch(() => undefined);
+        }
+      }
+    } catch {
+      setAvailableModels([]);
+    } finally {
+      setModelsLoading(false);
+    }
+  };
+
+  const pickModel = async (modelId: string) => {
+    setSelectedModelId(modelId);
+    if (!settings || !effectiveProvider) return;
+    const defaultPresetName = settings.model_presets?.find((p) => p.is_default)?.name ?? "default";
+    try {
+      const payload = await updateModelConfiguration(token, {
+        name: defaultPresetName,
+        provider: effectiveProvider.name,
+        model: modelId,
+      });
+      setSettings(payload);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const saveProvider = async () => {
-    if (!selectedProvider) return;
+    if (!effectiveProvider) return;
     setProviderBusy(true);
     setError(null);
     try {
-      const needsKey = selectedProvider.api_key_required ?? true;
-      if (selectedProvider.auth_type === "oauth") {
-        const payload = await loginProviderOAuth(token, selectedProvider.name);
+      const needsKey = effectiveProvider.api_key_required ?? true;
+      if (effectiveProvider.auth_type === "oauth") {
+        const payload = await loginProviderOAuth(token, effectiveProvider.name);
         setSettings(payload);
       } else {
         const payload = await updateProviderSettings(token, {
-          provider: selectedProvider.name,
+          provider: effectiveProvider.name,
           apiKey: needsKey && apiKeyInput.trim() ? apiKeyInput.trim() : undefined,
           apiBase: apiBaseInput.trim() ? apiBaseInput.trim() : undefined,
         });
@@ -144,12 +236,20 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
         const defaultPresetName = settings.model_presets?.find((p) => p.is_default)?.name ?? "default";
         await updateModelConfiguration(token, {
           name: defaultPresetName,
-          provider: selectedProvider.name,
+          provider: effectiveProvider.name,
           model: settings.agent.model,
         }).catch(() => undefined);
       }
+      // Real connections need a real model name (this is what the user
+      // flagged as missing): after a successful connect, ask the provider
+      // what it actually has available and let the user pick from that.
+      await loadModels(effectiveProvider.name);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(
+        err instanceof Error
+          ? err.message
+          : tx("onboarding.step1.genericError", "연결에 실패했습니다. 다시 시도해주세요."),
+      );
     } finally {
       setProviderBusy(false);
     }
@@ -228,7 +328,10 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
   };
 
   const otherProviders = useMemo(
-    () => providers.filter((p) => !PRIMARY_PROVIDERS.includes(p.name)),
+    () =>
+      providers.filter(
+        (p) => !PRIMARY_PROVIDERS.includes(p.name) && p.name !== "openai_codex" && !LOCAL_BACKEND_IDS.includes(p.name),
+      ),
     [providers],
   );
   const otherChannels = useMemo(
@@ -297,7 +400,8 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
               <StepModel
                 tx={tx}
                 primaryProviders={primaryProviders}
-                selectedProvider={selectedProvider}
+                selectedProviderName={selectedProviderName}
+                effectiveProvider={effectiveProvider}
                 onPick={pickProvider}
                 apiKeyInput={apiKeyInput}
                 setApiKeyInput={setApiKeyInput}
@@ -308,7 +412,22 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
                 onOpenOther={() => setOtherModal("provider")}
                 onNext={() => goStep(2)}
                 providerConfigured={providerConfigured}
-                otherSelected={selectedProvider ? !PRIMARY_PROVIDERS.includes(selectedProvider.name) : false}
+                otherSelected={
+                  selectedProviderName
+                    ? !PRIMARY_PROVIDERS.includes(selectedProviderName) && !showLocalPicker
+                    : false
+                }
+                showLocalPicker={showLocalPicker}
+                onPickLocalCard={pickLocalCard}
+                onPickLocalBackend={pickLocalBackend}
+                codexMode={codexMode}
+                onStartCodex={startCodex}
+                onBackToApiKey={backToApiKey}
+                availableModels={availableModels}
+                modelsLoading={modelsLoading}
+                selectedModelId={selectedModelId}
+                onPickModel={pickModel}
+                error={error}
               />
             ) : null}
             {step === 2 ? (
@@ -389,7 +508,8 @@ type Tx = (key: string, fallback: string, values?: Record<string, unknown>) => s
 function StepModel({
   tx,
   primaryProviders,
-  selectedProvider,
+  selectedProviderName,
+  effectiveProvider,
   onPick,
   apiKeyInput,
   setApiKeyInput,
@@ -401,10 +521,22 @@ function StepModel({
   onNext,
   providerConfigured,
   otherSelected,
+  showLocalPicker,
+  onPickLocalCard,
+  onPickLocalBackend,
+  codexMode,
+  onStartCodex,
+  onBackToApiKey,
+  availableModels,
+  modelsLoading,
+  selectedModelId,
+  onPickModel,
+  error,
 }: {
   tx: Tx;
   primaryProviders: SettingsPayload["providers"];
-  selectedProvider: SettingsPayload["providers"][number] | null;
+  selectedProviderName: string | null;
+  effectiveProvider: SettingsPayload["providers"][number] | null;
   onPick: (name: string) => void;
   apiKeyInput: string;
   setApiKeyInput: (v: string) => void;
@@ -416,10 +548,23 @@ function StepModel({
   onNext: () => void;
   providerConfigured: boolean;
   otherSelected: boolean;
+  showLocalPicker: boolean;
+  onPickLocalCard: () => void;
+  onPickLocalBackend: (id: string) => void;
+  codexMode: boolean;
+  onStartCodex: () => void;
+  onBackToApiKey: () => void;
+  availableModels: { id: string; label?: string }[];
+  modelsLoading: boolean;
+  selectedModelId: string | null;
+  onPickModel: (id: string) => void;
+  error: string | null;
 }) {
-  const p = selectedProvider;
-  const isOAuth = p?.auth_type === "oauth";
-  const isUrl = p?.name === "ollama";
+  const p = effectiveProvider;
+  const isOpenAiCard = selectedProviderName === "openai" && !showLocalPicker;
+  const isLocalCard = showLocalPicker;
+  const localBackend = LOCAL_BACKENDS.find((b) => b.id === selectedProviderName);
+
   return (
     <>
       <span className="ne-lbl ne-eyebrow">{tx("onboarding.step1.eyebrow", "1단계 — 모델")}</span>
@@ -439,7 +584,7 @@ function StepModel({
                 type="button"
                 key={provider.name}
                 className="ne-opt"
-                aria-pressed={!otherSelected && selectedProvider?.name === provider.name}
+                aria-pressed={!otherSelected && !showLocalPicker && selectedProviderName === provider.name}
                 onClick={() => onPick(provider.name)}
               >
                 <span className="ne-mark" style={{ background: mark.bg, color: mark.fg }}>{mark.icon}</span>
@@ -452,6 +597,13 @@ function StepModel({
               </button>
             );
           })}
+          <button type="button" className="ne-opt" aria-pressed={showLocalPicker} onClick={onPickLocalCard}>
+            <span className="ne-mark" style={{ background: "#EFEAFB", color: "#6D4FC4" }}>▣</span>
+            <span>
+              <span className="ne-opt-t">{tx("onboarding.step1.local", "로컬 모델")}</span>
+              <span className="ne-opt-d">{tx("onboarding.step1.localDesc", "Ollama · LM Studio 등")}</span>
+            </span>
+          </button>
         </div>
         <button type="button" className="ne-opt ne-other-opt" aria-pressed={otherSelected} onClick={onOpenOther}>
           <span className="ne-mark">⋯</span>
@@ -463,14 +615,116 @@ function StepModel({
           </span>
         </button>
       </div>
-      {p ? (
+
+      {isOpenAiCard && !codexMode ? (
         <div className="ne-subpanel">
-          {isOAuth ? (
+          <div className="ne-field" style={{ display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", background: "#fff", border: "1px solid var(--ne-line)", borderRadius: "var(--ne-r-lg)", padding: "13px 14px", marginTop: 0 }}>
+            <div style={{ flex: 1, minWidth: 180 }}>
+              <span className="ne-item-t">
+                {tx("onboarding.step1.codexName", "OpenAI Codex")}{" "}
+                <span style={{ fontFamily: "var(--ne-mono)", fontSize: 9.5, letterSpacing: ".05em", color: "var(--ne-muted)", border: "1px solid var(--ne-line-2)", borderRadius: 5, padding: "1.5px 6px", marginLeft: 6 }}>
+                  {tx("onboarding.step1.codexTag", "OpenAI OAuth")}
+                </span>
+              </span>
+              <div className="ne-item-d">{tx("onboarding.step1.codexDesc", "ChatGPT 구독 계정으로 로그인합니다. API 키가 필요 없습니다.")}</div>
+            </div>
+            <button type="button" className="ne-btn ne-oauth-btn" onClick={onStartCodex}>
+              <span className="ne-oauth-mark">↗</span> {tx("onboarding.step1.oauthConnect", "OpenAI로 로그인해서 연결")}
+            </button>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0" }}>
+            <span style={{ flex: 1, height: 1, background: "var(--ne-line)" }} />
+            <span style={{ fontSize: 11.5, color: "var(--ne-muted)", fontFamily: "var(--ne-mono)" }}>{tx("onboarding.step1.or", "또는")}</span>
+            <span style={{ flex: 1, height: 1, background: "var(--ne-line)" }} />
+          </div>
+          <ApiKeyField
+            tx={tx}
+            label={tx("onboarding.apiKey", "API 키")}
+            placeholder={p?.api_key_hint ?? "sk-"}
+            value={apiKeyInput}
+            onChange={setApiKeyInput}
+            onSave={onSave}
+            busy={providerBusy}
+            connected={providerConfigured}
+            connectedLabel={p?.label}
+            error={error}
+          />
+        </div>
+      ) : null}
+
+      {isOpenAiCard && codexMode ? (
+        <div className="ne-subpanel">
+          <div className="ne-field">
+            <button type="button" className="ne-btn ne-oauth-btn" onClick={onSave} disabled={providerBusy}>
+              <span className="ne-oauth-mark">↗</span>{" "}
+              {providerBusy ? tx("onboarding.step1.signingIn", "로그인 창을 여는 중…") : tx("onboarding.step1.oauthConnect", "OpenAI로 로그인해서 연결")}
+            </button>
+            <p className="ne-hint">{tx("onboarding.step1.oauthHint", "API 키를 붙여넣지 않고, 이미 있는 계정으로 로그인합니다. 브라우저 창이 열리면 로그인을 마쳐주세요.")}</p>
+            {error ? <p className="ne-hint" style={{ color: "var(--ne-warn)" }}>{error}</p> : null}
+            {providerConfigured ? (
+              <div className="ne-strip">
+                <span className="ne-tick">✓</span>
+                <span className="ne-strip-main">{tx("onboarding.connected", "연결됨")}</span>
+                <span className="ne-strip-meta">{p?.oauth_account ?? p?.label}</span>
+              </div>
+            ) : null}
+            <button type="button" className="ne-linkbtn" style={{ paddingLeft: 0, marginTop: 2 }} onClick={onBackToApiKey}>
+              {tx("onboarding.step1.backToKey", "API 키로 대신 연결")}
+            </button>
+          </div>
+        </div>
+      ) : null}
+
+      {isLocalCard ? (
+        <div className="ne-subpanel">
+          <ApiKeyField
+            tx={tx}
+            label={tx("onboarding.step1.serverAddress", "서버 주소")}
+            placeholder={localBackend?.base || "http://localhost:11434/v1"}
+            value={apiBaseInput}
+            onChange={setApiBaseInput}
+            onSave={onSave}
+            busy={providerBusy}
+            connected={providerConfigured}
+            connectedLabel={localBackend?.name ?? p?.label}
+            hint={tx("onboarding.step1.urlHint", "컴퓨터에서 실행 중인 모델 서버 주소를 넣으세요. 키는 필요 없습니다.")}
+            error={error}
+          />
+          <div className="ne-chips" style={{ marginTop: 14 }}>
+            {LOCAL_BACKENDS.map((b) => (
+              <button
+                type="button"
+                key={b.id}
+                className="ne-chip"
+                aria-pressed={selectedProviderName === b.id}
+                onClick={() => onPickLocalBackend(b.id)}
+              >
+                {b.name}
+              </button>
+            ))}
+          </div>
+          {providerConfigured ? (
+            <ModelPicker
+              tx={tx}
+              loading={modelsLoading}
+              models={availableModels}
+              selectedModelId={selectedModelId}
+              onPick={onPickModel}
+            />
+          ) : null}
+        </div>
+      ) : null}
+
+      {!isOpenAiCard && !isLocalCard && p ? (
+        <div className="ne-subpanel">
+          {p.auth_type === "oauth" ? (
             <div className="ne-field">
               <button type="button" className="ne-btn ne-oauth-btn" onClick={onSave} disabled={providerBusy}>
-                <span className="ne-oauth-mark">↗</span> {tx("onboarding.step1.oauthConnect", "로그인해서 연결")}
+                <span className="ne-oauth-mark">↗</span>{" "}
+                {providerBusy ? tx("onboarding.step1.signingIn", "로그인 창을 여는 중…") : tx("onboarding.step1.oauthConnect", "로그인해서 연결")}
               </button>
-              <p className="ne-hint">{tx("onboarding.step1.oauthHint", "API 키를 붙여넣지 않고, 이미 있는 계정으로 로그인합니다.")}</p>
+              <p className="ne-hint">{tx("onboarding.step1.oauthHint", "API 키를 붙여넣지 않고, 이미 있는 계정으로 로그인합니다. 브라우저 창이 열리면 로그인을 마쳐주세요.")}</p>
+              {error ? <p className="ne-hint" style={{ color: "var(--ne-warn)" }}>{error}</p> : null}
               {providerConfigured ? (
                 <div className="ne-strip">
                   <span className="ne-tick">✓</span>
@@ -480,50 +734,37 @@ function StepModel({
               ) : null}
             </div>
           ) : (
-            <div className="ne-field">
-              <label htmlFor="ne-provider-key">{isUrl ? tx("onboarding.step1.serverAddress", "서버 주소") : tx("onboarding.apiKey", "API 키")}</label>
-              <div className="ne-row">
-                <input
-                  id="ne-provider-key"
-                  type="text"
-                  placeholder={isUrl ? "http://localhost:11434/v1" : (p.api_key_hint ?? "sk-")}
-                  value={isUrl ? apiBaseInput : apiKeyInput}
-                  onChange={(e) => (isUrl ? setApiBaseInput(e.target.value) : setApiKeyInput(e.target.value))}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      onSave();
-                    }
-                  }}
+            <>
+              <ApiKeyField
+                tx={tx}
+                label={tx("onboarding.apiKey", "API 키")}
+                placeholder={p.api_key_hint ?? "sk-"}
+                value={apiKeyInput}
+                onChange={setApiKeyInput}
+                onSave={onSave}
+                busy={providerBusy}
+                connected={providerConfigured}
+                connectedLabel={p.label}
+                error={error}
+              />
+              {providerConfigured ? (
+                <ModelPicker
+                  tx={tx}
+                  loading={modelsLoading}
+                  models={availableModels}
+                  selectedModelId={selectedModelId}
+                  onPick={onPickModel}
                 />
-                <button type="button" className="ne-btn" onClick={onSave} disabled={providerBusy}>
-                  {tx("onboarding.step1.testConnect", "연결 확인")}
-                </button>
-              </div>
-              <p className="ne-hint">
-                {isUrl
-                  ? tx("onboarding.step1.urlHint", "컴퓨터에서 실행 중인 모델 서버 주소를 넣으세요. 키는 필요 없습니다.")
-                  : tx("onboarding.step1.keyHint", "키는 이 컴퓨터의 config.json에만 저장되고 외부로 보내지 않습니다.")}
-              </p>
-              {providerBusy ? (
-                <div className="ne-testing">
-                  <span className="ne-spin" /> {tx("onboarding.step1.testing", "연결을 확인하는 중…")}
-                </div>
-              ) : providerConfigured ? (
-                <div className="ne-strip">
-                  <span className="ne-tick">✓</span>
-                  <span className="ne-strip-main">{tx("onboarding.connected", "연결됨")}</span>
-                  <span className="ne-strip-meta">{p.label}</span>
-                </div>
               ) : null}
-            </div>
+            </>
           )}
         </div>
       ) : null}
+
       <div className="ne-nav">
         {!providerConfigured ? (
           <span className="ne-nav-hint">
-            {p ? tx("onboarding.step1.hintTest", "연결 확인을 눌러 완료하면 다음으로 넘어갑니다") : tx("onboarding.step1.hintPick", "먼저 모델을 하나 선택하세요")}
+            {p || isLocalCard ? tx("onboarding.step1.hintTest", "연결 확인을 눌러 완료하면 다음으로 넘어갑니다") : tx("onboarding.step1.hintPick", "먼저 모델을 하나 선택하세요")}
           </span>
         ) : null}
         <div className="ne-spacer" />
@@ -532,6 +773,114 @@ function StepModel({
         </button>
       </div>
     </>
+  );
+}
+
+function ApiKeyField({
+  tx,
+  label,
+  placeholder,
+  value,
+  onChange,
+  onSave,
+  busy,
+  connected,
+  connectedLabel,
+  hint,
+  error,
+}: {
+  tx: Tx;
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  onSave: () => void;
+  busy: boolean;
+  connected: boolean;
+  connectedLabel?: string;
+  hint?: string;
+  error?: string | null;
+}) {
+  return (
+    <div className="ne-field" style={{ marginTop: 0 }}>
+      <label htmlFor="ne-provider-key">{label}</label>
+      <div className="ne-row">
+        <input
+          id="ne-provider-key"
+          type="text"
+          placeholder={placeholder}
+          value={connected ? "••••••••••••••••••••" : value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onSave();
+            }
+          }}
+        />
+        <button type="button" className="ne-btn" onClick={onSave} disabled={busy}>
+          {tx("onboarding.step1.testConnect", "연결 확인")}
+        </button>
+      </div>
+      <p className="ne-hint">{hint ?? tx("onboarding.step1.keyHint", "키는 이 컴퓨터의 config.json에만 저장되고 외부로 보내지 않습니다.")}</p>
+      {error ? <p className="ne-hint" style={{ color: "var(--ne-warn)" }}>{error}</p> : null}
+      {busy ? (
+        <div className="ne-testing">
+          <span className="ne-spin" /> {tx("onboarding.step1.testing", "연결을 확인하는 중…")}
+        </div>
+      ) : connected ? (
+        <div className="ne-strip">
+          <span className="ne-tick">✓</span>
+          <span className="ne-strip-main">{tx("onboarding.connected", "연결됨")}</span>
+          <span className="ne-strip-meta">{connectedLabel}</span>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ModelPicker({
+  tx,
+  loading,
+  models,
+  selectedModelId,
+  onPick,
+}: {
+  tx: Tx;
+  loading: boolean;
+  models: { id: string; label?: string }[];
+  selectedModelId: string | null;
+  onPick: (id: string) => void;
+}) {
+  if (loading) {
+    return <p className="ne-hint" style={{ marginTop: 12 }}>{tx("onboarding.step1.loadingModels", "사용 가능한 모델을 확인하는 중…")}</p>;
+  }
+  if (!models.length) return null;
+  return (
+    <div className="ne-field">
+      <label htmlFor="ne-model-picker">{tx("onboarding.step1.pickModel", "모델 선택")}</label>
+      <select
+        id="ne-model-picker"
+        value={selectedModelId ?? ""}
+        onChange={(e) => onPick(e.target.value)}
+        style={{
+          width: "100%",
+          padding: "9px 12px",
+          border: "1px solid var(--ne-line-2)",
+          borderRadius: "var(--ne-r)",
+          font: "inherit",
+          fontFamily: "var(--ne-mono)",
+          fontSize: 12.5,
+          background: "#fff",
+          color: "var(--ne-ink)",
+        }}
+      >
+        {models.map((m) => (
+          <option key={m.id} value={m.id}>{m.label ?? m.id}</option>
+        ))}
+      </select>
+      <p className="ne-hint">{tx("onboarding.step1.pickModelHint", "이 서버에서 실제로 쓸 수 있는 모델 목록입니다.")}</p>
+    </div>
   );
 }
 
