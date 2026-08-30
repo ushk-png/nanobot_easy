@@ -17,7 +17,9 @@ usage() {
 Usage: ./install-nanobot-easy.sh [--dry-run] [--skip-wizard]
 
 Creates a repo-local .venv, installs this checkout in editable mode, then
-runs the first-run wizard for .local/config.json when needed.
+creates a default .local/config.json when needed (no terminal prompts —
+first-run setup happens in the browser via the WebUI once you start
+nanobot-easy).
 
 Environment overrides:
   PYTHON                 Python 3.11+ command to use
@@ -25,7 +27,7 @@ Environment overrides:
   NANOBOT_CONFIG         config path, default ./.local/config.json
   NANOBOT_WORKSPACE      workspace path, default ./.local/workspace
   NANOBOT_SKILL_EXTRAS   package extras, default telegram,documents
-  NANOBOT_SKIP_WIZARD=1  do not run onboard wizard
+  NANOBOT_SKIP_WIZARD=1  do not create a default config (advanced use)
   NANOBOT_FORCE_WEBUI_BUILD=1 rebuild WebUI even when dist exists
 EOF
 }
@@ -208,11 +210,10 @@ run_onboard_if_needed() {
     return 0
   fi
 
-  info "No config found. Starting first-run setup wizard..."
+  info "No config found. Creating a default config — finish setup in the browser (WebUI) after you start nanobot-easy."
   PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" onboard \
     --config "$CONFIG" \
-    --workspace "$WORKSPACE" \
-    --wizard
+    --workspace "$WORKSPACE"
 }
 
 main() {
@@ -227,7 +228,7 @@ main() {
     info "Dry run: would create or reuse venv: $VENV_DIR"
     info "Dry run: would install: pip install -e .[$EXTRAS]"
     info "Dry run: would build WebUI dist with bun or npm if nanobot/web/dist/index.html is missing"
-    info "Dry run: would create config with: nanobot onboard --config $CONFIG --workspace $WORKSPACE --wizard"
+    info "Dry run: would create config with: nanobot onboard --config $CONFIG --workspace $WORKSPACE"
     info "Dry run: would run with: ./start-nanobot-easy.sh"
     exit 0
   fi
