@@ -825,6 +825,13 @@ function SkillCreateWizard({
   const [confirmDiscard, setConfirmDiscard] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [advancedFields, setAdvancedFields] = useState(false);
+
+  useEffect(() => {
+    // Imported skills already show their estimated-field feedback (category,
+    // risk, etc.) — surface those fields instead of hiding them a second time.
+    if (importResult) setAdvancedFields(true);
+  }, [importResult]);
 
   useEffect(() => {
     if (!open || !initialDraft) return;
@@ -864,6 +871,7 @@ function SkillCreateWizard({
     setConfirmDiscard(false);
     setBusy(false);
     setError(null);
+    setAdvancedFields(false);
   };
 
   const backToPaste = () => {
@@ -1271,6 +1279,15 @@ function SkillCreateWizard({
                   />
                   {estimatedFields.has("description") ? <EstimatedBadge /> : null}
                 </LabeledField>
+                <button
+                  type="button"
+                  onClick={() => setAdvancedFields((prev) => !prev)}
+                  className="text-[12px] font-medium text-primary hover:underline"
+                >
+                  {advancedFields ? "Show simple view" : "Show advanced options (trigger, risk, method)"}
+                </button>
+                {advancedFields ? (
+                  <>
                 <LabeledField label="Trigger utterances">
                   <Textarea
                     value={trigger}
@@ -1324,6 +1341,8 @@ function SkillCreateWizard({
                     className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
                   />
                 </LabeledField>
+                  </>
+                ) : null}
                 <LabeledField label="Supplemental files">
                   <div className="rounded-[12px] border border-border/45 bg-muted/15 p-3">
                     <div className="flex flex-wrap items-center gap-2">

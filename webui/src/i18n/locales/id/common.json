@@ -295,6 +295,9 @@
         "baseUrlRequired": "SearXNG memerlukan Base URL.",
         "missingCredential": "Tambahkan kredensial yang diperlukan sebelum menyimpan.",
         "saveHint": "Perubahan berlaku untuk permintaan web search baru."
+      },
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
       }
     },
     "overview": {
@@ -616,7 +619,10 @@
         "cronRequired": "Ekspresi cron wajib diisi.",
         "timeRequired": "Waktu eksekusi wajib diisi.",
         "futureRequired": "Waktu eksekusi harus berada di masa depan."
-      }
+      },
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view"
     },
     "oauth": {
       "authentication": "Autentikasi OAuth",
@@ -629,7 +635,8 @@
       "signInRequired": "Perlu masuk",
       "signInBeforeSaving": "Inicia sesión antes de guardar este proveedor OAuth como proveedor activo.",
       "signedIn": "Sudah masuk",
-      "notSignedIn": "Belum masuk"
+      "notSignedIn": "Belum masuk",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in."
     },
     "skills": {
       "description": "Tinjau skill instruksi yang dapat dimuat agent ini selama percakapan.",

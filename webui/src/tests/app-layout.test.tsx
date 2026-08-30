@@ -694,6 +694,7 @@ describe("App layout", () => {
     fireEvent.change(screen.getByPlaceholderText("Review renewal notes and surface customer risk."), {
       target: { value: "Web created skill." },
     });
+    fireEvent.click(screen.getByRole("button", { name: /Show advanced options/ }));
     fireEvent.change(screen.getByPlaceholderText(/review this renewal/), {
       target: { value: "web created" },
     });
@@ -926,6 +927,7 @@ describe("App layout", () => {
     const automationsMain = heading.closest("main");
     expect(automationsMain).not.toBeNull();
     expect(within(automationsMain as HTMLElement).queryByText("Settings")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show advanced view" }));
     expect(screen.getAllByText("Daily repo check").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Check the repo status").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("Release prep").length).toBeGreaterThanOrEqual(1);
@@ -998,6 +1000,7 @@ describe("App layout", () => {
     fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
 
     expect((await screen.findAllByText("Past one-shot")).length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByRole("button", { name: "Show advanced view" }));
     fireEvent.click(screen.getByRole("button", { name: "Edit" }));
     expect(screen.queryByText("Run time must be in the future.")).not.toBeInTheDocument();
     expect(
@@ -1086,6 +1089,7 @@ describe("App layout", () => {
     const sidebar = screen.getByRole("navigation", { name: "Sidebar navigation" });
     fireEvent.click(within(sidebar).getByRole("button", { name: "Automations" }));
 
+    fireEvent.click(await screen.findByRole("button", { name: "Show advanced view" }));
     const detailHeading = await screen.findByRole("heading", { name: "Long detail automation" });
     const detailPanel = detailHeading.closest("article") as HTMLElement;
     expect(detailPanel).not.toBeNull();
@@ -1158,6 +1162,7 @@ describe("App layout", () => {
     const automationsMain = heading.closest("main");
     expect(automationsMain).not.toBeNull();
     expect(within(automationsMain as HTMLElement).queryByText("设置")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Show advanced view" }));
     expect(screen.getByText("任务队列")).toBeInTheDocument();
     expect(screen.getAllByText("每日检查").length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText("检查仓库状态").length).toBeGreaterThanOrEqual(1);

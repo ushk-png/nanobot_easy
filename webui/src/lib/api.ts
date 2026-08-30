@@ -47,6 +47,7 @@ import type {
 import { fetchWithTimeout } from "./http";
 
 const API_READ_TIMEOUT_MS = 20_000;
+const OAUTH_LOGIN_TIMEOUT_MS = 300_000; // interactive browser login can take a while
 const SLASH_COMMAND_LIFECYCLES = new Set<SlashCommandLifecycle>([
   "side_channel",
   "finalize_active_turn",
@@ -902,6 +903,8 @@ export async function loginProviderOAuth(
   return request<SettingsPayload>(
     `${base}/api/settings/provider/oauth-login?${query}`,
     token,
+    undefined,
+    OAUTH_LOGIN_TIMEOUT_MS,
   );
 }
 

@@ -295,6 +295,9 @@
         "baseUrlRequired": "SearXNG requiere una Base URL.",
         "missingCredential": "Añade la credencial requerida antes de guardar.",
         "saveHint": "Los cambios se aplican a nuevas solicitudes de web search."
+      },
+      "oauth": {
+        "loginTimedOut": "Sign-in didn't finish in time. Check whether you completed it in the browser, then try again."
       }
     },
     "overview": {
@@ -616,7 +619,10 @@
         "cronRequired": "La expresión cron es obligatoria.",
         "timeRequired": "La hora de ejecución es obligatoria.",
         "futureRequired": "La hora de ejecución debe estar en el futuro."
-      }
+      },
+      "simpleEmptyHint": "Ask the agent something like \"remind me to review every evening at 8\" and it shows up here automatically.",
+      "showAdvanced": "Show advanced view",
+      "showSimple": "Show simple view"
     },
     "oauth": {
       "authentication": "Autenticación OAuth",
@@ -629,7 +635,8 @@
       "signInRequired": "Inicio de sesión requerido",
       "signInBeforeSaving": "Inicia sesión antes de guardar este proveedor OAuth como proveedor activo.",
       "signedIn": "Sesión iniciada",
-      "notSignedIn": "Sin sesión"
+      "notSignedIn": "Sin sesión",
+      "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in."
     },
     "skills": {
       "description": "Revisa las habilidades de instrucciones que este agente puede cargar durante una conversación.",
