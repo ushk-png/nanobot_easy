@@ -35,6 +35,19 @@
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.42);
   }
 
+  /* nanobot-easy first-run wizard: navy brand, scoped to this screen only. */
+  .nanobot-easy-wizard {
+    --primary: 214 52% 25%;
+    --primary-foreground: 0 0% 100%;
+    --accent: 213 48% 95%;
+    --accent-foreground: 214 52% 25%;
+    --ring: 214 52% 25%;
+    --ne-live: 170 59% 30%;
+    --ne-live-soft: 162 31% 94%;
+    --ne-warn: 26 90% 37%;
+    --ne-warn-soft: 33 90% 96%;
+  }
+
   .dark {
     color-scheme: dark;
     --background: 0 0% 10%;

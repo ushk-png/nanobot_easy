@@ -669,6 +669,36 @@
       "selectProvider": "Chon nha cung cap",
       "configureProvider": "Cau hinh nha cung cap",
       "languageAuto": "Tu dong"
+    },
+    "easySetup": {
+      "wizard": {
+        "title": "A few things before you start",
+        "subtitle": "You can change any of this later in Settings.",
+        "stepModel": "Model",
+        "stepMessenger": "Messenger",
+        "stepTools": "Tools & skills",
+        "stepDone": "Done",
+        "back": "Back",
+        "skip": "Skip",
+        "next": "Next",
+        "needModel": "Connect a model first to continue",
+        "modelHeading": "Which model do you want to use?",
+        "modelSub": "Pick one of the common options, then add an API key or sign in.",
+        "messengerHeading": "Connect a messenger",
+        "messengerSub": "This is optional — you can connect one later.",
+        "channelEnabled": "Listening for messages",
+        "channelDisabled": "Not connected yet",
+        "connect": "Connect",
+        "disconnect": "Disconnect",
+        "noChannels": "No messengers are available.",
+        "toolsHeading": "Turn on tools",
+        "toolsSub": "The defaults are usually enough. You can change these anytime.",
+        "skillsCount": "{{count}} skills available",
+        "skillsOpen": "Open Skills →",
+        "doneHeading": "You're all set!",
+        "notConnected": "Not connected",
+        "laterOk": "You can set this up later"
+      }
     }
   },
   "chat": {

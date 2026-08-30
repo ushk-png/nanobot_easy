@@ -638,6 +638,36 @@
       "signedIn": "로그인됨",
       "notSignedIn": "로그인 안 됨"
     },
+    "easySetup": {
+      "wizard": {
+        "title": "시작하기 전에 몇 가지만 정해주세요",
+        "subtitle": "나중에 언제든 설정에서 바꿀 수 있어요.",
+        "stepModel": "모델",
+        "stepMessenger": "메신저",
+        "stepTools": "도구·스킬",
+        "stepDone": "완료",
+        "back": "이전",
+        "skip": "건너뛰기",
+        "next": "다음",
+        "needModel": "먼저 모델을 연결해야 다음으로 갈 수 있어요",
+        "modelHeading": "어떤 모델을 쓸까요?",
+        "modelSub": "자주 쓰는 곳 중 하나를 고르고, API 키를 넣거나 로그인하세요.",
+        "messengerHeading": "메신저를 연결하세요",
+        "messengerSub": "선택 사항이에요. 나중에 연결해도 괜찮아요.",
+        "channelEnabled": "메시지 수신 대기 중",
+        "channelDisabled": "아직 연결 안 됨",
+        "connect": "연결",
+        "disconnect": "연결 해제",
+        "noChannels": "사용 가능한 메신저가 없어요.",
+        "toolsHeading": "도구를 켜세요",
+        "toolsSub": "기본값이면 대부분 충분해요. 나중에 언제든 바꿀 수 있어요.",
+        "skillsCount": "{{count}}개의 스킬을 쓸 수 있어요",
+        "skillsOpen": "스킬 화면 열기 →",
+        "doneHeading": "준비됐어요!",
+        "notConnected": "미연결",
+        "laterOk": "나중에 설정해도 괜찮아요"
+      }
+    },
     "skills": {
       "description": "이 에이전트가 대화 중에 불러올 수 있는 지시 스킬을 확인합니다.",
       "caption": "{{available}}개 사용 가능 · 총 {{total}}개",
