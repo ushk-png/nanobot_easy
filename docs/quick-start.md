@@ -23,13 +23,13 @@ Pick one install method.
 **Linux / macOS one-command checkout setup:**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy && cd nanobot-easy && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy; cd nanobot-easy; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
 ```
 
 The installer creates a repo-local `.venv`, installs this checkout in editable mode, builds the WebUI bundle into `nanobot/web/dist`, then starts `nanobot onboard --config .local/config.json --workspace .local/workspace --wizard` when the config does not exist. Editable Python installs skip the packaged WebUI build hook, so the installer requires Bun or Node.js/npm for this step. On Ubuntu/Debian it detects missing `venv` support and tries to install `python3-venv` and `python3-pip` before continuing.

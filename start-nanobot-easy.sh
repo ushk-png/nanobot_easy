@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_INSTALL_DIR="${NANOBOT_EASY_HOME:-$HOME/nanobot-easy}"
 CONFIG="${NANOBOT_CONFIG:-$SCRIPT_DIR/.local/config.json}"
 WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
 NANOBOT_BIN="${NANOBOT_BIN:-$SCRIPT_DIR/.venv/bin/nanobot}"
@@ -11,6 +12,26 @@ PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-easy-gateway.pid}"
 LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-easy-gateway.log}"
 ENV_FILE="${NANOBOT_ENV_FILE:-$SCRIPT_DIR/.local/env}"
 WEBUI_DIST_INDEX="$SCRIPT_DIR/nanobot/web/dist/index.html"
+
+case "$SCRIPT_DIR" in
+  "$HOME/.Trash"|"$HOME/.Trash"/*|*/.Trash/*)
+    cat >&2 <<EOF
+Error: this nanobot-easy checkout is inside the macOS Trash:
+  $SCRIPT_DIR
+
+Move it out of Trash or clone a fresh copy into your home directory:
+  git clone https://github.com/ushk-png/nanobot_easy.git "$DEFAULT_INSTALL_DIR"
+  cd "$DEFAULT_INSTALL_DIR"
+  ./install-nanobot-easy.sh
+EOF
+    exit 1
+    ;;
+esac
+
+if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
+  echo "Notice: recommended nanobot-easy checkout path is $DEFAULT_INSTALL_DIR" >&2
+  echo "This run will use the current checkout: $SCRIPT_DIR" >&2
+fi
 
 mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$WORKSPACE"
 
