@@ -186,11 +186,29 @@ maybe_install_linux_node_support() {
   command -v npm >/dev/null 2>&1
 }
 
+webui_dist_is_fresh() {
+  # True only if nothing under webui/src (or package.json, for dependency
+  # changes) is newer than the built index.html. Otherwise a `git pull` that
+  # updates the WebUI source silently keeps serving the old build forever,
+  # since a prior install already leaves index.html in place.
+  local index_html="$1"
+  if [[ -f "$WEBUI_DIR/package.json" && "$WEBUI_DIR/package.json" -nt "$index_html" ]]; then
+    return 1
+  fi
+  if [[ -d "$WEBUI_DIR/src" ]] && find "$WEBUI_DIR/src" -type f -newer "$index_html" -print -quit 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
 ensure_webui_dist() {
   local index_html="$WEBUI_DIST/index.html"
   if [[ -f "$index_html" && "${NANOBOT_FORCE_WEBUI_BUILD:-0}" != "1" ]]; then
-    info "Using existing WebUI build: $WEBUI_DIST"
-    return 0
+    if webui_dist_is_fresh "$index_html"; then
+      info "Using existing WebUI build: $WEBUI_DIST"
+      return 0
+    fi
+    info "WebUI source has changed since the last build; rebuilding..."
   fi
 
   [[ -f "$WEBUI_DIR/package.json" ]] || fail "webui/package.json was not found; cannot build WebUI bundle"

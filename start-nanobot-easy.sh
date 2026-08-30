@@ -12,6 +12,7 @@ PID_FILE="${NANOBOT_PID_FILE:-$RUNTIME_DIR/nanobot-easy-gateway.pid}"
 LOG_FILE="${NANOBOT_LOG_FILE:-$LOG_DIR/nanobot-easy-gateway.log}"
 ENV_FILE="${NANOBOT_ENV_FILE:-$SCRIPT_DIR/.local/env}"
 WEBUI_DIST_INDEX="$SCRIPT_DIR/nanobot/web/dist/index.html"
+WEBUI_SRC_DIR="$SCRIPT_DIR/webui"
 
 case "$SCRIPT_DIR" in
   "$HOME/.Trash"|"$HOME/.Trash"/*|*/.Trash/*)
@@ -33,6 +34,20 @@ if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
   echo "This run will use the current checkout: $SCRIPT_DIR" >&2
 fi
 
+# Same staleness check as install-nanobot-easy.sh's ensure_webui_dist: a
+# `git pull` that only updates webui/src would otherwise keep serving a WebUI
+# bundle built from the old source, since index.html already exists.
+webui_dist_is_fresh() {
+  local index_html="$1"
+  if [[ -f "$WEBUI_SRC_DIR/package.json" && "$WEBUI_SRC_DIR/package.json" -nt "$index_html" ]]; then
+    return 1
+  fi
+  if [[ -d "$WEBUI_SRC_DIR/src" ]] && find "$WEBUI_SRC_DIR/src" -type f -newer "$index_html" -print -quit 2>/dev/null | grep -q .; then
+    return 1
+  fi
+  return 0
+}
+
 mkdir -p "$RUNTIME_DIR" "$LOG_DIR" "$WORKSPACE"
 
 if [[ ! -x "$NANOBOT_BIN" ]]; then
@@ -46,10 +61,14 @@ if [[ ! -x "$NANOBOT_BIN" ]]; then
   exit 1
 fi
 
-if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
-  echo "WebUI bundle not found: $WEBUI_DIST_INDEX" >&2
-  echo "Running installer to build the WebUI bundle..." >&2
-  NANOBOT_SKIP_WIZARD=1 "$SCRIPT_DIR/install-nanobot-easy.sh"
+if [[ ! -f "$WEBUI_DIST_INDEX" ]] || ! webui_dist_is_fresh "$WEBUI_DIST_INDEX"; then
+  if [[ -f "$WEBUI_DIST_INDEX" ]]; then
+    echo "WebUI source has changed since the last build: $WEBUI_DIST_INDEX is stale" >&2
+  else
+    echo "WebUI bundle not found: $WEBUI_DIST_INDEX" >&2
+  fi
+  echo "Running installer to (re)build the WebUI bundle..." >&2
+  NANOBOT_SKIP_WIZARD=1 NANOBOT_FORCE_WEBUI_BUILD=1 "$SCRIPT_DIR/install-nanobot-easy.sh"
 fi
 
 if [[ ! -f "$WEBUI_DIST_INDEX" ]]; then
