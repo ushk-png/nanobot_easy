@@ -137,6 +137,87 @@ open_browser_if_available() {
   fi
 }
 
+# Checks whether something is already listening on host:port, independent of
+# our own PID file (which can go stale if a previous run crashed, was killed
+# with SIGKILL, or was left in a detached session). Uses only the Python
+# standard library so it works without lsof/fuser/ss installed.
+port_in_use() {
+  local host="$1" port="$2"
+  "$SCRIPT_DIR/.venv/bin/python" - "$host" "$port" <<'PY' >/dev/null 2>&1
+import socket
+import sys
+
+host, port = sys.argv[1], int(sys.argv[2])
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+s.settimeout(0.5)
+try:
+    s.connect((host, port))
+except OSError:
+    sys.exit(1)  # nothing listening -> port is free
+else:
+    sys.exit(0)  # connected -> something is listening
+finally:
+    s.close()
+PY
+}
+
+# Best-effort: find the PID of whatever is listening on a port, without
+# requiring lsof/fuser to be installed. Falls back to nothing (empty string)
+# if we can't determine it; callers must handle that.
+pid_on_port() {
+  local port="$1"
+  local lsof_bin=""
+  if command -v lsof >/dev/null 2>&1; then
+    lsof_bin="$(command -v lsof)"
+  elif [[ -x /usr/sbin/lsof ]]; then
+    lsof_bin="/usr/sbin/lsof"
+  fi
+  if [[ -n "$lsof_bin" ]]; then
+    "$lsof_bin" -nP -t -i "tcp:${port}" -sTCP:LISTEN 2>/dev/null | head -n1
+    return 0
+  fi
+  if command -v fuser >/dev/null 2>&1; then
+    fuser "${port}/tcp" 2>/dev/null | tr -d '[:space:]'
+    return 0
+  fi
+  "$SCRIPT_DIR/.venv/bin/python" - "$port" <<'PY' 2>/dev/null
+import sys
+
+port = int(sys.argv[1])
+target = f"{port:04X}"
+try:
+    with open("/proc/net/tcp") as f:
+        next(f)
+        for line in f:
+            local = line.split()[1]
+            if local.split(":")[1] == target:
+                inode = line.split()[9]
+                break
+        else:
+            sys.exit(0)
+except OSError:
+    sys.exit(0)
+
+import os
+
+for pid_dir in os.listdir("/proc"):
+    if not pid_dir.isdigit():
+        continue
+    fd_dir = f"/proc/{pid_dir}/fd"
+    try:
+        for fd in os.listdir(fd_dir):
+            try:
+                link = os.readlink(f"{fd_dir}/{fd}")
+            except OSError:
+                continue
+            if link == f"socket:[{inode}]":
+                print(pid_dir)
+                sys.exit(0)
+    except OSError:
+        continue
+PY
+}
+
 start_companion_gateways() {
   if [[ "${NANOBOT_START_COMPANIONS:-1}" == "0" ]]; then
     return 0
@@ -198,6 +279,26 @@ if [[ -f "$PID_FILE" ]]; then
     exit 0
   fi
   rm -f "$PID_FILE"
+fi
+
+# The PID file above says nothing is running, but something may still be
+# bound to our ports (e.g. a previous run that was force-killed or left a
+# detached child behind). Starting anyway would just crash with a confusing
+# "address already in use" traceback, so check first and fail clearly.
+if port_in_use "$GATEWAY_HOST" "$GATEWAY_PORT" || port_in_use "$WEBUI_HOST" "$WEBUI_PORT"; then
+  echo "nanobot-easy gateway ports look busy, but no tracked process is running:" >&2
+  echo "  $GATEWAY_HOST:$GATEWAY_PORT (health) / $WEBUI_HOST:$WEBUI_PORT (websocket)" >&2
+  blocking_pid="$(pid_on_port "$GATEWAY_PORT")"
+  [[ -z "$blocking_pid" ]] && blocking_pid="$(pid_on_port "$WEBUI_PORT")"
+  if [[ -n "$blocking_pid" ]]; then
+    echo "  likely culprit: pid=$blocking_pid ($(ps -o comm= -p "$blocking_pid" 2>/dev/null || echo unknown))" >&2
+    echo "  stop it with: kill $blocking_pid" >&2
+  else
+    echo "  could not identify the process automatically (install lsof or fuser for that)." >&2
+    echo "  find it with: ss -ltnp | grep -E ':($GATEWAY_PORT|$WEBUI_PORT)\\b'" >&2
+  fi
+  echo "  or set NANOBOT_CONFIG to use different ports in .local/config.json (gateway.port / channels.websocket.port)." >&2
+  exit 1
 fi
 
 pid="$(
