@@ -1104,7 +1104,7 @@ describe("SettingsView Apps catalog", () => {
     expect(screen.getByRole("button", { name: "Full Access" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("switch", { name: "Local services" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
 
     await waitFor(() =>
       expect(fetchMock).toHaveBeenCalledWith(
@@ -1241,7 +1241,7 @@ describe("SettingsView Apps catalog", () => {
 
     expect(await screen.findByText("App safety")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("switch", { name: "Local services" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save" }));
+    fireEvent.click(screen.getAllByRole("button", { name: "Save" })[0]);
 
     await waitFor(() => expect(restartEngine).toHaveBeenCalledTimes(1));
     await waitFor(() =>
