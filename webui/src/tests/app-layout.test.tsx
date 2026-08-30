@@ -402,6 +402,36 @@ describe("App layout", () => {
     expect(document.title).toBe("Tools · nanobot");
   });
 
+  it("shows the full-page navy onboarding wizard on a fresh, unconfigured install", async () => {
+    const payload = baseSettingsPayload();
+    mockFetchRoutes({
+      "/api/settings": {
+        ...payload,
+        agent: { ...payload.agent, has_api_key: false, resolved_provider: null },
+      },
+      "/api/settings/nanobot-features": { features: [], enabled_count: 0 },
+    });
+
+    render(<App />);
+
+    await waitFor(() => expect(connectSpy).toHaveBeenCalled());
+
+    // No click required: an unconfigured install must auto-redirect into the
+    // full-page wizard, not the chat view and not the old embedded settings form.
+    expect(await screen.findByText("어떤 모델로 대화할까요?")).toBeInTheDocument();
+    expect(screen.getByText("1단계 — 모델")).toBeInTheDocument();
+
+    // The dedicated full-page shell (own header/aside/wiring diagram) must be
+    // present -- this is not embedded inside the normal Settings sidebar chrome.
+    expect(document.querySelector(".ne-wizard")).not.toBeNull();
+    expect(document.querySelector(".ne-aside svg")).not.toBeNull();
+    expect(screen.getByText("연결 상태")).toBeInTheDocument();
+    expect(screen.getByText("🐈 에이전트")).toBeInTheDocument();
+
+    // The normal chat/settings sidebar must not be visible underneath.
+    expect(screen.queryByRole("navigation", { name: "Sidebar navigation" })).not.toBeInTheDocument();
+  });
+
   it("opens Skills from the main sidebar", async () => {
     mockFetchRoutes({
       "/api/settings": baseSettingsPayload(),

@@ -13,6 +13,7 @@ import { RenameChatDialog } from "@/components/RenameChatDialog";
 import { Sidebar } from "@/components/Sidebar";
 import { SessionSearchDialog } from "@/components/SessionSearchDialog";
 import { SettingsView, type SettingsSectionKey } from "@/components/settings/SettingsView";
+import { OnboardingWizardPage } from "@/components/onboarding/OnboardingWizardPage";
 import { ThreadShell } from "@/components/thread/ThreadShell";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
@@ -1660,6 +1661,9 @@ function Shell({
             </div>
             {view !== "chat" && (
               <div className="absolute inset-0 flex flex-col">
+                {settingsInitialSection === "easy-setup" ? (
+                  <OnboardingWizardPage onDone={onBackToChat} />
+                ) : (
                 <SettingsView
                   theme={theme}
                   initialSection={settingsInitialSection}
@@ -1679,6 +1683,7 @@ function Shell({
                   isRestarting={isRestarting}
                   hostChromeInset={showHostChrome}
                 />
+                )}
               </div>
             )}
           </main>
