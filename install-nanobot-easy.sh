@@ -2,6 +2,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_INSTALL_DIR="${NANOBOT_EASY_HOME:-$HOME/nanobot-easy}"
 VENV_DIR="${NANOBOT_SKILL_VENV:-$SCRIPT_DIR/.venv}"
 CONFIG="${NANOBOT_CONFIG:-$SCRIPT_DIR/.local/config.json}"
 WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
@@ -21,7 +22,12 @@ creates a default .local/config.json when needed (no terminal prompts —
 first-run setup happens in the browser via the WebUI once you start
 nanobot-easy).
 
+Recommended checkout location:
+  git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy"
+  cd "$HOME/nanobot-easy"
+
 Environment overrides:
+  NANOBOT_EASY_HOME      recommended checkout path, default $HOME/nanobot-easy
   PYTHON                 Python 3.11+ command to use
   NANOBOT_SKILL_VENV     venv path, default ./.venv
   NANOBOT_CONFIG         config path, default ./.local/config.json
@@ -34,6 +40,28 @@ EOF
 
 info() { printf '%s\n' "$*"; }
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
+
+ensure_safe_checkout_location() {
+  case "$SCRIPT_DIR" in
+    "$HOME/.Trash"|"$HOME/.Trash"/*|*/.Trash/*)
+      cat >&2 <<EOF
+Error: this nanobot-easy checkout is inside the macOS Trash:
+  $SCRIPT_DIR
+
+Move it out of Trash or clone a fresh copy into your home directory:
+  git clone https://github.com/ushk-png/nanobot_easy.git "$DEFAULT_INSTALL_DIR"
+  cd "$DEFAULT_INSTALL_DIR"
+  ./install-nanobot-easy.sh
+EOF
+      exit 1
+      ;;
+  esac
+
+  if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
+    info "Notice: recommended nanobot-easy checkout path is $DEFAULT_INSTALL_DIR"
+    info "This run will use the current checkout: $SCRIPT_DIR"
+  fi
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -218,6 +246,7 @@ run_onboard_if_needed() {
 
 main() {
   cd "$SCRIPT_DIR"
+  ensure_safe_checkout_location
   [[ -f "$SCRIPT_DIR/pyproject.toml" ]] || fail "run this script from the nanobot-easy repository checkout"
 
   local py
