@@ -1335,8 +1335,18 @@ def _run_gateway(
     try:
         provider_snapshot = build_provider_snapshot(config)
     except ValueError as exc:
-        console.print(f"[red]Error: {exc}[/red]")
-        raise typer.Exit(1) from exc
+        from nanobot.providers.factory import ProviderSnapshot, UnconfiguredProvider
+
+        console.print(
+            f"[yellow]Warning: {exc} Starting anyway so you can finish setup "
+            "in the WebUI (Settings).[/yellow]"
+        )
+        provider_snapshot = ProviderSnapshot(
+            provider=UnconfiguredProvider(str(exc)),
+            model="unconfigured",
+            context_window_tokens=8192,
+            signature=("unconfigured", str(exc)),
+        )
     session_manager = SessionManager(config.workspace_path)
 
     # Self-heal the gateway state file with the current PID after any restart.
