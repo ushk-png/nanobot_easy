@@ -75,13 +75,13 @@ The easiest path is the repo-local installer. It creates a `.venv` inside the do
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot-easy.git && cd nanobot-easy && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy && cd nanobot-easy && ./install-nanobot-easy.sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot-easy.git; cd nanobot-easy; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git nanobot-easy; cd nanobot-easy; .\install.bat
 ```
 
 To preview what the installer would do without changing your environment, pass `--dry-run`:
