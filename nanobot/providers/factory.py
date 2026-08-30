@@ -6,9 +6,45 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from nanobot.config.schema import Config, InlineFallbackConfig, ModelPresetConfig, ProviderConfig
-from nanobot.providers.base import LLMProvider
+from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.providers.fallback_provider import FallbackProvider
 from nanobot.providers.registry import ProviderSpec, create_dynamic_spec, find_by_name
+
+
+class UnconfiguredProvider(LLMProvider):
+    """Placeholder provider used when the gateway starts with no model configured.
+
+    Lets the gateway (and therefore the WebUI) boot instead of hard-exiting, so
+    a fresh install can be finished from the browser's setup screen. Any actual
+    chat request returns a clear, non-retried error instead of crashing.
+    """
+
+    def __init__(self, reason: str) -> None:
+        super().__init__()
+        self._reason = reason
+
+    def get_default_model(self) -> str:
+        return "unconfigured"
+
+    async def chat(
+        self,
+        messages: list[dict],
+        tools: list[dict] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+        reasoning_effort: str | None = None,
+        tool_choice: str | dict | None = None,
+    ) -> LLMResponse:
+        return LLMResponse(
+            content=(
+                "No model is configured yet. Open the WebUI's setup screen "
+                f"(Settings) and connect a model provider. ({self._reason})"
+            ),
+            finish_reason="error",
+            error_kind="unconfigured",
+            error_should_retry=False,
+        )
 
 
 @dataclass(frozen=True)
