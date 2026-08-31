@@ -151,13 +151,26 @@ export function Sidebar(props: SidebarProps) {
           icon={<SquarePen className="h-4 w-4" />}
           shortcut={newChatShortcut}
           ariaKeyShortcuts="Meta+Shift+O Control+Shift+O"
+          emphasize
         />
-        <SidebarActionButton
-          collapsed={collapsed}
-          label={t("sidebar.searchAria")}
-          onClick={props.onOpenSearch}
-          icon={<Search className="h-4 w-4" />}
-        />
+        {collapsed ? (
+          <SidebarActionButton
+            collapsed={collapsed}
+            label={t("sidebar.searchAria")}
+            onClick={props.onOpenSearch}
+            icon={<Search className="h-4 w-4" />}
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={props.onOpenSearch}
+            aria-label={t("sidebar.searchAria")}
+            className="flex h-8 w-full items-center gap-2 rounded-full border border-sidebar-border/70 bg-background/60 px-3 text-[12.5px] text-muted-foreground transition-colors hover:border-accent-foreground/40 hover:text-sidebar-foreground"
+          >
+            <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{t("sidebar.searchPlaceholder")}</span>
+          </button>
+        )}
         <SidebarActionButton
           collapsed={collapsed}
           label={t("sidebar.apps")}
@@ -255,7 +268,7 @@ export function Sidebar(props: SidebarProps) {
           className={collapsed ? undefined : "flex-1"}
           icon={<Settings className="h-4 w-4" />}
         />
-        <ConnectionBadge />
+        <ConnectionBadge showLabel={!collapsed} />
       </div>
     </nav>
   );
@@ -267,6 +280,7 @@ function SidebarActionButton({
   icon,
   onClick,
   active = false,
+  emphasize = false,
   className,
   shortcut,
   ariaKeyShortcuts,
@@ -276,6 +290,7 @@ function SidebarActionButton({
   icon: ReactNode;
   onClick: () => void;
   active?: boolean;
+  emphasize?: boolean;
   className?: string;
   shortcut?: string;
   ariaKeyShortcuts?: string;
@@ -285,19 +300,22 @@ function SidebarActionButton({
   return (
     <Button
       type="button"
-      variant="ghost"
+      variant={emphasize ? "default" : "ghost"}
       aria-label={label}
       aria-current={active ? "page" : undefined}
       aria-keyshortcuts={ariaKeyShortcuts}
       title={title}
       onClick={() => onClick()}
       className={cn(
-        "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+        "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium",
         "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
+        emphasize
+          ? "shadow-sm hover:bg-primary/90"
+          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
         collapsed
           ? "w-9 justify-center gap-0 rounded-xl px-0"
           : "w-full justify-start gap-2 px-3 text-[12.5px]",
-        active && "bg-sidebar-accent text-sidebar-foreground shadow-[inset_0_0_0_1px_hsl(var(--sidebar-border)/0.55)]",
+        active && "bg-accent text-accent-foreground shadow-[inset_0_0_0_1px_hsl(var(--sidebar-border)/0.55)]",
         className,
       )}
     >

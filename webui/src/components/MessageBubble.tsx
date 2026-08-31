@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import {
+  Bot,
   Check,
   ChevronRight,
   Clock3,
@@ -147,7 +148,7 @@ export function MessageBubble({
         {hasText ? (
           <p
             className={cn(
-              "ml-auto w-fit max-w-full min-w-0 rounded-[18px] bg-secondary/70 px-4 py-2",
+              "ml-auto w-fit max-w-full min-w-0 rounded-[18px] rounded-tr-[4px] bg-primary px-4 py-2 text-primary-foreground",
               "text-left text-[16px]/[1.75] whitespace-pre-wrap [overflow-wrap:anywhere]",
             )}
           >
@@ -191,7 +192,17 @@ export function MessageBubble({
     && (!empty || hasReasoning || media.length > 0);
   const showAssistantFooterRow = showCopyButton || showForkButton || showLatencyFooter;
   return (
-    <div className={cn("w-full text-[15px]", baseAnim)} style={{ lineHeight: "var(--cjk-line-height)" }}>
+    <div className={cn("flex w-full items-start gap-2.5", baseAnim)}>
+      <span
+        aria-hidden
+        className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+      >
+        <Bot className="h-3.5 w-3.5" />
+      </span>
+      <div
+        className="min-w-0 flex-1 rounded-2xl rounded-tl-[4px] bg-muted/70 px-4 py-3 text-[15px]"
+        style={{ lineHeight: "var(--cjk-line-height)" }}
+      >
       {hasReasoning ? (
         <ReasoningBubble
           text={reasoning}
@@ -275,6 +286,7 @@ export function MessageBubble({
           ) : null}
         </>
       )}
+      </div>
     </div>
   );
 }

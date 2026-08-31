@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "Gérez les messageries, les services externes (MCP) et les programmes connectés au même endroit.",
+      "skills": "Choisissez comment votre agent travaille — activez les compétences dont vous avez besoin, ou créez-en une nouvelle.",
+      "tools": "Les outils sont les mains de votre agent. Activez ou désactivez les capacités intégrées de nanobot ici.",
+      "automations": "Demandez à votre agent en langage naturel et les automatisations planifiées apparaîtront ici.",
+      "agent-management": "Créez des agents dédiés adaptés à des rôles spécifiques."
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "Modifier une image",
           "prompt": "Aidez-moi à modifier une image. Demandez-moi d’abord de téléverser ou d’indiquer l’image, puis générez le résultat modifié."
         }
-      }
+      },
+      "studentModeNotice": "🔒 Mode élève — les actions risquées demanderont toujours une confirmation.",
+      "toolsInUse": "{{count}} outils activés",
+      "skillsAvailable": "{{count}} compétences disponibles"
     },
     "header": {
       "toggleSidebar": "Afficher ou masquer la barre latérale",
@@ -1031,7 +1041,13 @@
         "default": "Autorisation par défaut",
         "full": "Accès complet"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "Besoin d'aide ?",
+        "tip1": "Décrivez ce que vous voulez créer ou le résultat souhaité — un langage simple suffit.",
+        "tip2": "Joignez un fichier ou une image si cela aide à expliquer votre besoin.",
+        "tip3": "Une tâche complexe peut être découpée en plusieurs demandes plus simples."
+      }
     },
     "scrollToBottom": "Faire défiler vers le bas",
     "loadEarlier": "Charger les messages précédents",

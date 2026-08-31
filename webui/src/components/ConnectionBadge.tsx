@@ -8,13 +8,13 @@ import type { ConnectionStatus } from "@/lib/types";
 const COPY: Record<ConnectionStatus, { color: string }> = {
   idle: { color: "text-muted-foreground" },
   connecting: {
-    color: "text-amber-700 dark:text-amber-300",
+    color: "text-warning",
   },
   open: {
-    color: "text-emerald-700 dark:text-emerald-400",
+    color: "text-success",
   },
   reconnecting: {
-    color: "text-amber-700 dark:text-amber-300",
+    color: "text-warning",
   },
   closed: {
     color: "text-muted-foreground",
@@ -24,7 +24,7 @@ const COPY: Record<ConnectionStatus, { color: string }> = {
   },
 };
 
-export function ConnectionBadge() {
+export function ConnectionBadge({ showLabel = false }: { showLabel?: boolean }) {
   const { t } = useTranslation();
   const { client } = useClient();
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
@@ -40,21 +40,23 @@ export function ConnectionBadge() {
   return (
     <span
       className={cn(
-        "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition-colors",
-        "text-muted-foreground/70 hover:bg-sidebar-accent/65",
+        "inline-flex shrink-0 items-center transition-colors",
+        showLabel
+          ? "gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium"
+          : "h-8 w-8 justify-center rounded-full text-muted-foreground/70 hover:bg-sidebar-accent/65",
         meta.color,
       )}
       aria-live="polite"
       role="status"
-      title={label}
+      title={showLabel ? undefined : label}
     >
-      <span className="relative flex h-2 w-2" aria-hidden>
+      <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
         {pulsing && (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
         )}
         <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
       </span>
-      <span className="sr-only">{label}</span>
+      {showLabel ? <span className="whitespace-nowrap">{label}</span> : <span className="sr-only">{label}</span>}
     </span>
   );
 }

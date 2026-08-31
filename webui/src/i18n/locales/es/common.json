@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "Gestiona mensajería, servicios externos (MCP) y programas conectados desde un solo lugar.",
+      "skills": "Elige cómo trabaja tu agente. Activa las habilidades que necesites o crea una nueva.",
+      "tools": "Las herramientas son las manos de tu agente. Activa o desactiva las capacidades integradas de nanobot aquí.",
+      "automations": "Pídeselo a tu agente en lenguaje natural y las automatizaciones programadas aparecerán aquí.",
+      "agent-management": "Crea agentes dedicados adaptados a roles específicos."
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "Editar una imagen",
           "prompt": "Ayúdame a editar una imagen. Primero pídeme que suba o indique la imagen, y luego genera el resultado editado."
         }
-      }
+      },
+      "studentModeNotice": "🔒 Modo estudiante — las acciones riesgosas siempre pedirán confirmación primero.",
+      "toolsInUse": "{{count}} herramientas activas",
+      "skillsAvailable": "{{count}} habilidades disponibles"
     },
     "header": {
       "toggleSidebar": "Mostrar u ocultar la barra lateral",
@@ -1031,7 +1041,13 @@
         "default": "Permiso predeterminado",
         "full": "Acceso completo"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "¿Necesitas ayuda?",
+        "tip1": "Describe qué quieres crear o qué resultado buscas — con lenguaje sencillo basta.",
+        "tip2": "Adjunta un archivo o imagen si ayuda a explicar lo que necesitas.",
+        "tip3": "Las tareas grandes se pueden dividir en varias solicitudes más pequeñas."
+      }
     },
     "scrollToBottom": "Desplazarse al final",
     "loadEarlier": "Cargar mensajes anteriores",

@@ -2083,6 +2083,11 @@ export function SettingsView({
             <h1 className="text-[24px] font-normal leading-tight tracking-normal text-foreground sm:text-[28px]">
               {text(`settings.nav.${activeSection}`, titleForSection(activeSection))}
             </h1>
+            {!showSidebar && PAGE_INTRO_FALLBACK[activeSection] ? (
+              <p className="mt-1.5 text-[13.5px] text-muted-foreground">
+                {text(`settings.pageIntros.${activeSection}`, PAGE_INTRO_FALLBACK[activeSection]!)}
+              </p>
+            ) : null}
           </div>
 
           {loading ? (
@@ -3299,6 +3304,14 @@ const SETTINGS_NAV_ITEMS: Array<{ key: SettingsSectionKey; icon: LucideIcon; fal
 function visibleWebuiDefaultAccessMode(mode: string | null | undefined): WebuiDefaultAccessMode {
   return mode === "full" ? "full" : "default";
 }
+
+const PAGE_INTRO_FALLBACK: Partial<Record<SettingsSectionKey, string>> = {
+  apps: "Manage messengers, external services (MCP), and connected programs in one place.",
+  skills: "Choose how your agent works — turn on the skills you need, or create a new one.",
+  tools: "Tools are your agent's hands. Turn nanobot's built-in abilities on or off here.",
+  automations: "Ask your agent in plain language and scheduled automations will show up here.",
+  "agent-management": "Create dedicated agents suited to specific roles.",
+};
 
 function titleForSection(section: SettingsSectionKey): string {
   return SETTINGS_NAV_ITEMS.find((item) => item.key === section)?.fallback ?? "Settings";
@@ -9429,7 +9442,7 @@ function ToggleButton({
         "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
         "transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
         checked
-          ? "bg-[#2997FF] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]"
+          ? "bg-success shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]"
           : "bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)] hover:bg-muted/80",
       )}
     >

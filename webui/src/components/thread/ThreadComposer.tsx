@@ -242,6 +242,8 @@ interface ThreadComposerProps {
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   pendingQueueKey?: string | null;
   transcriptionProvider?: string | null;
+  /** Hero-only "try saying this" chips shown below the composer card. */
+  quickActions?: { key: string; title: string; prompt: string }[];
 }
 
 const COMMAND_ICONS: Record<string, LucideIcon> = {
@@ -860,6 +862,7 @@ export function ThreadComposer({
   onWorkspaceScopeChange,
   pendingQueueKey = null,
   transcriptionProvider = null,
+  quickActions = [],
 }: ThreadComposerProps) {
   const { t } = useTranslation();
   const [value, setValue] = useState("");
@@ -1415,6 +1418,35 @@ export function ThreadComposer({
     [cliAppMention, resizeTextarea, value],
   );
 
+  const chooseQuickAction = useCallback(
+    (prompt: string) => {
+      setValue(prompt);
+      setCursorPosition(prompt.length);
+      setInlineError(null);
+      resizeTextarea();
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.focus();
+        el.setSelectionRange(prompt.length, prompt.length);
+      });
+    },
+    [resizeTextarea],
+  );
+
+  const [helpOpen, setHelpOpen] = useState(false);
+  const helpRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!helpOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (helpRef.current && !helpRef.current.contains(e.target as Node)) {
+        setHelpOpen(false);
+      }
+    };
+    document.addEventListener("pointerdown", onPointerDown);
+    return () => document.removeEventListener("pointerdown", onPointerDown);
+  }, [helpOpen]);
+
   const clearComposerText = useCallback(() => {
     setValue("");
     setInlineError(null);
@@ -1923,6 +1955,27 @@ export function ThreadComposer({
             >
               <Plus className={cn(isHero ? "h-[18px] w-[18px]" : "h-4 w-4")} />
             </Button>
+            {isHero ? (
+              <div ref={helpRef} className="relative">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setHelpOpen((v) => !v)}
+                  aria-expanded={helpOpen}
+                  className="h-8 gap-1.5 rounded-full border border-accent-border/70 bg-accent/60 px-3 text-[12px] font-medium text-accent-foreground hover:bg-accent"
+                >
+                  <CircleHelp className="h-3.5 w-3.5" strokeWidth={1.8} />
+                  {t("thread.composer.help.button")}
+                </Button>
+                {helpOpen ? (
+                  <div className="absolute bottom-full left-0 z-20 mb-2 w-[260px] rounded-2xl border border-border/70 bg-popover p-3 text-[12.5px] leading-relaxed text-popover-foreground shadow-lg">
+                    <p className="mb-1.5">{t("thread.composer.help.tip1")}</p>
+                    <p className="mb-1.5">{t("thread.composer.help.tip2")}</p>
+                    <p>{t("thread.composer.help.tip3")}</p>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {voiceRecorder.isRecording ? (
               <VoiceRecordingMeter
                 ariaLabel={voiceRecordingStatusLabel}
@@ -2042,6 +2095,20 @@ export function ThreadComposer({
           onChange={onWorkspaceScopeChange}
         />
       </div>
+      {isHero && quickActions.length > 0 ? (
+        <div className="mx-auto mt-4 flex w-full max-w-[58rem] flex-wrap justify-center gap-2">
+          {quickActions.map((action) => (
+            <button
+              key={action.key}
+              type="button"
+              onClick={() => chooseQuickAction(action.prompt)}
+              className="rounded-full border border-border/70 bg-card px-3.5 py-2 text-[12.5px] font-medium text-muted-foreground transition-colors hover:border-accent-foreground/40 hover:bg-accent/60 hover:text-accent-foreground"
+            >
+              {action.title}
+            </button>
+          ))}
+        </div>
+      ) : null}
     </form>
   );
 }

@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "メッセンジャー、外部サービス(MCP)、接続済みプログラムをここで一括管理できます。",
+      "skills": "エージェントの働き方を選びます。必要なスキルだけをオンにするか、新しく作成できます。",
+      "tools": "ツールはエージェントの手です。nanobotに元から備わっている機能のオン/オフをここで切り替えます。",
+      "automations": "自然な言葉でエージェントに頼むと、予約された自動化がここに自動的に表示されます。",
+      "agent-management": "特定の役割に合わせた専任エージェントを作成できます。"
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "画像を編集",
           "prompt": "画像編集を手伝ってください。まず編集する画像のアップロードまたは指定を求め、その後に編集後の結果を生成してください。"
         }
-      }
+      },
+      "studentModeNotice": "🔒 学生モード — リスクのある操作は必ず確認を求めます。",
+      "toolsInUse": "ツール{{count}}個が有効",
+      "skillsAvailable": "スキル{{count}}個が利用可能"
     },
     "header": {
       "toggleSidebar": "サイドバーを切り替える",
@@ -1031,7 +1041,13 @@
         "default": "既定の権限",
         "full": "フルアクセス"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "ヘルプが必要ですか?",
+        "tip1": "何を作りたいか、どんな結果が欲しいかを気軽に書いてください。",
+        "tip2": "ファイルや画像を添付して説明することもできます。",
+        "tip3": "複雑な作業はいくつかの小さな依頼に分けてもかまいません。"
+      }
     },
     "scrollToBottom": "一番下へスクロール",
     "loadEarlier": "以前のメッセージを読み込む",

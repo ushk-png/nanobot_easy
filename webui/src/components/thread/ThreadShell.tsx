@@ -3,6 +3,7 @@ import type { PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 
 import { FilePreviewPanel } from "@/components/FilePreviewPanel";
+import { HomeHero } from "@/components/thread/HomeHero";
 import { PromptNavigator } from "@/components/thread/PromptNavigator";
 import { SessionInfoPopover } from "@/components/thread/SessionInfoPopover";
 import { ThreadComposer } from "@/components/thread/ThreadComposer";
@@ -143,8 +144,13 @@ interface ThreadShellProps {
   onWorkspaceScopeChange?: (scope: WorkspaceScopePayload) => void;
   settingsSnapshot?: SettingsPayload | null;
   onOpenModelSettings?: () => void;
+  onOpenApps?: () => void;
+  onOpenTools?: () => void;
+  onOpenSkills?: () => void;
   skills?: SkillSummary[];
 }
+
+const HERO_QUICK_ACTION_KEYS = ["plan", "analyze", "brainstorm", "code", "summarize"] as const;
 
 function toModelBadgeLabel(modelName: string | null): string | null {
   if (!modelName) return null;
@@ -294,6 +300,9 @@ export function ThreadShell({
   onWorkspaceScopeChange,
   settingsSnapshot = null,
   onOpenModelSettings,
+  onOpenApps,
+  onOpenTools,
+  onOpenSkills,
   skills = [],
 }: ThreadShellProps) {
   const { t } = useTranslation();
@@ -702,6 +711,25 @@ export function ThreadShell({
     [chatId, onForkChat],
   );
 
+  const heroQuickActions = useMemo(
+    () =>
+      HERO_QUICK_ACTION_KEYS.map((key) => ({
+        key,
+        title: t(`thread.empty.quickActions.${key}.title`),
+        prompt: t(`thread.empty.quickActions.${key}.prompt`),
+      })),
+    [t],
+  );
+  const toolsOnCount = useMemo(() => {
+    const tools = settingsSnapshot?.agent_tools;
+    if (!tools) return 0;
+    return Object.values(tools).filter((value) => value === true).length;
+  }, [settingsSnapshot]);
+  const skillsAvailableCount = useMemo(
+    () => skills.filter((skill) => skill.available).length,
+    [skills],
+  );
+
   const composer = (
     <>
       {streamError ? (
@@ -742,6 +770,7 @@ export function ThreadShell({
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           pendingQueueKey={chatId}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
+          quickActions={showHeroComposer ? heroQuickActions : undefined}
         />
       ) : (
         <ThreadComposer
@@ -773,6 +802,7 @@ export function ThreadShell({
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
+          quickActions={heroQuickActions}
         />
       )}
     </>
@@ -783,11 +813,16 @@ export function ThreadShell({
       {t("thread.loadingConversation")}
     </div>
   ) : (
-    <div className="flex w-full flex-col items-center text-center animate-in fade-in-0 slide-in-from-bottom-2 duration-500">
-      <h1 className="max-w-[44rem] text-balance text-[34px] font-normal leading-[1.08] tracking-normal text-foreground sm:text-[48px] sm:leading-tight">
-        {t(heroGreetingKey)}
-      </h1>
-    </div>
+    <HomeHero
+      greeting={t(heroGreetingKey)}
+      studentMode={settingsSnapshot?.student_mode?.mode === "student"}
+      providerLabel={modelBadge.providerLabel}
+      toolsOnCount={toolsOnCount}
+      skillsCount={skillsAvailableCount}
+      onOpenApps={onOpenApps}
+      onOpenTools={onOpenTools}
+      onOpenSkills={onOpenSkills}
+    />
   );
   const sessionInfoAction = historyKey ? (
     <SessionInfoPopover sessionKey={historyKey} token={token} title={title} />

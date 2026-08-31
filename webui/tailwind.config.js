@@ -16,9 +16,12 @@ export default {
     extend: {
       fontFamily: {
         sans: [
-          "system-ui",
           "-apple-system",
           "BlinkMacSystemFont",
+          '"Apple SD Gothic Neo"',
+          '"Pretendard"',
+          '"Malgun Gothic"',
+          "system-ui",
           '"Segoe UI"',
           "Roboto",
           '"Helvetica Neue"',
@@ -77,6 +80,16 @@ export default {
         destructive: {
           DEFAULT: "hsl(var(--destructive))",
           foreground: "hsl(var(--destructive-foreground))",
+        },
+        success: {
+          DEFAULT: "hsl(var(--success))",
+          foreground: "hsl(var(--success-foreground))",
+          soft: "hsl(var(--success-soft))",
+        },
+        warning: {
+          DEFAULT: "hsl(var(--warning))",
+          foreground: "hsl(var(--warning-foreground))",
+          soft: "hsl(var(--warning-soft))",
         },
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",

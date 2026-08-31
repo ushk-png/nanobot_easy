@@ -639,7 +639,7 @@ describe("ThreadShell", () => {
     await waitFor(() => expect(screen.getByText(/Current model/)).toBeInTheDocument());
   });
 
-  it("keeps the empty thread landing focused on the composer", async () => {
+  it("shows the greeting, composer, and quick-action chips on the empty thread landing", async () => {
     const client = makeClient();
     render(
       wrap(
@@ -657,8 +657,16 @@ describe("ThreadShell", () => {
 
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Ask anything...")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Write code" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Create a project plan" })).not.toBeInTheDocument();
+    const codeChip = screen.getByRole("button", { name: "Write code" });
+    expect(codeChip).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Create a project plan" })).toBeInTheDocument();
+
+    fireEvent.click(codeChip);
+    await waitFor(() =>
+      expect(screen.getByPlaceholderText("Ask anything...")).toHaveValue(
+        "Help me write the code for this task, starting with the smallest useful change.",
+      ),
+    );
   });
 
   it("does not leak the previous thread when opening a brand-new chat", async () => {
@@ -1293,7 +1301,7 @@ describe("ThreadShell", () => {
     expect(screen.getByRole("option", { name: /\/history/i })).toBeInTheDocument();
   });
 
-  it("does not bring back welcome cards when image mode is enabled", async () => {
+  it("does not bring back the old image-specific quick actions when image mode is enabled", async () => {
     const client = makeClient();
     const settings = modelSettings("deepseek-v4-pro", "deepseek");
     render(
@@ -1318,10 +1326,7 @@ describe("ThreadShell", () => {
     await act(async () => {});
 
     expect(screen.queryByText("Design an app icon")).not.toBeInTheDocument();
-    expect(screen.queryByText("Write code")).not.toBeInTheDocument();
-
-    expect(screen.queryByText("Design an app icon")).not.toBeInTheDocument();
-    expect(screen.queryByText("Write code")).not.toBeInTheDocument();
+    expect(screen.queryByText("Make a sticker")).not.toBeInTheDocument();
   });
 
   it("surfaces a dismissible banner when the stream reports message_too_big", async () => {

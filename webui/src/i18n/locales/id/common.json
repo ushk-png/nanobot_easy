@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "Kelola aplikasi pesan, layanan eksternal (MCP), dan program yang terhubung di satu tempat.",
+      "skills": "Pilih cara kerja agen Anda — aktifkan keterampilan yang Anda butuhkan, atau buat yang baru.",
+      "tools": "Alat adalah tangan agen Anda. Aktifkan atau nonaktifkan kemampuan bawaan nanobot di sini.",
+      "automations": "Minta agen Anda dengan bahasa alami, dan otomatisasi terjadwal akan muncul di sini.",
+      "agent-management": "Buat agen khusus yang sesuai dengan peran tertentu."
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "Edit gambar",
           "prompt": "Bantu saya mengedit gambar. Minta saya mengunggah atau menyebutkan gambar terlebih dahulu, lalu buat hasil editnya."
         }
-      }
+      },
+      "studentModeNotice": "🔒 Mode pelajar — tindakan berisiko akan selalu meminta konfirmasi terlebih dahulu.",
+      "toolsInUse": "{{count}} alat aktif",
+      "skillsAvailable": "{{count}} keterampilan tersedia"
     },
     "header": {
       "toggleSidebar": "Tampilkan atau sembunyikan sidebar",
@@ -1031,7 +1041,13 @@
         "default": "Izin default",
         "full": "Akses penuh"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "Butuh bantuan?",
+        "tip1": "Jelaskan apa yang ingin Anda buat atau hasil yang Anda inginkan — bahasa sederhana saja sudah cukup.",
+        "tip2": "Lampirkan file atau gambar jika itu membantu menjelaskan kebutuhan Anda.",
+        "tip3": "Tugas besar juga bisa dipecah menjadi beberapa permintaan yang lebih kecil."
+      }
     },
     "scrollToBottom": "Gulir ke bawah",
     "loadEarlier": "Muat pesan sebelumnya",

@@ -699,6 +699,13 @@
       "selectProvider": "Select provider",
       "configureProvider": "Configure provider",
       "languageAuto": "Auto"
+    },
+    "pageIntros": {
+      "apps": "Manage messengers, external services (MCP), and connected programs in one place.",
+      "skills": "Choose how your agent works — turn on the skills you need, or create a new one.",
+      "tools": "Tools are your agent's hands. Turn nanobot's built-in abilities on or off here.",
+      "automations": "Ask your agent in plain language and scheduled automations will show up here.",
+      "agent-management": "Create dedicated agents suited to specific roles."
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "Edit an image",
           "prompt": "Help me edit an image. Ask me to upload or reference the image first, then generate the edited result."
         }
-      }
+      },
+      "studentModeNotice": "🔒 Student mode — risky actions will always ask for confirmation first.",
+      "toolsInUse": "{{count}} tools on",
+      "skillsAvailable": "{{count}} skills available"
     },
     "header": {
       "toggleSidebar": "Toggle sidebar",
@@ -1031,6 +1041,12 @@
         "projectPlaceholder": "Select project",
         "default": "Default Permission",
         "full": "Full Access"
+      },
+      "help": {
+        "button": "Need help?",
+        "tip1": "Describe what you want to make or what outcome you're after — plain language is fine.",
+        "tip2": "Attach a file or image if it helps explain what you need.",
+        "tip3": "Big tasks are fine to break into a few smaller requests."
       }
     },
     "scrollToBottom": "Scroll to bottom",

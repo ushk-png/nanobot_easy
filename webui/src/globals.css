@@ -12,36 +12,38 @@
     --card-foreground: 240 3% 12%;
     --popover: 0 0% 100%;
     --popover-foreground: 240 3% 12%;
-    --primary: 240 4% 16%;
-    --primary-foreground: 0 0% 98%;
+    --primary: 214 52% 25%;
+    --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 96.1%;
     --secondary-foreground: 0 0% 9%;
     --muted: 0 0% 96.1%;
     --muted-foreground: 0 0% 45.1%;
-    --accent: 0 0% 96.1%;
-    --accent-foreground: 0 0% 9%;
+    --accent: 213 48% 95%;
+    --accent-foreground: 214 52% 25%;
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 0 0% 98%;
+    --success: 170 59% 30%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 162 31% 94%;
+    --warning: 26 90% 37%;
+    --warning-foreground: 0 0% 100%;
+    --warning-soft: 33 90% 96%;
     --border: 0 0% 89.8%;
     --input: 0 0% 89.8%;
-    --ring: 0 0% 3.9%;
+    --ring: 214 52% 25%;
     --radius: 0.4375rem;
     --sidebar: 0 0% 98.5%;
     --sidebar-foreground: 0 0% 3.9%;
-    --sidebar-accent: 0 0% 95.8%;
-    --sidebar-accent-foreground: 0 0% 9%;
+    --sidebar-accent: 213 48% 95%;
+    --sidebar-accent-foreground: 214 52% 25%;
     --sidebar-border: 0 0% 89.8%;
     --scrollbar-thumb: hsl(var(--muted-foreground) / 0.26);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.42);
   }
 
-  /* nanobot-easy first-run wizard: navy brand, scoped to this screen only. */
+  /* nanobot-easy first-run wizard: its own live/warn accents (primary/accent
+     now inherit the app-wide navy brand from :root above). */
   .nanobot-easy-wizard {
-    --primary: 214 52% 25%;
-    --primary-foreground: 0 0% 100%;
-    --accent: 213 48% 95%;
-    --accent-foreground: 214 52% 25%;
-    --ring: 214 52% 25%;
     --ne-live: 170 59% 30%;
     --ne-live-soft: 162 31% 94%;
     --ne-warn: 26 90% 37%;
@@ -56,23 +58,29 @@
     --card-foreground: 240 4% 96%;
     --popover: 0 0% 12%;
     --popover-foreground: 240 4% 96%;
-    --primary: 240 5% 98%;
-    --primary-foreground: 0 0% 9%;
+    --primary: 210 65% 68%;
+    --primary-foreground: 214 45% 12%;
     --secondary: 0 0% 12%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 13%;
     --muted-foreground: 0 0% 60%;
-    --accent: 0 0% 15%;
-    --accent-foreground: 0 0% 98%;
+    --accent: 213 30% 20%;
+    --accent-foreground: 210 65% 82%;
     --destructive: 0 62.8% 30.6%;
     --destructive-foreground: 0 0% 98%;
+    --success: 166 45% 55%;
+    --success-foreground: 166 45% 10%;
+    --success-soft: 166 30% 16%;
+    --warning: 32 80% 62%;
+    --warning-foreground: 32 80% 10%;
+    --warning-soft: 32 40% 16%;
     --border: 0 0% 18%;
     --input: 0 0% 18%;
-    --ring: 0 0% 83.1%;
+    --ring: 210 65% 68%;
     --sidebar: 0 0% 11.5%;
     --sidebar-foreground: 0 0% 98%;
-    --sidebar-accent: 0 0% 15.5%;
-    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-accent: 213 30% 20%;
+    --sidebar-accent-foreground: 210 65% 82%;
     --sidebar-border: 0 0% 18%;
     --scrollbar-thumb: hsl(var(--muted-foreground) / 0.28);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.44);

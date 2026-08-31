@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "在这里统一管理消息应用、外部服务(MCP)和已连接的程序。",
+      "skills": "选择智能体的工作方式——开启你需要的技能,或创建新的技能。",
+      "tools": "工具是智能体的双手。在这里开启或关闭 nanobot 的内置能力。",
+      "automations": "用自然语言告诉智能体你的需求,预定的自动化任务会显示在这里。",
+      "agent-management": "创建适合特定角色的专属智能体。"
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "编辑图片",
           "prompt": "帮我编辑一张图片。先让我上传或指定要编辑的图片，然后生成编辑后的结果。"
         }
-      }
+      },
+      "studentModeNotice": "🔒 学生模式 — 有风险的操作会始终先请求确认。",
+      "toolsInUse": "已开启 {{count}} 个工具",
+      "skillsAvailable": "{{count}} 个可用技能"
     },
     "header": {
       "toggleSidebar": "切换侧边栏",
@@ -1031,7 +1041,13 @@
         "default": "默认权限",
         "full": "完全访问权限"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "需要帮助?",
+        "tip1": "说说你想做什么,或者想要什么样的结果——用平常的话说就行。",
+        "tip2": "可以附上文件或图片来帮助说明你的需求。",
+        "tip3": "复杂的任务也可以拆分成几个较小的请求。"
+      }
     },
     "scrollToBottom": "滚动到底部",
     "loadEarlier": "加载更早消息",
