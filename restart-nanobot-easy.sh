@@ -36,7 +36,7 @@ if [[ "${NANOBOT_DETACHED_RESTART:-0}" != "1" && -f "$PID_FILE" ]]; then
 fi
 
 "$SCRIPT_DIR/stop-nanobot-easy.sh"
-if [[ -x "$SCRIPT_DIR/stop-japanese-sentence-coach-gateway.sh" ]]; then
-  "$SCRIPT_DIR/stop-japanese-sentence-coach-gateway.sh"
+if [[ -x "$SCRIPT_DIR/stop-learning-coach-gateway.sh" ]]; then
+  "$SCRIPT_DIR/stop-learning-coach-gateway.sh"
 fi
 "$SCRIPT_DIR/start-nanobot-easy.sh"

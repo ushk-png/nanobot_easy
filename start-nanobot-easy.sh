@@ -244,10 +244,10 @@ start_companion_gateways() {
   if [[ "$CONFIG" != "$SCRIPT_DIR/.local/config.json" ]]; then
     return 0
   fi
-  if [[ -x "$SCRIPT_DIR/start-japanese-sentence-coach-gateway.sh" ]]; then
+  if [[ -x "$SCRIPT_DIR/start-learning-coach-gateway.sh" ]]; then
     echo "starting companion gateway: AGENT_A"
-    NANOBOT_START_COMPANIONS=0 "$SCRIPT_DIR/start-japanese-sentence-coach-gateway.sh" || {
-      echo "warning: AGENT_A gateway did not start; see .local/logs/japanese-sentence-coach-gateway.log" >&2
+    NANOBOT_START_COMPANIONS=0 "$SCRIPT_DIR/start-learning-coach-gateway.sh" || {
+      echo "warning: AGENT_A gateway did not start; see .local/logs/learning-coach-gateway.log" >&2
       return 0
     }
   fi

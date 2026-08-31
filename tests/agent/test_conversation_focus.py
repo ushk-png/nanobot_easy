@@ -130,7 +130,7 @@ def test_agent_b_schedule_followup_tracks_event_and_requires_confirmation(tmp_pa
     assert "일정" in focus["clarification_policy"]
 
 
-def test_agent_a_japanese_sentence_followup_tracks_learning_slots(tmp_path: Path) -> None:
+def test_agent_a_foreign_sentence_followup_tracks_learning_slots(tmp_path: Path) -> None:
     metadata = {}
     history = [
         {"role": "assistant", "content": "1. 今日は天気がいいです。\n발음: 쿄오와 텐키가 이이데스\n뜻: 오늘은 날씨가 좋아요."},
@@ -145,12 +145,12 @@ def test_agent_a_japanese_sentence_followup_tracks_learning_slots(tmp_path: Path
     )
 
     assert focus["slots"]["action"] == "repeat"
-    assert focus["slots"]["domain"] == "japanese_learning"
+    assert focus["slots"]["domain"] == "language_learning"
     assert focus["slots"]["voice_mode"] == "slow"
-    assert any(ref["type"] in {"japanese_sentence", "learning_topic"} for ref in focus["last_referents"])
+    assert any(ref["type"] in {"target_language_sentence", "learning_topic"} for ref in focus["last_referents"])
 
 
-def test_agent_a_current_japanese_text_is_extracted(tmp_path: Path) -> None:
+def test_agent_a_current_foreign_text_is_extracted(tmp_path: Path) -> None:
     metadata = {}
 
     focus = update_conversation_focus(
@@ -161,6 +161,6 @@ def test_agent_a_current_japanese_text_is_extracted(tmp_path: Path) -> None:
         session_key="telegram:agent_a",
     )
 
-    assert focus["slots"]["domain"] == "japanese_learning"
+    assert focus["slots"]["domain"] == "language_learning"
     assert focus["slots"]["response_part"] == "korean_meaning_only"
-    assert "今日は天気" in focus["slots"]["current_japanese_sentence"]
+    assert "今日は天気" in focus["slots"]["current_target_sentence"]
