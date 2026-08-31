@@ -37,7 +37,7 @@
   "studentMode": {
     "mode": "student",
     "coachName": "담임 선생님",
-    "reviewTeacherName": "엘르 선생님"
+    "reviewTeacherName": "AGENT_A 선생님"
   }
 }
 ```

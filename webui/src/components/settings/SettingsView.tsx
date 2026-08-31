@@ -465,7 +465,7 @@ const DEFAULT_SKILL_GOVERNANCE_FORM: Required<SkillGovernanceSettingsUpdate> = {
 const DEFAULT_STUDENT_MODE_FORM: Required<StudentModeSettingsUpdate> = {
   mode: "general",
   coachName: "담임 선생님",
-  reviewTeacherName: "엘르 선생님",
+  reviewTeacherName: "AGENT_A 선생님",
   studyLogPath: "study_log.jsonl",
   reviewQueuePath: "review_queue.jsonl",
   dailyReviewCronName: "student-mode-daily-review",
@@ -2813,7 +2813,7 @@ function StudentModeQuickPanel({
         <SettingsRow title="coach_name" description="Default: 담임 선생님">
           <Input value={form.coachName} onChange={(event) => onChange((prev) => ({ ...prev, coachName: event.target.value }))} className="h-8 w-44 rounded-full" />
         </SettingsRow>
-        <SettingsRow title="review_teacher_name" description="Default: 엘르 선생님">
+        <SettingsRow title="review_teacher_name" description="Default: AGENT_A 선생님">
           <Input value={form.reviewTeacherName} onChange={(event) => onChange((prev) => ({ ...prev, reviewTeacherName: event.target.value }))} className="h-8 w-44 rounded-full" />
         </SettingsRow>
         <SettingsRow title="study_log_path" description="Workspace-relative path">

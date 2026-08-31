@@ -209,7 +209,7 @@ class StudentModeConfig(Base):
 
     mode: Literal["general", "student"] = "general"
     coach_name: str = Field(default="담임 선생님", min_length=1)
-    review_teacher_name: str = Field(default="엘르 선생님", min_length=1)
+    review_teacher_name: str = Field(default="AGENT_A 선생님", min_length=1)
     study_log_path: str = "study_log.jsonl"
     review_queue_path: str = "review_queue.jsonl"
     daily_review_cron_name: str = "student-mode-daily-review"

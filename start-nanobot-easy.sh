@@ -245,9 +245,9 @@ start_companion_gateways() {
     return 0
   fi
   if [[ -x "$SCRIPT_DIR/start-japanese-sentence-coach-gateway.sh" ]]; then
-    echo "starting companion gateway: 엘르"
+    echo "starting companion gateway: AGENT_A"
     NANOBOT_START_COMPANIONS=0 "$SCRIPT_DIR/start-japanese-sentence-coach-gateway.sh" || {
-      echo "warning: 엘르 gateway did not start; see .local/logs/japanese-sentence-coach-gateway.log" >&2
+      echo "warning: AGENT_A gateway did not start; see .local/logs/japanese-sentence-coach-gateway.log" >&2
       return 0
     }
   fi
