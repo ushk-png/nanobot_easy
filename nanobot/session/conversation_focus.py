@@ -51,7 +51,13 @@ _TOKEN_RE = re.compile(r"[A-Za-z0-9_.:/@#-]{3,}|[ぁ-んァ-ン一-龯ー]{2,}|[
 _PATH_RE = re.compile(r"(?:~?/|\.?\.?/)?[\w.@+-]+(?:/[\w.@+-]+)+(?:\.[\w+-]+)?")
 _CONFIG_KEY_RE = re.compile(r"\b[a-zA-Z_][\w.-]*\.[a-zA-Z_][\w.-]*\b")
 _TIME_RE = re.compile(r"(오전|오후)?\s*\d{1,2}\s*시(?:\s*\d{1,2}\s*분)?|\b\d{1,2}:\d{2}\b")
-_JAPANESE_RE = re.compile(r"[ぁ-んァ-ン一-龯ー]{2,}")
+# Non-Korean scripts commonly seen in language-study sentences (CJK/kana,
+# Cyrillic, Arabic, Thai, Devanagari). Not exhaustive -- Latin-script target
+# languages (English, French, ...) fall back to the generic keyword check
+# below instead of script-based extraction.
+_FOREIGN_SCRIPT_RE = re.compile(
+    r"[ぁ-んァ-ン一-龯ー]{2,}|[Ѐ-ӿ]{2,}|[؀-ۿ]{2,}|[฀-๿]{2,}|[ऀ-ॿ]{2,}"
+)
 
 
 def is_correction_text(text: str) -> bool:
@@ -233,11 +239,11 @@ def _infer_slots(text: str, action: str | None, referents: list[dict[str, Any]],
         slots.setdefault("domain", "schedule")
     if re.search(r"(표|테이블|목록|JSON|json|마크다운|짧게|자세히|그래픽|이미지|음성|TTS|읽어)", text):
         slots["format"] = re.search(r"(표|테이블|목록|JSON|json|마크다운|짧게|자세히|그래픽|이미지|음성|TTS|읽어)", text).group(0)
-    if jp := _extract_japanese_text(text):
-        slots["current_japanese_sentence"] = jp
-        slots.setdefault("domain", "japanese_learning")
-    if re.search(r"(문장|일본어|발음|뜻|의미|예문|자연스럽게|한국어 뜻)", text):
-        slots.setdefault("domain", "japanese_learning")
+    if foreign := _extract_foreign_script_text(text):
+        slots["current_target_sentence"] = foreign
+        slots.setdefault("domain", "language_learning")
+    if re.search(r"(문장|외국어|발음|뜻|의미|예문|자연스럽게|한국어 뜻)", text):
+        slots.setdefault("domain", "language_learning")
     if re.search(r"(한국어 뜻만|뜻만)", text):
         slots["response_part"] = "korean_meaning_only"
     if re.search(r"(느리게|천천히)", text):
@@ -312,8 +318,8 @@ def _extract_referents(text: str) -> list[dict[str, Any]]:
         label = m.group(0)
         if not any(r["label"] == label for r in refs):
             refs.append({"label": label, "type": "config_key", "source": "current_user"})
-    if jp := _extract_japanese_text(text):
-        refs.append({"label": jp, "type": "japanese_sentence", "source": "current_user"})
+    if foreign := _extract_foreign_script_text(text):
+        refs.append({"label": foreign, "type": "target_language_sentence", "source": "current_user"})
     for label, typ in _schedule_referents(text):
         if not any(r["label"] == label for r in refs):
             refs.append({"label": label, "type": typ, "source": "current_user"})
@@ -372,8 +378,8 @@ def _keywords(text: str) -> list[str]:
     return out[:8]
 
 
-def _extract_japanese_text(text: str) -> str:
-    matches = _JAPANESE_RE.findall(text or "")
+def _extract_foreign_script_text(text: str) -> str:
+    matches = _FOREIGN_SCRIPT_RE.findall(text or "")
     if not matches:
         return ""
     return _short("".join(matches), 120)
@@ -399,8 +405,8 @@ def _schedule_referents(text: str) -> list[tuple[str, str]]:
 def _keyword_type(keyword: str) -> str:
     if re.search(r"회의|약속|일정|리마인더|알림", keyword):
         return "schedule_event"
-    if _JAPANESE_RE.search(keyword):
-        return "japanese_sentence"
+    if _FOREIGN_SCRIPT_RE.search(keyword):
+        return "target_language_sentence"
     if re.search(r"문장|표현|발음|뜻|의미", keyword):
         return "learning_topic"
     return "topic"

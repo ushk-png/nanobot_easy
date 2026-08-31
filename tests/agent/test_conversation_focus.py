@@ -109,7 +109,7 @@ def test_runtime_lines_are_compact_metadata() -> None:
     assert len(joined) < 1000
 
 
-def test_rees_schedule_followup_tracks_event_and_requires_confirmation(tmp_path: Path) -> None:
+def test_agent_b_schedule_followup_tracks_event_and_requires_confirmation(tmp_path: Path) -> None:
     metadata = {}
     history = [
         {"role": "user", "content": "다음 주 회의 일정 보여줘"},
@@ -121,7 +121,7 @@ def test_rees_schedule_followup_tracks_event_and_requires_confirmation(tmp_path:
         user_text="그 일정 취소해줘",
         history=history,
         workspace=tmp_path,
-        session_key="telegram:rees",
+        session_key="telegram:agent_b",
     )
 
     assert focus["slots"]["action"] == "remove"
@@ -130,7 +130,7 @@ def test_rees_schedule_followup_tracks_event_and_requires_confirmation(tmp_path:
     assert "일정" in focus["clarification_policy"]
 
 
-def test_elle_japanese_sentence_followup_tracks_learning_slots(tmp_path: Path) -> None:
+def test_agent_a_foreign_sentence_followup_tracks_learning_slots(tmp_path: Path) -> None:
     metadata = {}
     history = [
         {"role": "assistant", "content": "1. 今日は天気がいいです。\n발음: 쿄오와 텐키가 이이데스\n뜻: 오늘은 날씨가 좋아요."},
@@ -141,16 +141,16 @@ def test_elle_japanese_sentence_followup_tracks_learning_slots(tmp_path: Path) -
         user_text="그 문장 다시 읽어줘. 이번엔 천천히",
         history=history,
         workspace=tmp_path,
-        session_key="telegram:elle",
+        session_key="telegram:agent_a",
     )
 
     assert focus["slots"]["action"] == "repeat"
-    assert focus["slots"]["domain"] == "japanese_learning"
+    assert focus["slots"]["domain"] == "language_learning"
     assert focus["slots"]["voice_mode"] == "slow"
-    assert any(ref["type"] in {"japanese_sentence", "learning_topic"} for ref in focus["last_referents"])
+    assert any(ref["type"] in {"target_language_sentence", "learning_topic"} for ref in focus["last_referents"])
 
 
-def test_elle_current_japanese_text_is_extracted(tmp_path: Path) -> None:
+def test_agent_a_current_foreign_text_is_extracted(tmp_path: Path) -> None:
     metadata = {}
 
     focus = update_conversation_focus(
@@ -158,9 +158,9 @@ def test_elle_current_japanese_text_is_extracted(tmp_path: Path) -> None:
         user_text="今日は天気がいいです 뜻만 알려줘",
         history=[],
         workspace=tmp_path,
-        session_key="telegram:elle",
+        session_key="telegram:agent_a",
     )
 
-    assert focus["slots"]["domain"] == "japanese_learning"
+    assert focus["slots"]["domain"] == "language_learning"
     assert focus["slots"]["response_part"] == "korean_meaning_only"
-    assert "今日は天気" in focus["slots"]["current_japanese_sentence"]
+    assert "今日は天気" in focus["slots"]["current_target_sentence"]

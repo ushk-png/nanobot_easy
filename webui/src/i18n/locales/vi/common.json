@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "Quản lý ứng dụng nhắn tin, dịch vụ bên ngoài (MCP) và các chương trình đã kết nối tại một nơi.",
+      "skills": "Chọn cách trợ lý của bạn làm việc — bật các kỹ năng bạn cần, hoặc tạo kỹ năng mới.",
+      "tools": "Công cụ là đôi tay của trợ lý. Bật hoặc tắt các khả năng có sẵn của nanobot tại đây.",
+      "automations": "Yêu cầu trợ lý bằng ngôn ngữ tự nhiên, các tác vụ tự động đã lên lịch sẽ hiện ở đây.",
+      "agent-management": "Tạo các trợ lý chuyên biệt phù hợp với từng vai trò cụ thể."
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "Chỉnh sửa ảnh",
           "prompt": "Giúp tôi chỉnh sửa một ảnh. Trước tiên hãy yêu cầu tôi tải lên hoặc chỉ định ảnh, rồi tạo kết quả đã chỉnh sửa."
         }
-      }
+      },
+      "studentModeNotice": "🔒 Chế độ học sinh — các hành động rủi ro sẽ luôn yêu cầu xác nhận trước.",
+      "toolsInUse": "{{count}} công cụ đang bật",
+      "skillsAvailable": "{{count}} kỹ năng khả dụng"
     },
     "header": {
       "toggleSidebar": "Bật/tắt thanh bên",
@@ -1031,7 +1041,13 @@
         "default": "Quyền mặc định",
         "full": "Toàn quyền truy cập"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "Cần trợ giúp?",
+        "tip1": "Mô tả điều bạn muốn tạo hoặc kết quả bạn mong muốn — dùng lời văn bình thường là được.",
+        "tip2": "Đính kèm tệp hoặc hình ảnh nếu điều đó giúp giải thích rõ hơn.",
+        "tip3": "Công việc lớn có thể chia thành vài yêu cầu nhỏ hơn."
+      }
     },
     "scrollToBottom": "Cuộn xuống cuối",
     "loadEarlier": "Tải tin nhắn trước đó",

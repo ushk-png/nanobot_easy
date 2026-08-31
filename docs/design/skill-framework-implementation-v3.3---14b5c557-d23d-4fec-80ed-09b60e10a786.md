@@ -194,11 +194,11 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 
 **역할 분담**
 - 담임 선생님(`studentMode.coachName`): 학생의 기본 대화 상대. 소크라테스식 힌트, 자료 기반 설명, 학습 로그 기록을 담당한다.
-- 엘르 선생님 또는 복습 선생님(`studentMode.reviewTeacherName`): 간격 반복 학습만 담당한다. 오늘 배운 개념을 복습 큐에 넣고, 매일 1회 due 항목을 꺼내 질문을 만든다.
+- AGENT_A 선생님 또는 복습 선생님(`studentMode.reviewTeacherName`): 간격 반복 학습만 담당한다. 오늘 배운 개념을 복습 큐에 넣고, 매일 1회 due 항목을 꺼내 질문을 만든다.
 - 원본 nanobot 기능: Student mode에서는 “설정·고급 기능” 성격으로 낮춘다. CLI에서는 원본 기능을 유지하되, 웹 UI 세션은 safe_mode 정책을 따른다.
 
 **역할 경계**
-- 에이전트 간 강한 권한 분류 UX는 쓰지 않는다. 사용자가 엘르 선생님에게 일반 질문을 하거나 담임 선생님에게 반복 복습 세부를 물으면 “이건 ○○ 선생님에게 물어보세요” 정도로 안내한다.
+- 에이전트 간 강한 권한 분류 UX는 쓰지 않는다. 사용자가 AGENT_A 선생님에게 일반 질문을 하거나 담임 선생님에게 반복 복습 세부를 물으면 “이건 ○○ 선생님에게 물어보세요” 정도로 안내한다.
 - 다만 실제 도구 권한은 프로파일별 allow-list와 `safe_mode`로 집행한다. 역할극 문구는 편의 UX이고 보안 장치가 아니다.
 
 **반복 학습 구조**
@@ -265,7 +265,7 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
   "studentMode": {
     "mode": "general",
     "coachName": "담임 선생님",
-    "reviewTeacherName": "엘르 선생님",
+    "reviewTeacherName": "AGENT_A 선생님",
     "studyLogPath": "study_log.jsonl",
     "reviewQueuePath": "review_queue.jsonl",
     "dailyReviewCronName": "student-mode-daily-review"

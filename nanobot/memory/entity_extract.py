@@ -13,7 +13,7 @@ _SNAKE_RE = re.compile(r"\b[a-zA-Z_][a-zA-Z0-9_]*\(\)?")
 _CAMEL_RE = re.compile(r"\b[A-Z][a-zA-Z0-9]+(?:[A-Z][a-zA-Z0-9]*)+\b")
 _URL_RE = re.compile(r"https?://[^\s)\]>\"']+")
 _TOOL_HINT_RE = re.compile(r"\b(?:tool|Tool|TOOL)[:= ]+([a-zA-Z_][a-zA-Z0-9_\-.]*)")
-_AGENT_NAMES = ("nanobot", "Genie", "Heart", "Amira", "Testy", "Rees", "Elle", "리스", "지니", "테스티", "엘르", "아미라")
+_AGENT_NAMES = ("nanobot", "AGENT_A", "AGENT_B")
 
 
 def extract_entities(content: str | None, metadata_json: str | None = None) -> set[tuple[str, str]]:

@@ -699,6 +699,13 @@
         "notConnected": "Not connected",
         "laterOk": "You can set this up later"
       }
+    },
+    "pageIntros": {
+      "apps": "在這裡統一管理訊息應用、外部服務(MCP)和已連接的程式。",
+      "skills": "選擇代理人的工作方式——開啟你需要的技能,或建立新的技能。",
+      "tools": "工具是代理人的雙手。在這裡開啟或關閉 nanobot 的內建能力。",
+      "automations": "用自然語言告訴代理人你的需求,預定的自動化工作會顯示在這裡。",
+      "agent-management": "建立適合特定角色的專屬代理人。"
     }
   },
   "chat": {
@@ -833,7 +840,10 @@
           "title": "編輯圖片",
           "prompt": "幫我編輯一張圖片。先請我上傳或指定要編輯的圖片，然後生成編輯後的結果。"
         }
-      }
+      },
+      "studentModeNotice": "🔒 學生模式 — 有風險的操作會一律先請求確認。",
+      "toolsInUse": "已開啟 {{count}} 個工具",
+      "skillsAvailable": "{{count}} 個可用技能"
     },
     "header": {
       "toggleSidebar": "切換側邊欄",
@@ -1031,7 +1041,13 @@
         "default": "預設權限",
         "full": "完全存取權限"
       },
-      "attachFile": "Attach file"
+      "attachFile": "Attach file",
+      "help": {
+        "button": "需要協助?",
+        "tip1": "說說你想做什麼,或想要什麼樣的結果——用平常的話說就好。",
+        "tip2": "可以附上檔案或圖片來幫助說明你的需求。",
+        "tip3": "複雜的工作也可以拆成幾個較小的請求。"
+      }
     },
     "scrollToBottom": "捲動到底部",
     "loadEarlier": "載入更早訊息",

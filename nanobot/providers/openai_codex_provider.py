@@ -155,8 +155,12 @@ class OpenAICodexProvider(LLMProvider):
 
 
 def _strip_model_prefix(model: str) -> str:
-    if model.startswith("openai-codex/") or model.startswith("openai_codex/"):
-        return model.split("/", 1)[1]
+    # Codex model ids never contain "/", so any leading "<provider>/" segment
+    # (e.g. "openai/gpt-5.5", "openai-codex/gpt-5.1-codex") is a routing
+    # prefix, not part of the model id, and must be dropped before sending
+    # the request upstream.
+    if "/" in model:
+        return model.rsplit("/", 1)[-1]
     return model
 
 

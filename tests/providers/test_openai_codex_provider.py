@@ -214,6 +214,42 @@ async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatc
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("configured_model", "expected_model"),
+    [
+        # Model presets saved with the generic "openai/" prefix (as opposed to
+        # this provider's own "openai-codex/"/"openai_codex/" prefix) must
+        # still resolve to a bare model id -- Codex rejects any "/" in model
+        # with an HTTP 400, which is what regressed here.
+        ("openai/gpt-5.5", "gpt-5.5"),
+        ("openai-codex/gpt-5.1-codex", "gpt-5.1-codex"),
+        ("openai_codex/gpt-5.1-codex", "gpt-5.1-codex"),
+        ("gpt-5.1-codex", "gpt-5.1-codex"),
+    ],
+)
+async def test_codex_strips_any_provider_prefix_from_model(
+    monkeypatch, configured_model: str, expected_model: str,
+) -> None:
+    bodies: list[dict] = []
+
+    _mock_codex_token(monkeypatch)
+
+    async def fake_request(url, headers, body, verify, **_kwargs):
+        bodies.append(body)
+        return "ok", [], "stop", {}, None
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+
+    provider = OpenAICodexProvider()
+    await provider.chat(
+        [{"role": "user", "content": "hi"}],
+        model=configured_model,
+    )
+
+    assert bodies[0]["model"] == expected_model
+
+
+@pytest.mark.asyncio
 async def test_codex_timeout_error_is_typed_and_retryable(monkeypatch) -> None:
     _mock_codex_token(monkeypatch)
 

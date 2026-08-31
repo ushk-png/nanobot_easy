@@ -1656,6 +1656,9 @@ function Shell({
                 onWorkspaceScopeChange={applyWorkspaceScope}
                 settingsSnapshot={settingsSnapshot}
                 onOpenModelSettings={onOpenModelSettings}
+                onOpenApps={onOpenApps}
+                onOpenTools={onOpenTools}
+                onOpenSkills={onOpenSkills}
                 skills={skills}
               />
             </div>
