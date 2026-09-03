@@ -67,7 +67,8 @@
     "backToChat": "Kembali ke chat",
     "sidebar": {
       "title": "Pengaturan",
-      "ariaLabel": "Bagian pengaturan"
+      "ariaLabel": "Bagian pengaturan",
+      "showAdvanced": "Tampilkan pengaturan lanjutan"
     },
     "nav": {
       "general": "Umum",

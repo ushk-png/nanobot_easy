@@ -237,6 +237,7 @@ describe("App layout", () => {
     localStorage.removeItem("nanobot-webui.sidebar");
     localStorage.removeItem("nanobot-webui.sidebar.completed-runs.v1");
     localStorage.removeItem("nanobot-webui.sidebar.session-updates.v1");
+    localStorage.removeItem("nanobot-webui.settings-preferences");
     vi.mocked(fetchBootstrap).mockReset().mockResolvedValue({
       token: "tok",
       ws_path: "/",
@@ -2193,11 +2194,16 @@ describe("App layout", () => {
     );
     expect(within(settingsNav).getByRole("button", { name: "Models" })).toBeInTheDocument();
     expect(within(settingsNav).queryByRole("button", { name: "Providers" })).not.toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Image" })).toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Web" })).toBeInTheDocument();
-    expect(within(settingsNav).queryByRole("button", { name: "Connections" })).not.toBeInTheDocument();
-    expect(within(settingsNav).getByRole("button", { name: "Security" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Connections" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Skills" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Automations" })).toBeInTheDocument();
+    expect(within(settingsNav).getByRole("button", { name: "Agent management" })).toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Image" })).not.toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Web" })).not.toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Appearance" })).not.toBeInTheDocument();
+    expect(within(settingsNav).queryByRole("button", { name: "Security" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Sign out" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("switch", { name: "Show advanced settings" }));
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Appearance" }));
     expect(screen.getByText("Brand logos")).toBeInTheDocument();
     expect(screen.getByRole("switch", { name: "Brand logos" })).toBeInTheDocument();
@@ -2218,7 +2224,14 @@ describe("App layout", () => {
     expect(within(modelDialog).getByRole("button", { name: /OpenAI/ })).toBeInTheDocument();
     expect(within(modelDialog).getByRole("button", { name: "Save" })).toBeEnabled();
     fireEvent.click(within(modelDialog).getByRole("button", { name: "Cancel" }));
-    fireEvent.pointerDown(screen.getByRole("button", { name: /Auto/ }));
+    // Regex match, not settingsNav-scoped: the "Automations" nav button (now
+    // visible by default) also matches /Auto/, so pick the one outside the
+    // sidebar explicitly instead of relying on there being only one match.
+    const autoProviderButton = screen
+      .getAllByRole("button", { name: /Auto/ })
+      .find((element) => !settingsNav.contains(element));
+    expect(autoProviderButton).toBeTruthy();
+    fireEvent.pointerDown(autoProviderButton!);
     expect(screen.getAllByTestId("provider-picker-logo-openai").length).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole("menuitem", { name: /Auto/ }));
     const openModelPicker = () => {
@@ -2333,6 +2346,7 @@ describe("App layout", () => {
     expect(await screen.findByRole("heading", { name: "Models" })).toBeInTheDocument();
     expect(window.location.hash).toBe("#/settings?section=models");
 
+    fireEvent.click(screen.getByRole("switch", { name: "Show advanced settings" }));
     fireEvent.click(within(settingsNav).getByRole("button", { name: "Voice" }));
 
     expect(await screen.findByRole("heading", { name: "Voice input" })).toBeInTheDocument();

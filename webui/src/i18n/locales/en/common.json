@@ -67,7 +67,8 @@
     "backToChat": "Back to chat",
     "sidebar": {
       "title": "Settings",
-      "ariaLabel": "Settings sections"
+      "ariaLabel": "Settings sections",
+      "showAdvanced": "Show advanced settings"
     },
     "nav": {
       "general": "General",
