@@ -67,7 +67,8 @@
     "backToChat": "Quay lại chat",
     "sidebar": {
       "title": "Cài đặt",
-      "ariaLabel": "Mục cài đặt"
+      "ariaLabel": "Mục cài đặt",
+      "showAdvanced": "Hiện cài đặt nâng cao"
     },
     "nav": {
       "general": "Chung",

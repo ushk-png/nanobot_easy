@@ -53,7 +53,7 @@ irm https://raw.githubusercontent.com/ushk-png/nanobot_easy/main/bootstrap.ps1 |
 **Linux / macOS**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./scripts/install-nanobot-easy.sh
 ./start-nanobot-easy.sh
 ```
 
@@ -69,7 +69,7 @@ macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로
 **Windows**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\scripts\install.bat
 .\start-nanobot.bat
 ```
 

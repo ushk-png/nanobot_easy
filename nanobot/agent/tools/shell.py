@@ -758,7 +758,7 @@ class ExecTool(Tool):
             command,
         ):
             return ToolResult.error(
-                "Error: Command blocked by safety guard (cannot kill the current nanobot gateway from inside exec; use restart-nanobot-easy.sh for detached restart)"
+                "Error: Command blocked by safety guard (cannot kill the current nanobot gateway from inside exec; use `nanobot restart` for detached restart)"
             )
         if re.search(
             r"(?:^|[;&|]\s*)pkill\b[^;&|]*\s+-f\b[^;&|]*(?:nanobot|gateway)",
@@ -766,7 +766,7 @@ class ExecTool(Tool):
             re.I,
         ):
             return ToolResult.error(
-                "Error: Command blocked by safety guard (cannot pkill nanobot/gateway processes from inside exec; use restart-nanobot-easy.sh)"
+                "Error: Command blocked by safety guard (cannot pkill nanobot/gateway processes from inside exec; use `nanobot restart`)"
             )
         if re.search(
             r"(?:^|[;&|]\s*)killall\b[^;&|]*(?:nanobot|python)",
@@ -774,7 +774,7 @@ class ExecTool(Tool):
             re.I,
         ):
             return ToolResult.error(
-                "Error: Command blocked by safety guard (cannot killall nanobot runtime processes from inside exec; use restart-nanobot-easy.sh)"
+                "Error: Command blocked by safety guard (cannot killall nanobot runtime processes from inside exec; use `nanobot restart`)"
             )
         return None
 

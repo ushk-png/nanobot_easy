@@ -67,7 +67,8 @@
     "backToChat": "Retour au chat",
     "sidebar": {
       "title": "Réglages",
-      "ariaLabel": "Sections des réglages"
+      "ariaLabel": "Sections des réglages",
+      "showAdvanced": "Afficher les réglages avancés"
     },
     "nav": {
       "general": "Général",

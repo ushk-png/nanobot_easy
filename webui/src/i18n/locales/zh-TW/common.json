@@ -67,7 +67,8 @@
     "backToChat": "返回聊天",
     "sidebar": {
       "title": "設定",
-      "ariaLabel": "設定分區"
+      "ariaLabel": "設定分區",
+      "showAdvanced": "顯示進階設定"
     },
     "nav": {
       "general": "一般",

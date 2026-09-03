@@ -67,7 +67,8 @@
     "backToChat": "チャットに戻る",
     "sidebar": {
       "title": "設定",
-      "ariaLabel": "設定セクション"
+      "ariaLabel": "設定セクション",
+      "showAdvanced": "詳細設定を表示"
     },
     "nav": {
       "general": "一般",
