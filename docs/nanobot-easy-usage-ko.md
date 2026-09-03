@@ -103,6 +103,16 @@ Linux/macOS의 `start-nanobot-easy.sh`는 gateway를 background process로 띄�
 
 Windows의 `start-nanobot.bat`은 repo-local 설정으로 `nanobot webui --background`를 실행합니다.
 
+### 컴패니언 게이트웨이 (선택 기능)
+
+`start-nanobot-easy.sh`는 기본적으로 컴패니언 게이트웨이(`scripts/start-learning-coach-gateway.sh` 등)를 띄우지 않습니다. 이 기능을 쓰지 않는 대다수 사용자에게는 실행할 때마다 뜨는 경고 메시지가 불필요한 노이즈였기 때문입니다. 컴패니언 게이트웨이가 필요하면 아래처럼 명시적으로 켜세요.
+
+```bash
+NANOBOT_START_COMPANIONS=1 ./start-nanobot-easy.sh
+```
+
+`restart-nanobot-easy.sh`도 동일한 환경변수를 따릅니다. Windows에는 이 기능이 없습니다.
+
 ## 설정 파일과 개인정보
 
 GitHub 저장소에는 개인 설정과 토큰이 포함되지 않습니다. 처음 실행할 때 wizard가 아래 경로를 만듭니다.

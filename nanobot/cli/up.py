@@ -90,6 +90,14 @@ def ensure_webui_dist(
         print_fn("WebUI source has changed since the last build; rebuilding...")
 
     if not (webui_dir / "package.json").exists():
+        if not webui_dir.is_dir():
+            raise UpError(
+                f"No prebuilt WebUI bundle found at {dist_index}, and there is no "
+                f"webui/ source checkout at {webui_dir} to build one from.\n"
+                "This installed nanobot package is missing its bundled WebUI assets -- "
+                "reinstall nanobot-easy from a release wheel/sdist that includes "
+                "nanobot/web/dist, or run `nanobot up` from a full source checkout instead."
+            )
         raise UpError(f"{webui_dir}/package.json was not found; cannot build WebUI bundle")
 
     runner = pick_webui_runner()
@@ -279,6 +287,29 @@ def kill_pid(pid: int) -> None:
 
 def stop_hint(pid: int) -> str:
     return f"taskkill /PID {pid} /F" if sys.platform == "win32" else f"kill {pid}"
+
+
+def process_name(pid: int) -> str | None:
+    """Best-effort executable name for a pid, so a forced kill can show what it's about to hit."""
+    try:
+        if sys.platform == "win32":
+            out = subprocess.run(
+                ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            first_line = out.stdout.strip().splitlines()
+            if first_line:
+                fields = first_line[0].split('","')
+                if fields:
+                    return fields[0].strip('"') or None
+            return None
+        out = subprocess.run(["ps", "-o", "comm=", "-p", str(pid)], capture_output=True, text=True, timeout=5)
+        name = out.stdout.strip()
+        return name or None
+    except (OSError, subprocess.SubprocessError):
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -500,7 +531,11 @@ def run_up(*, config_path: str, workspace_path: str, print_fn: Callable[[str], N
         if stale:
             print_fn(f"nanobot-easy gateway is running (pid={status.pid}) but the code has changed since it started.")
             print_fn("restarting so the update actually takes effect...")
-            runtime.stop()
+            stop_result = runtime.stop()
+            if not stop_result.ok:
+                print_fn(f"could not stop the running gateway (pid={status.pid}): {stop_result.message}")
+                print_fn(f"stop it manually, e.g.: {stop_hint(status.pid)}")
+                return 1
         else:
             print_fn(f"nanobot-easy gateway is already running: pid={status.pid}")
             print_fn(f"log: {status.log_path}")
@@ -602,11 +637,13 @@ def _stop_by_port_fallback(cfg_path: Path, *, print_fn: Callable[[str], None] = 
             found = True
             blocking_pid = pid_on_port(port)
             if blocking_pid:
-                print_fn(f"found an untracked process on {host}:{port}: pid={blocking_pid}")
+                name = process_name(blocking_pid) or "unknown"
+                print_fn(f"found an untracked process on {host}:{port}: pid={blocking_pid} ({name})")
                 print_fn(f"stopping it: pid={blocking_pid}")
                 kill_pid(blocking_pid)
             else:
                 print_fn(f"something is listening on {host}:{port} but its pid could not be determined.")
+                print_fn(f"install lsof or fuser, or find it manually with: ss -ltnp | grep -E ':{port}\\b'")
     return found
 
 
@@ -637,6 +674,7 @@ def _schedule_detached_restart(config_path: str, workspace_path: str, *, delay: 
         f"time.sleep({delay!r})\n"
         "env = os.environ.copy()\n"
         "env['NANOBOT_DETACHED_RESTART'] = '1'\n"
+        "env['NANOBOT_ALLOW_SELF_STOP'] = '1'\n"
         "subprocess.run(\n"
         "    [sys.executable, '-m', 'nanobot', 'restart', '--config', "
         f"{config_path!r}, '--workspace', {workspace_path!r}],\n"

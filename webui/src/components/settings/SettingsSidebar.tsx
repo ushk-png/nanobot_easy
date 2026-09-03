@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 import { ToggleButton } from "@/components/settings/settings-primitives";
-import { SETTINGS_NAV_ITEMS, type SettingsSectionKey } from "@/components/settings/SettingsView";
+import { SETTINGS_NAV_ITEMS, type SettingsSectionKey } from "@/components/settings/settings-helpers";
 
 export function SettingsSidebar({
   activeSection,

@@ -1,4 +1,65 @@
+import {
+  Activity,
+  Blocks,
+  Bot,
+  Brain,
+  CalendarClock,
+  Globe2,
+  ImageIcon,
+  Mic,
+  Palette,
+  Server,
+  ShieldCheck,
+  SlidersHorizontal,
+  Wrench,
+  type LucideIcon,
+} from "lucide-react";
+
 import type { SettingsPayload } from "@/lib/types";
+
+export type SettingsSectionKey =
+  | "overview"
+  | "easy-setup"
+  | "appearance"
+  | "models"
+  | "image"
+  | "voice"
+  | "browser"
+  | "apps"
+  | "automations"
+  | "skills"
+  | "tools"
+  | "agent-management"
+  | "runtime"
+  | "advanced";
+
+export type SettingsNavTier = "basic" | "advanced";
+
+// `easy-setup` is deliberately absent: it's been replaced by the full-screen
+// OnboardingWizardPage and only ever opens automatically for new installs,
+// never via this list. "advanced" items exist and stay reachable by direct
+// link/URL, they just don't show up here unless the sidebar's own advanced
+// toggle is on -- see SettingsSidebar's `showAdvanced`.
+export const SETTINGS_NAV_ITEMS: Array<{
+  key: SettingsSectionKey;
+  icon: LucideIcon;
+  fallback: string;
+  tier: SettingsNavTier;
+}> = [
+  { key: "overview", icon: Activity, fallback: "Overview", tier: "basic" },
+  { key: "models", icon: SlidersHorizontal, fallback: "Models", tier: "basic" },
+  { key: "apps", icon: Blocks, fallback: "Connections", tier: "basic" },
+  { key: "tools", icon: Wrench, fallback: "App Tools", tier: "basic" },
+  { key: "skills", icon: Brain, fallback: "Skills", tier: "basic" },
+  { key: "automations", icon: CalendarClock, fallback: "Automations", tier: "basic" },
+  { key: "agent-management", icon: Bot, fallback: "Agent management", tier: "basic" },
+  { key: "appearance", icon: Palette, fallback: "Appearance", tier: "advanced" },
+  { key: "image", icon: ImageIcon, fallback: "Image", tier: "advanced" },
+  { key: "voice", icon: Mic, fallback: "Voice", tier: "advanced" },
+  { key: "browser", icon: Globe2, fallback: "Web", tier: "advanced" },
+  { key: "runtime", icon: Server, fallback: "System", tier: "advanced" },
+  { key: "advanced", icon: ShieldCheck, fallback: "Security", tier: "advanced" },
+];
 
 export interface ModelConfigurationDraft {
   label: string;
