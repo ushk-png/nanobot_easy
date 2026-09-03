@@ -243,8 +243,17 @@ def _oauth_provider_status(spec: Any) -> dict[str, Any]:
             }
         token = None
         with suppress(Exception):
+            # import_codex_cli=False: this status check runs on every
+            # settings/bootstrap load, including the very first one before
+            # the user has touched anything. Auto-importing (and persisting)
+            # a system-wide `codex` CLI login here would silently mark the
+            # provider "configured" and skip the onboarding wizard entirely.
+            # The explicit "로그인해서 연결" button in the wizard still goes
+            # through oauth_cli_kit.get_token(), which imports it -- but only
+            # after the user actually clicks connect.
             token = FileTokenStorage(
                 token_filename=OPENAI_CODEX_PROVIDER.token_filename,
+                import_codex_cli=False,
             ).load()
         expires_at = getattr(token, "expires", None) if token else None
         now_ms = int(time.time() * 1000)

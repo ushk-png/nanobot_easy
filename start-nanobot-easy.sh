@@ -311,6 +311,8 @@ if [[ -f "$PID_FILE" ]]; then
     else
       echo "nanobot-easy gateway is already running: pid=$pid"
       echo "log: $LOG_FILE"
+      echo "webui: http://$WEBUI_HOST:$WEBUI_PORT/"
+      open_browser_if_available "http://$WEBUI_HOST:$WEBUI_PORT/"
       start_companion_gateways
       exit 0
     fi

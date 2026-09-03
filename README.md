@@ -12,17 +12,48 @@ UNDER CONSTRUCTION!!!
 
 ## 바로 설치하고 실행하기
 
-Python 3.11 이상, Git, 그리고 WebUI 빌드를 위한 Node.js/npm 또는 Bun이 필요합니다. 설치 스크립트는 저장소 안에 `.venv`를 만들고, editable install 뒤 `nanobot/web/dist` WebUI 번들을 직접 빌드합니다. `.local/config.json`이 없으면 첫 설정 wizard를 실행합니다. Ubuntu/Debian에서 `venv` 지원이 빠져 있으면 `python3-venv`와 `python3-pip` 설치를 시도한 뒤 다음 단계로 진행합니다.
+파일 하나만 받아서 실행하면 나머지는 알아서 됩니다: 필요한 프로그램을 찾아 설치하고, 저장소를 받고, `.venv`를 만들고, WebUI를 빌드하고, 게이트웨이를 띄우고, 브라우저를 엽니다. 브라우저에 뜨는 첫 화면에서 바로 LLM을 연결할 수 있습니다.
 
-### Linux / Ubuntu
+### macOS
+
+`bootstrap.command` 파일을 받아서 Finder에서 더블클릭하세요. (저장소를 이미 받았다면 저장소 안의 `bootstrap.command`를 더블클릭해도 됩니다.)
+
+### Windows
+
+`bootstrap.bat` 파일을 받아서 탐색기에서 더블클릭하세요.
+
+### Linux
+
+`bootstrap.sh`를 받아서 더블클릭하세요. 배포판/파일관리자에 따라 더블클릭이 안 통하면 터미널에서 실행하세요.
+
+```bash
+./bootstrap.sh
+```
+
+세 플랫폼 모두 Python 3.11 이상, Git, Node.js/npm(또는 Bun)이 없으면 최대한 자동으로 설치를 시도하고, 안 되면 정확히 무엇을 설치해야 하는지 알려줍니다. 이미 설치되어 있고 게이트웨이가 떠 있는 상태에서 다시 실행하면 재설치 없이 브라우저만 다시 엽니다.
+
+> 원본 `nanobot-ai`와 같은 환경에 동시 설치하지 마세요. 이 저장소는 repo-local `.venv`를 사용해 분리 실행하는 것을 기본으로 합니다.
+
+### 터미널에서 한 줄로
+
+더블클릭 파일을 받기 번거로운 분들을 위한 대안입니다. 동작은 위와 동일합니다.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ushk-png/nanobot_easy/main/bootstrap.sh | bash    # Linux/macOS
+```
+
+```powershell
+irm https://raw.githubusercontent.com/ushk-png/nanobot_easy/main/bootstrap.ps1 | iex           # Windows
+```
+
+### 직접 하나씩 실행하고 싶다면
+
+저장소를 직접 클론하고 설치·실행 스크립트를 따로 부르고 싶은 분들을 위한 방법입니다.
+
+**Linux / macOS**
 
 ```bash
 git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
-```
-
-실행:
-
-```bash
 ./start-nanobot-easy.sh
 ```
 
@@ -33,37 +64,16 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-pip git curl
 ```
 
-### macOS
+macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요.
 
-```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
-```
-
-실행:
-
-```bash
-./start-nanobot-easy.sh
-```
-
-macOS에 Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 설치/실행하고 싶으면 `install-nanobot-easy.command`와 `start-nanobot-easy.command`를 사용할 수 있습니다.
-
-### Windows
-
-PowerShell에서:
+**Windows**
 
 ```powershell
 git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
-```
-
-실행:
-
-```powershell
 .\start-nanobot.bat
 ```
 
-Windows 설치 파일은 `.venv`가 없으면 생성하고, WebUI 번들이 없으면 Node.js/npm 또는 Bun으로 빌드하며, `.local\config.json`이 없으면 wizard를 실행합니다. Python이 없으면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 켠 뒤 다시 실행하세요. Node.js/npm이 없으면 nodejs.org에서 LTS 버전을 설치한 뒤 다시 실행하세요.
-
-> 원본 `nanobot-ai`와 같은 환경에 동시 설치하지 마세요. 이 저장소는 repo-local `.venv`를 사용해 분리 실행하는 것을 기본으로 합니다.
+Windows 설치 파일은 `.venv`가 없으면 생성하고, WebUI 번들이 없거나 오래됐으면 Node.js/npm 또는 Bun으로 (재)빌드하며, `.local\config.json`이 없으면 기본 설정만 만들고 첫 설정은 브라우저(WebUI)에서 진행합니다. Python이 없으면 python.org에서 Python 3.11 이상을 설치하고, 설치 화면에서 **Add python.exe to PATH**를 켠 뒤 다시 실행하세요. Node.js/npm이 없으면 nodejs.org에서 LTS 버전을 설치한 뒤 다시 실행하세요.
 
 ---
 
@@ -111,7 +121,7 @@ nanobot-easy에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한
 
 ### 개발자가 아니어도 켜서 씁니다
 
-윈도우에서는 `install.bat` → `start-nanobot.bat`, macOS Finder에서는 `.command` 파일, Linux/macOS 터미널에서는 `install-nanobot-easy.sh` → `start-nanobot-easy.sh` 순서로 실행하면 됩니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
+파일 하나(macOS `bootstrap.command`, Windows `bootstrap.bat`, Linux `bootstrap.sh`)를 받아서 실행하면 설치부터 브라우저 온보딩까지 한 번에 끝납니다. 학습 모드를 켜면 코치 역할로 동작하면서 복습 큐를 관리해 주고, 위험한 도구는 처음부터 잠깁니다.
 
 ---
 

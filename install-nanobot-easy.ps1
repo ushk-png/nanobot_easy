@@ -80,11 +80,37 @@ function Find-WebuiRunner {
     return $null
 }
 
+function Test-WebuiDistFresh {
+    # True only if nothing under webui/src (or package.json, for dependency
+    # changes) is newer than the built index.html. Otherwise a `git pull` that
+    # updates the WebUI source silently keeps serving the old build forever,
+    # since a prior install already leaves index.html in place.
+    param([string]$IndexHtml)
+    $IndexTime = (Get-Item $IndexHtml).LastWriteTimeUtc
+    $PackageJson = Join-Path $WebuiDir "package.json"
+    if ((Test-Path $PackageJson) -and (Get-Item $PackageJson).LastWriteTimeUtc -gt $IndexTime) {
+        return $false
+    }
+    $SrcDir = Join-Path $WebuiDir "src"
+    if (Test-Path $SrcDir) {
+        $Newer = Get-ChildItem -Path $SrcDir -Recurse -File -ErrorAction SilentlyContinue |
+            Where-Object { $_.LastWriteTimeUtc -gt $IndexTime } |
+            Select-Object -First 1
+        if ($Newer) {
+            return $false
+        }
+    }
+    return $true
+}
+
 function Ensure-WebuiDist {
     $IndexHtml = Join-Path $WebuiDist "index.html"
     if ((Test-Path $IndexHtml) -and $env:NANOBOT_FORCE_WEBUI_BUILD -ne "1") {
-        Write-Info "Using existing WebUI build: $WebuiDist"
-        return
+        if (Test-WebuiDistFresh $IndexHtml) {
+            Write-Info "Using existing WebUI build: $WebuiDist"
+            return
+        }
+        Write-Info "WebUI source has changed since the last build; rebuilding..."
     }
 
     if (-not (Test-Path (Join-Path $WebuiDir "package.json"))) {
@@ -140,11 +166,11 @@ function Invoke-OnboardIfNeeded {
         return
     }
 
-    Write-Info "No config found. Starting first-run setup wizard..."
+    Write-Info "No config found. Creating a default config -- finish setup in the browser (WebUI) after you start nanobot-easy."
     $env:PYTHONPATH = if ($env:PYTHONPATH) { "$ScriptDir;$env:PYTHONPATH" } else { $ScriptDir }
-    & $VenvPython -m nanobot onboard --config $ConfigPath --workspace $WorkspacePath --wizard
+    & $VenvPython -m nanobot onboard --config $ConfigPath --workspace $WorkspacePath
     if ($LASTEXITCODE -ne 0) {
-        Fail "Setup wizard did not complete. Rerun install.bat or run .venv\Scripts\python.exe -m nanobot onboard --config .local\config.json --workspace .local\workspace --wizard"
+        Fail "Default config creation did not complete. Rerun install.bat or run .venv\Scripts\python.exe -m nanobot onboard --config .local\config.json --workspace .local\workspace"
     }
 }
 
@@ -161,7 +187,7 @@ if ($DryRun) {
     Write-Info "Dry run: would create or reuse venv: $VenvDir"
     Write-Info "Dry run: would install: pip install -e .[$Extras]"
     Write-Info "Dry run: would build WebUI dist with bun or npm if nanobot\web\dist\index.html is missing"
-    Write-Info "Dry run: would create config with: nanobot onboard --config $ConfigPath --workspace $WorkspacePath --wizard"
+    Write-Info "Dry run: would create config with: nanobot onboard --config $ConfigPath --workspace $WorkspacePath"
     Write-Info "Dry run: would run with: start-nanobot.bat"
     exit 0
 }

@@ -2,30 +2,12 @@
 setlocal
 
 set "SCRIPT_DIR=%~dp0"
-set "VENV_PY=%SCRIPT_DIR%.venv\Scripts\python.exe"
-set "CONFIG=%SCRIPT_DIR%.local\config.json"
-set "WORKSPACE=%SCRIPT_DIR%.local\workspace"
-set "WEBUI_INDEX=%SCRIPT_DIR%nanobot\web\dist\index.html"
+set "START_PS1=%SCRIPT_DIR%start-nanobot-easy.ps1"
 
-if not exist "%VENV_PY%" (
-  echo Local virtual environment was not found. Running installer first...
-  call "%SCRIPT_DIR%install.bat"
-  if errorlevel 1 exit /b %ERRORLEVEL%
+if not exist "%START_PS1%" (
+  echo Error: start-nanobot-easy.ps1 was not found next to start-nanobot.bat.
+  exit /b 1
 )
 
-if not exist "%WEBUI_INDEX%" (
-  echo WebUI bundle was not found. Running installer first...
-  set "NANOBOT_SKIP_WIZARD=1"
-  call "%SCRIPT_DIR%install.bat"
-  if errorlevel 1 exit /b %ERRORLEVEL%
-)
-
-if not exist "%CONFIG%" (
-  echo Config was not found. Running first-run setup wizard...
-  "%VENV_PY%" -m nanobot onboard --config "%CONFIG%" --workspace "%WORKSPACE%" --wizard
-  if errorlevel 1 exit /b %ERRORLEVEL%
-)
-
-set "PYTHONPATH=%SCRIPT_DIR%;%PYTHONPATH%"
-"%VENV_PY%" -m nanobot webui --config "%CONFIG%" --workspace "%WORKSPACE%" --background
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%START_PS1%" %*
 exit /b %ERRORLEVEL%
