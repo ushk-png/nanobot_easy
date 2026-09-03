@@ -7,7 +7,7 @@
 ### Linux / Ubuntu
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./scripts/install-nanobot-easy.sh
 ```
 
 실행:
@@ -26,7 +26,7 @@ sudo apt install -y python3 python3-venv python3-pip git curl nodejs npm
 ### macOS
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./scripts/install-nanobot-easy.sh
 ```
 
 실행:
@@ -35,14 +35,14 @@ git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && c
 ./start-nanobot-easy.sh
 ```
 
-Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 실행하려면 `install-nanobot-easy.command`와 `start-nanobot-easy.command`를 사용하세요.
+Python 3.11 이상이나 Node.js/npm이 없다면 Homebrew 기준으로 `brew install python node`를 실행한 뒤 다시 실행하세요. Finder에서 더블클릭으로 실행하려면 `scripts/install-nanobot-easy.command`와 `start-nanobot-easy.command`를 사용하세요.
 
 ### Windows
 
 PowerShell에서:
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\scripts\install.bat
 ```
 
 실행:
@@ -55,7 +55,7 @@ Python이 없다면 python.org에서 Python 3.11 이상을 설치하고, 설치 
 
 ## 설치 스크립트가 하는 일
 
-Linux/macOS의 `install-nanobot-easy.sh`와 Windows의 `install-nanobot-easy.ps1`은 같은 흐름을 수행합니다.
+Linux/macOS의 `scripts/install-nanobot-easy.sh`와 Windows의 `scripts/install-nanobot-easy.ps1`은 같은 흐름을 수행합니다.
 
 1. Python 3.11 이상을 찾습니다.
 2. 저장소 내부에 `.venv`를 만들거나 기존 `.venv`를 재사용합니다.
@@ -67,14 +67,14 @@ Linux/macOS의 `install-nanobot-easy.sh`와 Windows의 `install-nanobot-easy.ps1
 기본 설치 extras는 `telegram,documents`입니다. 필요하면 환경변수로 바꿀 수 있습니다.
 
 ```bash
-NANOBOT_SKILL_EXTRAS=telegram,documents,pdf ./install-nanobot-easy.sh
+NANOBOT_SKILL_EXTRAS=telegram,documents,pdf ./scripts/install-nanobot-easy.sh
 ```
 
 Windows PowerShell:
 
 ```powershell
 $env:NANOBOT_SKILL_EXTRAS="telegram,documents,pdf"
-.\install.bat
+.\scripts\install.bat
 ```
 
 ## 실행 스크립트가 하는 일
@@ -151,8 +151,8 @@ Windows에서는 `.venv\Scripts\python.exe -m nanobot ...` 형태로 실행하�
 Linux/macOS:
 
 ```bash
-./stop-nanobot-easy.sh
-./restart-nanobot-easy.sh
+./scripts/stop-nanobot-easy.sh
+./scripts/restart-nanobot-easy.sh
 ```
 
 로그 확인:

@@ -145,11 +145,12 @@ function Invoke-ChildScript {
 
 function Test-GatewayRunning {
     param([string]$TargetDir)
-    $pidFile = Join-Path $TargetDir ".local\run\nanobot-easy-gateway.pid"
-    if (-not (Test-Path $pidFile)) { return $false }
-    $trackedPid = (Get-Content $pidFile -ErrorAction SilentlyContinue | Select-Object -First 1)
-    if (-not $trackedPid) { return $false }
-    return [bool](Get-Process -Id ([int]$trackedPid) -ErrorAction SilentlyContinue)
+    $venvPython = Join-Path $TargetDir ".venv\Scripts\python.exe"
+    if (-not (Test-Path $venvPython)) { return $false }
+    $configPath = Join-Path $TargetDir ".local\config.json"
+    $workspacePath = Join-Path $TargetDir ".local\workspace"
+    $output = & $venvPython -m nanobot gateway status --config $configPath --workspace $workspacePath 2>$null
+    return [bool]($output | Select-String -Pattern "^Running: yes" -Quiet)
 }
 
 if (-not (Ensure-Dependencies)) { exit 1 }
@@ -159,10 +160,10 @@ try {
     Invoke-CloneOrUpdate $TargetDir
     Set-Location $TargetDir
 
-    $InstallPs1 = Join-Path $TargetDir "install-nanobot-easy.ps1"
+    $InstallPs1 = Join-Path $TargetDir "scripts\install-nanobot-easy.ps1"
     $StartPs1 = Join-Path $TargetDir "start-nanobot-easy.ps1"
 
-    if (-not (Test-Path $InstallPs1)) { throw "install-nanobot-easy.ps1 not found in $TargetDir" }
+    if (-not (Test-Path $InstallPs1)) { throw "scripts\install-nanobot-easy.ps1 not found in $TargetDir" }
     if (-not (Test-Path $StartPs1)) { throw "start-nanobot-easy.ps1 not found in $TargetDir" }
 
     # Already up? Then this is a "just open the UI again" run: skip the

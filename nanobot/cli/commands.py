@@ -1857,6 +1857,67 @@ app.add_typer(
 
 
 # ============================================================================
+# Launcher Commands (nanobot up / down / restart)
+# ============================================================================
+#
+# These back the nanobot-easy install/start/stop/restart scripts: ensure the
+# config and WebUI build are ready, start the gateway if it isn't already
+# running (or restart it if the code has changed), and open the browser.
+# See nanobot/cli/up.py -- the actual logic lives there so it can be tested
+# without spawning real processes.
+
+
+def _up_default_workspace(workspace: str | None) -> str:
+    if workspace:
+        return str(Path(workspace).expanduser().resolve(strict=False))
+    return str(Path("~/.nanobot/workspace").expanduser())
+
+
+def _up_default_config(config: str | None) -> str:
+    if config:
+        return str(Path(config).expanduser().resolve(strict=False))
+    from nanobot.config.loader import get_config_path
+
+    return str(get_config_path())
+
+
+@app.command()
+def up(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """Ensure config/WebUI are ready, start the gateway if needed, and open the browser."""
+    from nanobot.cli.up import run_up
+
+    code = run_up(config_path=_up_default_config(config), workspace_path=_up_default_workspace(workspace))
+    raise typer.Exit(code)
+
+
+@app.command()
+def down(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """Stop the background gateway, falling back to a port-based process lookup if needed."""
+    from nanobot.cli.up import run_down
+
+    code = run_down(config_path=_up_default_config(config), workspace_path=_up_default_workspace(workspace))
+    raise typer.Exit(code)
+
+
+@app.command()
+def restart(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+) -> None:
+    """Restart the background gateway (schedules a detached restart if called from inside it)."""
+    from nanobot.cli.up import run_restart
+
+    code = run_restart(config_path=_up_default_config(config), workspace_path=_up_default_workspace(workspace))
+    raise typer.Exit(code)
+
+
+# ============================================================================
 # Agent Commands
 # ============================================================================
 

@@ -2,12 +2,13 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DEFAULT_INSTALL_DIR="${NANOBOT_EASY_HOME:-$HOME/nanobot-easy}"
-VENV_DIR="${NANOBOT_SKILL_VENV:-$SCRIPT_DIR/.venv}"
-CONFIG="${NANOBOT_CONFIG:-$SCRIPT_DIR/.local/config.json}"
-WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
-WEBUI_DIR="$SCRIPT_DIR/webui"
-WEBUI_DIST="$SCRIPT_DIR/nanobot/web/dist"
+VENV_DIR="${NANOBOT_SKILL_VENV:-$REPO_ROOT/.venv}"
+CONFIG="${NANOBOT_CONFIG:-$REPO_ROOT/.local/config.json}"
+WORKSPACE="${NANOBOT_WORKSPACE:-$REPO_ROOT/.local/workspace}"
+WEBUI_DIR="$REPO_ROOT/webui"
+WEBUI_DIST="$REPO_ROOT/nanobot/web/dist"
 PYTHON_BIN="${PYTHON:-}"
 EXTRAS="${NANOBOT_SKILL_EXTRAS:-telegram,documents}"
 SKIP_WIZARD="${NANOBOT_SKIP_WIZARD:-0}"
@@ -15,7 +16,7 @@ DRY_RUN=0
 
 usage() {
   cat <<'EOF'
-Usage: ./install-nanobot-easy.sh [--dry-run] [--skip-wizard]
+Usage: ./scripts/install-nanobot-easy.sh [--dry-run] [--skip-wizard]
 
 Creates a repo-local .venv, installs this checkout in editable mode, then
 creates a default .local/config.json when needed (no terminal prompts —
@@ -42,24 +43,24 @@ info() { printf '%s\n' "$*"; }
 fail() { printf 'Error: %s\n' "$*" >&2; exit 1; }
 
 ensure_safe_checkout_location() {
-  case "$SCRIPT_DIR" in
+  case "$REPO_ROOT" in
     "$HOME/.Trash"|"$HOME/.Trash"/*|*/.Trash/*)
       cat >&2 <<EOF
 Error: this nanobot-easy checkout is inside the macOS Trash:
-  $SCRIPT_DIR
+  $REPO_ROOT
 
 Move it out of Trash or clone a fresh copy into your home directory:
   git clone https://github.com/ushk-png/nanobot_easy.git "$DEFAULT_INSTALL_DIR"
   cd "$DEFAULT_INSTALL_DIR"
-  ./install-nanobot-easy.sh
+  ./scripts/install-nanobot-easy.sh
 EOF
       exit 1
       ;;
   esac
 
-  if [[ "$SCRIPT_DIR" != "$DEFAULT_INSTALL_DIR" ]]; then
+  if [[ "$REPO_ROOT" != "$DEFAULT_INSTALL_DIR" ]]; then
     info "Notice: recommended nanobot-easy checkout path is $DEFAULT_INSTALL_DIR"
-    info "This run will use the current checkout: $SCRIPT_DIR"
+    info "This run will use the current checkout: $REPO_ROOT"
   fi
 }
 
@@ -147,7 +148,7 @@ Install Python venv support and rerun. Examples:
   Arch: sudo pacman -S --needed python python-pip nodejs npm git curl
 
 Then run:
-  ./install-nanobot-easy.sh
+  ./scripts/install-nanobot-easy.sh
 EOF
     exit 1
   }
@@ -257,15 +258,15 @@ run_onboard_if_needed() {
   fi
 
   info "No config found. Creating a default config — finish setup in the browser (WebUI) after you start nanobot-easy."
-  PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" onboard \
+  PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" onboard \
     --config "$CONFIG" \
     --workspace "$WORKSPACE"
 }
 
 main() {
-  cd "$SCRIPT_DIR"
+  cd "$REPO_ROOT"
   ensure_safe_checkout_location
-  [[ -f "$SCRIPT_DIR/pyproject.toml" ]] || fail "run this script from the nanobot-easy repository checkout"
+  [[ -f "$REPO_ROOT/pyproject.toml" ]] || fail "run this script from the nanobot-easy repository checkout"
 
   local py
   py="$(find_python)" || fail "Python 3.11 or newer was not found. Install Python first, then rerun this script."
@@ -286,7 +287,7 @@ main() {
   "$VENV_DIR/bin/python" -m pip install -e ".[${EXTRAS}]"
 
   info "Installed nanobot-easy:"
-  PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" --version
+  PYTHONPATH="$REPO_ROOT${PYTHONPATH:+:$PYTHONPATH}" "$VENV_DIR/bin/nanobot" --version
 
   ensure_webui_dist
   run_onboard_if_needed

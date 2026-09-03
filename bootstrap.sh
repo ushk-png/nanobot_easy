@@ -172,12 +172,17 @@ clone_or_update_repo() {
 
 gateway_is_running() {
   local target_dir="$1"
-  local pid_file="$target_dir/.local/run/nanobot-easy-gateway.pid"
-  [[ -f "$pid_file" ]] || return 1
-  local pid
-  pid="$(cat "$pid_file" 2>/dev/null || true)"
-  [[ -n "${pid:-}" ]] || return 1
-  kill -0 "$pid" 2>/dev/null
+  local nanobot_bin="$target_dir/.venv/bin/nanobot"
+  [[ -x "$nanobot_bin" ]] || return 1
+  # Capture into a variable first rather than piping straight into `grep -q`:
+  # `-q` exits (and closes its end of the pipe) on the first match, and
+  # `nanobot` writing further lines into an already-closed pipe races
+  # unreliably under some sandboxes.
+  local output
+  output="$("$nanobot_bin" gateway status \
+    --config "$target_dir/.local/config.json" \
+    --workspace "$target_dir/.local/workspace" 2>/dev/null)" || true
+  [[ "$output" == "Running: yes"* ]]
 }
 
 main() {
@@ -189,9 +194,9 @@ main() {
   clone_or_update_repo "$target_dir" || exit 1
 
   cd "$target_dir" || { fail "could not enter $target_dir"; exit 1; }
-  [[ -f "./install-nanobot-easy.sh" ]] || { fail "install-nanobot-easy.sh not found in $target_dir"; exit 1; }
+  [[ -f "./scripts/install-nanobot-easy.sh" ]] || { fail "scripts/install-nanobot-easy.sh not found in $target_dir"; exit 1; }
   [[ -f "./start-nanobot-easy.sh" ]] || { fail "start-nanobot-easy.sh not found in $target_dir"; exit 1; }
-  chmod +x ./install-nanobot-easy.sh ./start-nanobot-easy.sh 2>/dev/null || true
+  chmod +x ./scripts/install-nanobot-easy.sh ./start-nanobot-easy.sh 2>/dev/null || true
 
   # Already up? Then this is a "just open the UI again" run: skip the install
   # pass entirely. start-nanobot-easy.sh still rebuilds the WebUI and restarts
@@ -199,7 +204,7 @@ main() {
   if gateway_is_running "$target_dir"; then
     info "nanobot-easy is already running; skipping install and reopening the browser."
   else
-    ./install-nanobot-easy.sh || { fail "install-nanobot-easy.sh failed"; exit 1; }
+    ./scripts/install-nanobot-easy.sh || { fail "install-nanobot-easy.sh failed"; exit 1; }
   fi
   ./start-nanobot-easy.sh || { fail "start-nanobot-easy.sh failed"; exit 1; }
 }

@@ -6,11 +6,12 @@ param(
 $ErrorActionPreference = "Stop"
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-$VenvDir = if ($env:NANOBOT_SKILL_VENV) { $env:NANOBOT_SKILL_VENV } else { Join-Path $ScriptDir ".venv" }
-$ConfigPath = if ($env:NANOBOT_CONFIG) { $env:NANOBOT_CONFIG } else { Join-Path $ScriptDir ".local\config.json" }
-$WorkspacePath = if ($env:NANOBOT_WORKSPACE) { $env:NANOBOT_WORKSPACE } else { Join-Path $ScriptDir ".local\workspace" }
-$WebuiDir = Join-Path $ScriptDir "webui"
-$WebuiDist = Join-Path $ScriptDir "nanobot\web\dist"
+$RepoRoot = Split-Path -Parent $ScriptDir
+$VenvDir = if ($env:NANOBOT_SKILL_VENV) { $env:NANOBOT_SKILL_VENV } else { Join-Path $RepoRoot ".venv" }
+$ConfigPath = if ($env:NANOBOT_CONFIG) { $env:NANOBOT_CONFIG } else { Join-Path $RepoRoot ".local\config.json" }
+$WorkspacePath = if ($env:NANOBOT_WORKSPACE) { $env:NANOBOT_WORKSPACE } else { Join-Path $RepoRoot ".local\workspace" }
+$WebuiDir = Join-Path $RepoRoot "webui"
+$WebuiDist = Join-Path $RepoRoot "nanobot\web\dist"
 $Extras = if ($env:NANOBOT_SKILL_EXTRAS) { $env:NANOBOT_SKILL_EXTRAS } else { "telegram,documents" }
 
 function Write-Info {
@@ -47,7 +48,7 @@ function Find-Python {
         }
     }
 
-    Fail "Python 3.11 or newer was not found. Install Python from https://www.python.org/downloads/ and enable 'Add python.exe to PATH', then rerun install.bat."
+    Fail "Python 3.11 or newer was not found. Install Python from https://www.python.org/downloads/ and enable 'Add python.exe to PATH', then rerun scripts\install.bat."
 }
 
 function New-NanobotVenv {
@@ -66,7 +67,7 @@ function New-NanobotVenv {
 
     & $Python -m venv $VenvDir
     if ($LASTEXITCODE -ne 0 -or -not (Test-Path $VenvPython)) {
-        Fail "Could not create a virtual environment. Reinstall Python with the venv module and pip enabled, then rerun install.bat."
+        Fail "Could not create a virtual environment. Reinstall Python with the venv module and pip enabled, then rerun scripts\install.bat."
     }
     return $VenvPython
 }
@@ -119,7 +120,7 @@ function Ensure-WebuiDist {
 
     $Runner = Find-WebuiRunner
     if (-not $Runner) {
-        Fail "WebUI build requires Bun or Node.js/npm because editable Python installs do not run the packaged WebUI build hook. Install Node.js from https://nodejs.org/ or Bun from https://bun.sh/docs/installation, then rerun install.bat."
+        Fail "WebUI build requires Bun or Node.js/npm because editable Python installs do not run the packaged WebUI build hook. Install Node.js from https://nodejs.org/ or Bun from https://bun.sh/docs/installation, then rerun scripts\install.bat."
     }
 
     Write-Info "Building WebUI bundle with $Runner..."
@@ -167,15 +168,15 @@ function Invoke-OnboardIfNeeded {
     }
 
     Write-Info "No config found. Creating a default config -- finish setup in the browser (WebUI) after you start nanobot-easy."
-    $env:PYTHONPATH = if ($env:PYTHONPATH) { "$ScriptDir;$env:PYTHONPATH" } else { $ScriptDir }
+    $env:PYTHONPATH = if ($env:PYTHONPATH) { "$RepoRoot;$env:PYTHONPATH" } else { $RepoRoot }
     & $VenvPython -m nanobot onboard --config $ConfigPath --workspace $WorkspacePath
     if ($LASTEXITCODE -ne 0) {
-        Fail "Default config creation did not complete. Rerun install.bat or run .venv\Scripts\python.exe -m nanobot onboard --config .local\config.json --workspace .local\workspace"
+        Fail "Default config creation did not complete. Rerun scripts\install.bat or run .venv\Scripts\python.exe -m nanobot onboard --config .local\config.json --workspace .local\workspace"
     }
 }
 
-Set-Location $ScriptDir
-if (-not (Test-Path (Join-Path $ScriptDir "pyproject.toml"))) {
+Set-Location $RepoRoot
+if (-not (Test-Path (Join-Path $RepoRoot "pyproject.toml"))) {
     Fail "run this script from the nanobot-easy repository checkout"
 }
 
@@ -200,7 +201,7 @@ if ($LASTEXITCODE -ne 0) { Fail "pip upgrade failed." }
 if ($LASTEXITCODE -ne 0) { Fail "nanobot-easy editable install failed." }
 
 Write-Info "Installed nanobot-easy:"
-$env:PYTHONPATH = if ($env:PYTHONPATH) { "$ScriptDir;$env:PYTHONPATH" } else { $ScriptDir }
+$env:PYTHONPATH = if ($env:PYTHONPATH) { "$RepoRoot;$env:PYTHONPATH" } else { $RepoRoot }
 & $VenvPython -m nanobot --version
 if ($LASTEXITCODE -ne 0) { Fail "nanobot command could not be started after installation." }
 

@@ -75,23 +75,23 @@ The easiest path is the repo-local installer. It creates a `.venv` inside the do
 **macOS / Linux**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./scripts/install-nanobot-easy.sh
 ```
 
 **Windows PowerShell**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\scripts\install.bat
 ```
 
 To preview what the installer would do without changing your environment, pass `--dry-run`:
 
 ```bash
-./install-nanobot-easy.sh --dry-run
+./scripts/install-nanobot-easy.sh --dry-run
 ```
 
 ```powershell
-.\install.bat -DryRun
+.\scripts\install.bat -DryRun
 ```
 
 If Ubuntu/Debian cannot create a virtual environment, or if Node.js/npm is missing and automatic prerequisite installation is blocked, run this once and retry:
@@ -316,10 +316,10 @@ Hello! How can I help you today?
 If nanobot is not installed, rerun the installer:
 
 ```bash
-./install-nanobot-easy.sh
+./scripts/install-nanobot-easy.sh
 ```
 
-On Windows, run `.\start-nanobot.bat` from PowerShell. On macOS, you can double-click `install-nanobot-easy.command` and `start-nanobot-easy.command` in Finder.
+On Windows, run `.\start-nanobot.bat` from PowerShell. On macOS, you can double-click `scripts/install-nanobot-easy.command` and `start-nanobot-easy.command` in Finder.
 
 Once this works, nanobot can help with its own next setup step. In the browser UI, ask it to read these docs and update your current config for one specific goal, then run `/restart` when nanobot tells you the config is ready. For example, ask it to add one provider preset or configure one chat app.
 
@@ -364,7 +364,7 @@ On Windows:
 .\start-nanobot.bat
 ```
 
-The browser UI uses `http://127.0.0.1:8765` by default. To stop the Linux/macOS gateway later, run `./stop-nanobot-easy.sh`. More details are in [`webui.md`](./webui.md).
+The browser UI uses `http://127.0.0.1:8765` by default. To stop the Linux/macOS gateway later, run `./scripts/stop-nanobot-easy.sh`. More details are in [`webui.md`](./webui.md).
 
 ### Connect a Chat App
 

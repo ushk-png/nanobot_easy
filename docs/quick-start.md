@@ -23,13 +23,13 @@ Pick one install method.
 **Linux / macOS one-command checkout setup:**
 
 ```bash
-git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./install-nanobot-easy.sh
+git clone https://github.com/ushk-png/nanobot_easy.git "$HOME/nanobot-easy" && cd "$HOME/nanobot-easy" && ./scripts/install-nanobot-easy.sh
 ```
 
 **Windows PowerShell:**
 
 ```powershell
-git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\install.bat
+git clone https://github.com/ushk-png/nanobot_easy.git "$env:USERPROFILE\nanobot-easy"; cd "$env:USERPROFILE\nanobot-easy"; .\scripts\install.bat
 ```
 
 The installer creates a repo-local `.venv`, installs this checkout in editable mode, builds the WebUI bundle into `nanobot/web/dist`, then starts `nanobot onboard --config .local/config.json --workspace .local/workspace --wizard` when the config does not exist. Editable Python installs skip the packaged WebUI build hook, so the installer requires Bun or Node.js/npm for this step. On Ubuntu/Debian it detects missing `venv` support and tries to install `python3-venv` and `python3-pip` before continuing.
@@ -37,11 +37,11 @@ The installer creates a repo-local `.venv`, installs this checkout in editable m
 To preview the plan without changing your environment, pass `--dry-run`:
 
 ```bash
-./install-nanobot-easy.sh --dry-run
+./scripts/install-nanobot-easy.sh --dry-run
 ```
 
 ```powershell
-.\install.bat -DryRun
+.\scripts\install.bat -DryRun
 ```
 
 If Ubuntu/Debian cannot create a virtual environment and sudo is unavailable, install prerequisites first:
@@ -58,7 +58,7 @@ python -m nanobot --version
 python -m nanobot onboard
 ```
 
-On macOS, Finder double-click can use `install-nanobot-easy.command` and `start-nanobot-easy.command`. On Linux desktop environments, shell scripts may open in an editor unless the file manager is configured to execute scripts, so the documented Linux path is intentionally one command in a terminal.
+On macOS, Finder double-click can use `scripts/install-nanobot-easy.command` and `start-nanobot-easy.command`. On Linux desktop environments, shell scripts may open in an editor unless the file manager is configured to execute scripts, so the documented Linux path is intentionally one command in a terminal.
 
 The docs use `python` in commands. If your system exposes Python 3.11+ as `python3` or `py`, use that command in the same place.
 

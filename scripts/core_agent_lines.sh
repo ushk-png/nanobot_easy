@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-cd "$(dirname "$0")" || exit 1
+cd "$(dirname "$0")/.." || exit 1
 
 count_top_level_py_lines() {
   local dir="$1"
