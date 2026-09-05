@@ -18,11 +18,11 @@ metadata:
     requires_exec: true
     external_tool: true
     install_sources:
-      - nanobot/api/relay.py
-      - "docs/design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md#12-외부-도구용-llm-relay"
+      - https://github.com/HKUDS/nanobot
     required_tools:
       - exec
       - read_file
+      - edit_file
     triggers:
       - 클로드 코드를 도구로 연결해줘
       - 외부 도구에 LLM 붙여줘
@@ -61,28 +61,61 @@ tool never sees a real provider API key or OAuth token.
 
 ## Install
 
-Relay requests never reach the running gateway unless `relay.enabled` is
-`true` in the active config (`.local/config.json` by default). This defaults
-to `false`, so on a fresh install the listener is not running at all.
+### Step 0: Find the config and workspace of the instance you're running in -- do this first
 
-1. Use `read_file` to check the config file's `relay` section.
+`nanobot relay` does **not** auto-discover the running instance the way
+`nanobot skill` does. Every `nanobot relay`/`nanobot restart` call below
+needs explicit `--config`/`--workspace` flags, or it silently falls back to
+the unrelated global default at `~/.nanobot/`, issues a token against a
+gateway that isn't the one you're running in, and reports a base URL that
+nothing is listening on. There is no environment variable or runtime
+introspection that exposes the active config path to you, so resolve it
+concretely before running anything:
+
+1. Run `pwd` via `exec`. Your `exec` calls default to this agent's own
+   workspace root as their working directory, so this should print the
+   workspace path.
+2. By convention, the config file is the sibling `config.json` one
+   directory above the workspace (e.g. workspace `.local/workspace` ->
+   config `.local/config.json`; workspace `~/.nanobot/workspace` -> config
+   `~/.nanobot/config.json`). Use `read_file` to check for it at that
+   relative location.
+3. If that file isn't there, **stop and ask the user for the config path**
+   instead of guessing or falling back to a default -- targeting the wrong
+   instance's config is worse than pausing.
+4. Once resolved, pass both values explicitly on every command in this
+   skill: `--config <resolved-config-path> --workspace <resolved-workspace-path>`
+   (the examples below omit them for readability, but never omit them in
+   the actual commands you run).
+
+### Step 1: Enable relay if it isn't already
+
+Relay requests never reach the running gateway unless `relay.enabled` is
+`true` in the config you resolved above. This defaults to `false`, so on a
+fresh install the listener is not running at all.
+
+1. Use `read_file` to check that config file's `relay` section.
 2. If `relay.enabled` is missing or `false`:
    - Tell the user relay needs to be turned on and the gateway restarted
      before any key will actually work, e.g.:
      > "Relay가 아직 꺼져 있어요. 설정 파일에 `relay.enabled: true`를 추가하고
      > 게이트웨이를 재시작해야 실제로 연결이 됩니다. 진행할까요?"
    - Do not issue a key yet. Get explicit approval first.
-   - On approval, edit the config's `relay` object to set `"enabled": true`
-     (keep existing `host`/`port` unless the user asked to change them --
-     defaults are `127.0.0.1:8910`), then run `nanobot restart` so the
-     gateway picks up the new config and starts the relay listener.
+   - On approval, use `edit_file` to set `"enabled": true` in that config's
+     `relay` object (keep existing `host`/`port` unless the user asked to
+     change them -- defaults are `127.0.0.1:8910`), then run
+     `nanobot restart --config <resolved-config-path> --workspace <resolved-workspace-path>`
+     so the gateway picks up the new config and starts the relay listener.
 3. If `relay.enabled` is already `true`, skip straight to issuing the key.
+
+### Step 2: Issue the key
 
 Issuing a PSK creates a credential. Get explicit user approval before running
 this, the same way `yq-setup` confirms before installing anything.
 
 ```bash
-nanobot relay issue <client-id> --preset <preset> --tool-name "<사람이 읽는 이름>"
+nanobot relay issue <client-id> --preset <preset> --tool-name "<사람이 읽는 이름>" \
+  --config <resolved-config-path> --workspace <resolved-workspace-path>
 ```
 
 - `<client-id>`: lowercase, hyphenated (e.g. `claude-code`). Ask the user if
@@ -115,20 +148,27 @@ respond:
 
 ## Verify
 
-`nanobot relay test <client-id>` reports the client's status and the
-configured base URL/model, but it does **not** make a live network call -- it
-only reads config and registry state. For a real connectivity check:
-
 ```bash
-curl -s http://127.0.0.1:8910/health
+nanobot relay test <client-id> --config <resolved-config-path> --workspace <resolved-workspace-path>
 ```
 
-confirms the listener itself is up (adjust host/port if non-default), and
+reports the client's status and the *actual configured* base URL/model for
+this instance -- use that base URL for the checks below rather than
+assuming the `127.0.0.1:8910` default, since the user may have changed
+`relay.host`/`relay.port`. Note that `relay test` itself does **not** make a
+live network call -- it only reads config and registry state. For a real
+connectivity check, using the base URL `relay test` just reported:
+
+```bash
+curl -s <base-url-without-/v1>/health
+```
+
+confirms the listener itself is up, and
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" \
   -H "Authorization: Bearer $(grep NANOBOT_RELAY_API_KEY .secrets/relay/<client-id>.env | cut -d= -f2)" \
-  http://127.0.0.1:8910/v1/models
+  <base-url>/models
 ```
 
 A `401` means the token itself was rejected -- stop and report that before
@@ -142,8 +182,7 @@ setup succeeded.
 Once verified, tell the user what to put into the external tool's own
 configuration:
 
-- Base URL: `http://<relay.host>:<relay.port>/v1` (default
-  `http://127.0.0.1:8910/v1`)
+- Base URL: exactly what `relay test` reported for this instance
 - Model: the model resolved from the preset (shown in the `issue`/`test`
   output)
 - Token: from `.secrets/relay/<client-id>.env` -- point at the file, don't
@@ -157,19 +196,27 @@ rather than guessing.
 ## Uninstall
 
 ```bash
-nanobot relay revoke <client-id>
+nanobot relay revoke <client-id> --config <resolved-config-path> --workspace <resolved-workspace-path>
 ```
 
 then delete `.secrets/relay/<client-id>.env`. Revoking invalidates the key
 immediately -- any request using the old token starts failing right away.
 
-`nanobot relay list` already shows every issued client (id, tool name,
-preset, status, key id, last used) without exposing secrets. Don't keep a
-separate ledger of relay clients in `workspace/tools/installed.md` -- that
-would just drift out of sync with the real registry.
+```bash
+nanobot relay list --config <resolved-config-path> --workspace <resolved-workspace-path>
+```
+
+already shows every issued client (id, tool name, preset, status, key id,
+last used) without exposing secrets. Don't keep a separate ledger of relay
+clients in `workspace/tools/installed.md` -- that would just drift out of
+sync with the real registry.
 
 ## Failure Rules
 
+- If you cannot resolve the config path in Step 0, stop and ask the user for
+  it. Never run a `nanobot relay`/`nanobot restart` command without explicit
+  `--config`/`--workspace` -- falling back to CLI defaults silently targets
+  a different, unrelated instance.
 - If the user has not explicitly approved enabling relay or issuing a key,
   stop and ask.
 - If `nanobot relay issue`/`rotate` fails (e.g. client id already exists
