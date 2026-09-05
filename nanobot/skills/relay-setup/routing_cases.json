@@ -1,0 +1,14 @@
+{
+  "cases": [
+    {"query": "클로드 코드를 도구로 연결해줘", "expected": "relay-setup"},
+    {"query": "외부 도구에 LLM 붙여줘", "expected": "relay-setup"},
+    {"query": "relay 키 발급해줘", "expected": "relay-setup"},
+    {"query": "Issue a relay key for my coding CLI so it can call the LLM", "expected": "relay-setup"},
+    {"query": "Set up the LLM relay so Claude Code can use nanobot's provider", "expected": "relay-setup"},
+    {"query": "How do I connect an MCP server to nanobot?", "expected": "answer-howto"},
+    {"query": "How should I debug a failing MCP connection?", "expected": "debug-procedure"},
+    {"query": "Install this CLI app for nanobot", "expected": "yq-setup"},
+    {"query": "새 CLI 앱을 설치하고 싶어", "expected": "github"},
+    {"query": "Add gh CLI as a tool for this workspace", "expected": "yq-setup"}
+  ]
+}
