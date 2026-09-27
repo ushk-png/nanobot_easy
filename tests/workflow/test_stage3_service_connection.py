@@ -17,7 +17,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import Config, ToolsConfig
 from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
-from nanobot.workflow.schema import WorkflowPrincipal
+from nanobot.workflow.schema import WorkflowDefinition, WorkflowEnvelope, WorkflowPrincipal
 from nanobot.workflow.service import WorkflowService
 
 
@@ -25,6 +25,8 @@ class ScriptedProvider(LLMProvider):
     def __init__(self, script: list[dict[str, Any]]):
         super().__init__()
         self.script = list(script)
+        self.step_ids: list[str] = []
+        self.payloads: list[dict[str, Any]] = []
 
     async def chat(
         self,
@@ -38,10 +40,18 @@ class ScriptedProvider(LLMProvider):
     ) -> LLMResponse:
         if not self.script:
             raise AssertionError("script exhausted")
+        payload = json.loads(messages[-1]["content"])
+        self.payloads.append(payload)
+        self.step_ids.append(str(payload.get("step_id")))
         return LLMResponse(content=json.dumps(self.script.pop(0), ensure_ascii=False))
 
     def get_default_model(self) -> str:
         return "scripted"
+
+
+def load_definition() -> WorkflowDefinition:
+    path = Path("nanobot/workflow/definitions/situation_judgment.v1.json")
+    return WorkflowDefinition.model_validate_json(path.read_text(encoding="utf-8"))
 
 
 def principal(tmp_path: Path) -> WorkflowPrincipal:
@@ -55,12 +65,16 @@ def principal(tmp_path: Path) -> WorkflowPrincipal:
 
 @pytest.mark.asyncio
 async def test_workflow_service_persists_waiting_and_resume_access(tmp_path: Path) -> None:
+    provider = ScriptedProvider([
+        {"ack": True},
+        {"action": "ask_user", "reason": "need preference", "question": "선호?"},
+        {"action": "answer", "reason": "preference received"},
+        {"answer": "검토된 최종 답변"},
+        {"decision": "pass", "reason": "ok"},
+    ])
     service = WorkflowService(
         workspace=tmp_path,
-        provider_loader=lambda: ScriptedProvider([
-            {"ack": True},
-            {"action": "ask_user", "reason": "need preference", "question": "선호?"},
-        ]),
+        provider_loader=lambda: provider,
         bus=MessageBus(),
         sync_wait_seconds=60,
     )
@@ -84,9 +98,48 @@ async def test_workflow_service_persists_waiting_and_resume_access(tmp_path: Pat
         task_id=envelope.task_id or "",
         question_id=envelope.question_id,
         answer="A",
+        registry=ToolRegistry(),
     )
     assert resumed.state == "COMPLETED"
-    assert resumed.reason == "A"
+    assert resumed.reason == "검토된 최종 답변"
+    assert resumed.reason != "A"
+    assert provider.step_ids == [
+        "receive_context",
+        "judge_sufficiency",
+        "judge_sufficiency",
+        "draft_answer",
+        "review_answer",
+    ]
+    stored = service.store.get_task(envelope.task_id or "")
+    assert stored is not None
+    assert stored["data"]["results"]["user_answer"]["answer"] == "A"
+    assert stored["data"]["results"]["review_answer"]["decision"] == "pass"
+
+
+@pytest.mark.asyncio
+async def test_resume_returns_needs_attention_when_required_tool_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    definition = load_definition().model_copy(deep=True)
+    definition.referenced_tools = ["web_search"]
+    choose = next(step for step in definition.steps if step.id == "choose_action")
+    choose.config["branches"]["search"]["required"] = True
+    monkeypatch.setattr(WorkflowService, "_load_definition", staticmethod(lambda _definition_id: definition))
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    p = principal(tmp_path)
+    service.store.upsert_task(
+        task_id="wf_wait",
+        principal=p,
+        definition_id="situation_judgment.v1",
+        envelope=WorkflowEnvelope(task_id="wf_wait", state="WAITING_USER", question="확인?", question_id="q1", deliver="question"),
+        context={"user_text": "질문"},
+        data={"results": {"user_question": {"question_id": "q1", "resume_next": "judge_sufficiency"}}},
+        question_id="q1",
+        resume_next="judge_sufficiency",
+    )
+
+    resumed = await service.resume(principal=p, task_id="wf_wait", question_id="q1", answer="A", registry=ToolRegistry())
+
+    assert resumed.state == "NEEDS_ATTENTION"
+    assert "required tools are unavailable: web_search" in (resumed.reason or "")
 
 
 @pytest.mark.asyncio
@@ -132,7 +185,6 @@ def test_agent_loop_adds_workflow_delivery_hook_when_workflow_enabled(tmp_path: 
 def test_runtime_lines_expose_only_same_session_waiting_tasks(tmp_path: Path) -> None:
     service = WorkflowService(workspace=tmp_path, provider_loader=None, bus=MessageBus())
     p = principal(tmp_path)
-    from nanobot.workflow.schema import WorkflowEnvelope
     service.store.upsert_task(
         task_id="wf_wait",
         principal=p,

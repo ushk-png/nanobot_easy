@@ -182,6 +182,7 @@ class WorkflowService:
         task_id: str,
         question_id: str | None,
         answer: str,
+        registry: ToolRegistry,
     ) -> WorkflowEnvelope:
         row = self.store.get_task(task_id)
         if row is None:
@@ -194,31 +195,49 @@ class WorkflowService:
             return WorkflowEnvelope.model_validate(row["envelope"])
         if question_id and row.get("question_id") and question_id != row.get("question_id"):
             return WorkflowEnvelope(task_id=task_id, state="NEEDS_ATTENTION", reason="workflow question is not available")
-        # Minimal deterministic resume for stage 3: persist the user's answer and
-        # complete with it as verified delivery payload. Full graph continuation is
-        # part of later hardening, but duplicate resume and access semantics work.
-        content = answer.strip() or "사용자 응답을 받았습니다."
-        envelope = WorkflowEnvelope(
-            task_id=task_id,
-            state="COMPLETED",
-            delivery_state="pending",
-            deliver="final",
-            reason=content,
+        provider = self.provider_loader() if self.provider_loader else None
+        if provider is None:
+            return WorkflowEnvelope(task_id=task_id, state="NEEDS_ATTENTION", reason="workflow resume requires an active provider")
+        definition = self._load_definition(row.get("definition_id") or "situation_judgment.v1")
+        available_tools = set(registry.tool_names)
+        missing_required = sorted(
+            tool_name for tool_name in definition.referenced_tools
+            if tool_name not in available_tools and self._tool_still_required_after_resume(definition, tool_name)
         )
+        if missing_required:
+            envelope = WorkflowEnvelope(
+                task_id=task_id,
+                state="NEEDS_ATTENTION",
+                reason="workflow cannot resume because required tools are unavailable: " + ", ".join(missing_required),
+            )
+            self.store.upsert_task(
+                task_id=task_id,
+                principal=principal,
+                definition_id=definition.id,
+                envelope=envelope,
+                context=row.get("context") or {},
+                data=row.get("data") or {},
+                trace=row.get("trace") or [],
+            )
+            return envelope
         context = row.get("context") or {}
         data = row.get("data") or {}
-        data.setdefault("resume", {})[row.get("question_id") or question_id or ""] = answer
-        self.store.upsert_task(
+        results = data.setdefault("results", {})
+        qid = row.get("question_id") or question_id or ""
+        data.setdefault("resume", {})[qid] = answer
+        results["user_answer"] = {"question_id": qid, "answer": answer}
+        resume_next = row.get("resume_next") or "judge_sufficiency"
+        executor = WorkflowExecutor(
+            definition=definition,
+            tools=registry,
+            llm=WorkflowLLMAdapter(provider),
             task_id=task_id,
-            principal=principal,
-            definition_id=row.get("definition_id") or "situation_judgment.v1",
-            envelope=envelope,
-            context=context,
+            context_snapshot=context,
             data=data,
             trace=row.get("trace") or [],
+            start_step=resume_next,
         )
-        set_workflow_turn_delivery(task_id, content, kind="final")
-        return envelope
+        return await self._execute_and_persist(executor, principal, definition, context)
 
     def cancel(self, *, principal: WorkflowPrincipal, task_id: str, reason: str | None = None) -> WorkflowEnvelope:
         row = self.store.get_task(task_id)
@@ -259,6 +278,19 @@ class WorkflowService:
 
     def _same_session_summary(self, principal: WorkflowPrincipal) -> list[dict[str, Any]]:
         return [self._summary(row) for row in self.store.list_tasks(principal, states={"RUNNING", "WAITING_USER"})]
+
+    @staticmethod
+    def _tool_still_required_after_resume(definition: WorkflowDefinition, tool_name: str) -> bool:
+        for step in definition.steps:
+            branches = step.config.get("branches")
+            if not isinstance(branches, dict):
+                continue
+            for branch in branches.values():
+                if not isinstance(branch, dict):
+                    continue
+                if branch.get("tool") == tool_name and bool(branch.get("required", True)):
+                    return True
+        return False
 
     @staticmethod
     def _summary(row: dict[str, Any]) -> dict[str, Any]:

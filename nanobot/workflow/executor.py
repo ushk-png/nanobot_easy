@@ -42,18 +42,27 @@ class WorkflowExecutor:
         llm: WorkflowLLMAdapter,
         task_id: str | None = None,
         context_snapshot: dict[str, Any] | None = None,
+        data: dict[str, Any] | None = None,
+        trace: list[dict[str, Any]] | None = None,
+        start_step: str | None = None,
     ) -> None:
         self.definition = definition
         self.tools = tools
         self.llm = llm
         self.task_id = task_id or f"wf_{uuid.uuid4().hex[:12]}"
-        self.data: dict[str, Any] = {
+        self.data: dict[str, Any] = deepcopy(data) if data is not None else {
             "context": deepcopy(context_snapshot or {}),
             "results": {},
             "available_actions": [],
             "tool_observations": [],
         }
-        self.trace: list[dict[str, Any]] = []
+        if context_snapshot is not None:
+            self.data["context"] = deepcopy(context_snapshot)
+        self.data.setdefault("results", {})
+        self.data.setdefault("available_actions", [])
+        self.data.setdefault("tool_observations", [])
+        self.trace: list[dict[str, Any]] = deepcopy(trace or [])
+        self.start_step = start_step or definition.start
         self._steps = {step.id: step for step in definition.steps}
         self._step_count = 0
         self._llm_calls = 0
@@ -94,7 +103,7 @@ class WorkflowExecutor:
         if not validation.ok:
             return self._finish("NEEDS_ATTENTION", reason="; ".join(validation.errors))
         self.prune_optional_branches()
-        current = self.definition.start
+        current = self.start_step
         while True:
             self._enforce_budget()
             step = self._steps[current]

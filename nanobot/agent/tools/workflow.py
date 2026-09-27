@@ -119,11 +119,15 @@ class WorkflowTool(Tool):
             if not task_id:
                 envelope = WorkflowEnvelope(state="NEEDS_ATTENTION", reason="resume requires task_id")
             else:
+                if registry is None:
+                    from nanobot.agent.tools.registry import ToolRegistry
+                    registry = ToolRegistry()
                 envelope = await service.resume(
                     principal=principal,
                     task_id=task_id,
                     question_id=question_id,
                     answer=input or "",
+                    registry=registry,
                 )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
         if normalized == WorkflowAction.RUN.value:

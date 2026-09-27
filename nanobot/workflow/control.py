@@ -50,6 +50,7 @@ async def handle_workflow_runtime_control(state: Any, msg: Any, tools: Any) -> b
             task_id=str(task_id),
             question_id=str(question_id) if question_id else None,
             answer=msg.content or "",
+            registry=tools,
         )
     finally:
         reset_request_context(token)
