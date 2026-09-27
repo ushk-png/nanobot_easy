@@ -11,6 +11,7 @@ import pytest
 from nanobot.agent.context import runtime_lines
 from nanobot.agent.loop import AgentLoop
 from nanobot.agent.tools.context import RequestContext, ToolContext, bind_request_context, reset_request_context
+from nanobot.agent.tools.loader import ToolLoader
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.agent.tools.workflow import WorkflowTool
 from nanobot.bus.events import InboundMessage
@@ -103,6 +104,49 @@ def principal(tmp_path: Path) -> WorkflowPrincipal:
         channel="telegram",
         chat_id="1",
     )
+
+
+def test_workflow_tool_is_hidden_from_subagent_scope(tmp_path: Path) -> None:
+    registry = ToolRegistry()
+    ctx = ToolContext(config=ToolsConfig(workflow={"enabled": True}), workspace=str(tmp_path))
+
+    ToolLoader().load(ctx, registry, scope="subagent")
+
+    assert not registry.has("workflow")
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_rejects_mutating_actions_without_session_key(tmp_path: Path) -> None:
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    ctx = ToolContext(
+        config=ToolsConfig(workflow={"enabled": True}),
+        workspace=str(tmp_path),
+        workflow_service=service,
+        workflow_registry=ToolRegistry(),
+    )
+    token = bind_request_context(RequestContext(channel="telegram", chat_id="1", session_key=""))
+    try:
+        tool = WorkflowTool.create(ctx)
+        for action in ("run", "resume", "status", "cancel"):
+            result = json.loads(await tool.execute(action=action, input="hello", task_id="wf_1"))
+            assert result["state"] == "NEEDS_ATTENTION"
+            assert "requires a non-empty session_key" in result["reason"]
+    finally:
+        reset_request_context(token)
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_allows_list_without_session_key(tmp_path: Path) -> None:
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    ctx = ToolContext(config=ToolsConfig(workflow={"enabled": True}), workspace=str(tmp_path), workflow_service=service)
+    token = bind_request_context(RequestContext(channel="telegram", chat_id="1", session_key=""))
+    try:
+        tool = WorkflowTool.create(ctx)
+        result = json.loads(await tool.execute(action="list"))
+    finally:
+        reset_request_context(token)
+
+    assert result[0]["id"] == "situation_judgment.v1"
 
 
 @pytest.mark.asyncio

@@ -43,7 +43,7 @@ from nanobot.workflow.schema import WorkflowAction, WorkflowEnvelope
 )
 class WorkflowTool(Tool):
     config_key = "workflow"
-    _scopes = {"core", "subagent"}
+    _scopes = {"core"}
 
     def __init__(self, ctx: ToolContext, config: WorkflowToolConfig):
         self._ctx = ctx
@@ -106,6 +106,18 @@ class WorkflowTool(Tool):
         normalized = str(action)
         if normalized == WorkflowAction.LIST.value:
             return json.dumps(service.list_definitions(), ensure_ascii=False, indent=2)
+        if normalized in {
+            WorkflowAction.RUN.value,
+            WorkflowAction.RESUME.value,
+            WorkflowAction.STATUS.value,
+            WorkflowAction.CANCEL.value,
+        } and not principal.session_key:
+            envelope = WorkflowEnvelope(
+                state="NEEDS_ATTENTION",
+                reason=f"workflow {normalized} requires a non-empty session_key",
+                next_hint="Retry from a normal chat/session context so workflow access can be scoped safely.",
+            )
+            return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
         if normalized == WorkflowAction.STATUS.value:
             result = service.status(principal=principal, task_id=task_id)
             payload = [row for row in result] if isinstance(result, list) else result.model_dump()
