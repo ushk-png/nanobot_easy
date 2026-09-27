@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebToolsConfig
+    from nanobot.workflow.config import WorkflowToolConfig
 
 
 class ChannelsConfig(Base):
@@ -482,6 +483,11 @@ class ToolsConfig(Base):
     tool implementations.
     """
 
+    def __init__(self, **values: Any) -> None:
+        if not type(self).__pydantic_complete__:
+            _resolve_tool_config_refs()
+        super().__init__(**values)
+
     web: WebToolsConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.web", "WebToolsConfig"))
     exec: ExecToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.shell", "ExecToolConfig"))
     file: FileToolsConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.filesystem", "FileToolsConfig"))
@@ -489,6 +495,9 @@ class ToolsConfig(Base):
     my: MyToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.self", "MyToolConfig"))
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
+    )
+    workflow: WorkflowToolConfig = Field(
+        default_factory=lambda: _lazy_default("nanobot.workflow.config", "WorkflowToolConfig"),
     )
     safe_mode: bool = Field(
         default=False,
@@ -760,6 +769,7 @@ def _resolve_tool_config_refs() -> None:
         WebSearchConfig,
         WebToolsConfig,
     )
+    from nanobot.workflow.config import WorkflowToolConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -772,6 +782,7 @@ def _resolve_tool_config_refs() -> None:
     mod.WebEvidenceConfig = WebEvidenceConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
+    mod.WorkflowToolConfig = WorkflowToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()
