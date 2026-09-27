@@ -443,6 +443,47 @@ async def test_agent_loop_process_direct_workflow_matches_current_message_id(tmp
 
 
 @pytest.mark.asyncio
+async def test_gateway_process_message_workflow_matches_current_message_id(tmp_path: Path) -> None:
+    provider = AgentWorkflowProvider([
+        {"ack": True},
+        {"action": "answer", "reason": "enough"},
+        {"answer": "게이트웨이 원문 기준 답변"},
+        {"decision": "pass", "reason": "ok"},
+    ])
+    cfg = Config(
+        agents={"defaults": {"workspace": str(tmp_path), "max_tool_iterations": 3}},
+        tools={"workflow": {"enabled": True}},
+    )
+    loop = AgentLoop.from_config(cfg, provider=provider)
+    msg = InboundMessage(
+        channel="telegram",
+        sender_id="1",
+        chat_id="1",
+        content="실제 게이트웨이 사용자 원문",
+        metadata={"message_id": "gateway-message-1"},
+    )
+
+    outbound = await loop._process_message(msg, session_key="telegram:1")
+    await loop.close_mcp()
+
+    assert outbound is not None
+    assert provider.workflow_payloads
+    system_context = provider.workflow_payloads[0]["inputs"]["system_context"]
+    assert system_context["user_text"] == "실제 게이트웨이 사용자 원문"
+    assert system_context["user_text_source"] == "message_id"
+    rows = loop.workflow_service.store.list_tasks(principal=WorkflowPrincipal(
+        workspace=str(tmp_path.resolve()),
+        session_key="telegram:1",
+        channel="telegram",
+        chat_id="1",
+        message_id="gateway-message-1",
+    ))
+    assert rows
+    assert rows[0]["context"]["user_text"] == "실제 게이트웨이 사용자 원문"
+    assert rows[0]["context"]["user_text_source"] == "message_id"
+
+
+@pytest.mark.asyncio
 async def test_workflow_tool_uses_service_for_list_status_cancel(tmp_path: Path) -> None:
     service = WorkflowService(workspace=tmp_path, provider_loader=None, bus=MessageBus())
     cfg = ToolsConfig(workflow={"enabled": True})
