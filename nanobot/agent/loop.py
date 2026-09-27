@@ -825,6 +825,8 @@ class AgentLoop:
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if has_text or media_paths:
             extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
+            if isinstance(msg.metadata, dict) and msg.metadata.get("message_id"):
+                extra.setdefault("message_id", msg.metadata.get("message_id"))
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             text_override, automation_extra = automation_history_overrides(msg.metadata)
@@ -2377,7 +2379,7 @@ class AgentLoop:
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"message_id": f"direct:{time.time_ns()}"}
         if not persist_user_message:
             metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(

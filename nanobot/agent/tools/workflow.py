@@ -123,12 +123,15 @@ class WorkflowTool(Tool):
                 if registry is None:
                     from nanobot.agent.tools.registry import ToolRegistry
                     registry = ToolRegistry()
+                workflow_context = self._system_workflow_context(request_ctx, fallback_user_text=input or "")
                 envelope = await service.resume(
                     principal=principal,
                     task_id=task_id,
                     question_id=question_id,
-                    answer=input or "",
+                    answer=workflow_context["user_text"],
                     registry=registry,
+                    answer_source=workflow_context["user_text_source"],
+                    input_reference=input or "",
                 )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
         if normalized == WorkflowAction.RUN.value:
@@ -144,6 +147,7 @@ class WorkflowTool(Tool):
                 session_metadata=workflow_context["session_metadata"],
                 recent_history=workflow_context["recent_history"],
                 goal=input or "",
+                user_text_source=workflow_context["user_text_source"],
             )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
 
@@ -165,27 +169,32 @@ class WorkflowTool(Tool):
                 recent_history = list(session.get_history(max_messages=20))
             except Exception:
                 recent_history = []
-        user_text = self._user_text_from_session(session, getattr(request_ctx, "message_id", None) if request_ctx is not None else None)
+        user_text, user_text_source = self._user_text_from_session(
+            session,
+            getattr(request_ctx, "message_id", None) if request_ctx is not None else None,
+        )
         if not user_text:
             user_text = fallback_user_text
+            user_text_source = "input_fallback"
         return {
             "user_text": user_text,
+            "user_text_source": user_text_source,
             "recent_history": recent_history,
             "session_metadata": metadata,
         }
 
     @staticmethod
-    def _user_text_from_session(session: Any | None, message_id: str | None) -> str:
+    def _user_text_from_session(session: Any | None, message_id: str | None) -> tuple[str, str]:
         if session is None:
-            return ""
+            return "", "input_fallback"
         messages = list(getattr(session, "messages", []) or [])
         if message_id:
             for message in reversed(messages):
                 if message.get("role") == "user" and str(message.get("message_id") or "") == str(message_id):
                     content = message.get("content")
-                    return content if isinstance(content, str) else ""
+                    return (content if isinstance(content, str) else "", "message_id")
         for message in reversed(messages):
             if message.get("role") == "user":
                 content = message.get("content")
-                return content if isinstance(content, str) else ""
-        return ""
+                return (content if isinstance(content, str) else "", "latest_fallback")
+        return "", "input_fallback"

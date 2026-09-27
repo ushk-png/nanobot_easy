@@ -78,6 +78,7 @@ class WorkflowService:
         session_metadata: dict[str, Any] | None = None,
         recent_history: list[dict[str, Any]] | None = None,
         goal: str | None = None,
+        user_text_source: str | None = None,
     ) -> WorkflowEnvelope:
         provider = self.provider_loader() if self.provider_loader else None
         if provider is None:
@@ -99,6 +100,8 @@ class WorkflowService:
         context["workflow_composition"] = composition.model_dump()
         if goal is not None:
             context["goal"] = goal
+        if user_text_source is not None:
+            context["user_text_source"] = user_text_source
         executor = WorkflowExecutor(
             definition=definition,
             tools=registry,
@@ -186,6 +189,8 @@ class WorkflowService:
         question_id: str | None,
         answer: str,
         registry: ToolRegistry,
+        answer_source: str | None = None,
+        input_reference: str | None = None,
     ) -> WorkflowEnvelope:
         row = self.store.get_task(task_id)
         if row is None:
@@ -223,13 +228,34 @@ class WorkflowService:
                 trace=row.get("trace") or [],
             )
             return envelope
-        context = row.get("context") or {}
+        context = dict(row.get("context") or {})
         data = row.get("data") or {}
         results = data.setdefault("results", {})
         qid = row.get("question_id") or question_id or ""
         data.setdefault("resume", {})[qid] = answer
-        results["user_answer"] = {"question_id": qid, "answer": answer}
-        resume_next = row.get("resume_next") or "judge_sufficiency"
+        results["user_answer"] = {"question_id": qid, "answer": answer, "source": answer_source or "unknown"}
+        if input_reference is not None:
+            results["resume_input_reference"] = {"question_id": qid, "input": input_reference}
+        if answer_source is not None:
+            context["user_text_source"] = answer_source
+            data.setdefault("context", {})["user_text_source"] = answer_source
+        resume_next = row.get("resume_next") or self._resume_next_from_wait_step(definition, data, qid)
+        if not resume_next:
+            envelope = WorkflowEnvelope(
+                task_id=task_id,
+                state="NEEDS_ATTENTION",
+                reason="workflow cannot resume because the waiting step has no next step",
+            )
+            self.store.upsert_task(
+                task_id=task_id,
+                principal=principal,
+                definition_id=definition.id,
+                envelope=envelope,
+                context=context,
+                data=data,
+                trace=row.get("trace") or [],
+            )
+            return envelope
         executor = WorkflowExecutor(
             definition=definition,
             tools=registry,
@@ -240,7 +266,39 @@ class WorkflowService:
             trace=row.get("trace") or [],
             start_step=resume_next,
         )
-        return await self._execute_and_persist(executor, principal, definition, context)
+        coro = self._execute_and_persist(executor, principal, definition, context)
+        if self.sync_wait_seconds <= 0:
+            running = WorkflowEnvelope(task_id=task_id, state="RUNNING", reason="workflow resume execution started")
+            task = asyncio.create_task(coro)
+            self._tasks[task_id] = task
+            task.add_done_callback(lambda t, task_id=task_id: self._tasks.pop(task_id, None))
+            self.store.upsert_task(
+                task_id=task_id,
+                principal=principal,
+                definition_id=definition.id,
+                envelope=running,
+                context=context,
+                data=data,
+                trace=row.get("trace") or [],
+            )
+            return running
+        try:
+            return await asyncio.wait_for(asyncio.shield(coro), timeout=self.sync_wait_seconds)
+        except asyncio.TimeoutError:
+            running = WorkflowEnvelope(task_id=task_id, state="RUNNING", reason="workflow resume execution started")
+            task = asyncio.create_task(coro)
+            self._tasks[task_id] = task
+            task.add_done_callback(lambda t, task_id=task_id: self._tasks.pop(task_id, None))
+            self.store.upsert_task(
+                task_id=task_id,
+                principal=principal,
+                definition_id=definition.id,
+                envelope=running,
+                context=context,
+                data=data,
+                trace=row.get("trace") or [],
+            )
+            return running
 
     def cancel(self, *, principal: WorkflowPrincipal, task_id: str, reason: str | None = None) -> WorkflowEnvelope:
         row = self.store.get_task(task_id)
@@ -294,6 +352,25 @@ class WorkflowService:
                 if branch.get("tool") == tool_name and bool(branch.get("required", True)):
                     return True
         return False
+
+    @staticmethod
+    def _resume_next_from_wait_step(definition: WorkflowDefinition, data: dict[str, Any], question_id: str) -> str | None:
+        results = data.get("results") if isinstance(data, dict) else None
+        if not isinstance(results, dict):
+            return None
+        candidates: list[str] = []
+        for step in definition.steps:
+            if step.type != "wait_user":
+                continue
+            output_key = step.output or step.id
+            stored = results.get(output_key)
+            if isinstance(stored, dict) and question_id and stored.get("question_id") == question_id:
+                return step.next
+            if step.next:
+                candidates.append(step.next)
+        if not question_id and len(candidates) == 1:
+            return candidates[0]
+        return None
 
     @staticmethod
     def _summary(row: dict[str, Any]) -> dict[str, Any]:
