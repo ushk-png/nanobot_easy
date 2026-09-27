@@ -1,4 +1,4 @@
-# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.10
+# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.12
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 
 대상 독자: 코드 생성 도구(Claude Code, Codex) 및 구현자.
@@ -11,6 +11,8 @@ v3.4.7 변경: composite-task 웨이브 실행은 의미 판단이 아니라 절
 v3.4.8 변경: v3.4.7의 전면 위임 강제는 지연이 커서 선별 위임으로 완화한다. 절차 보장 대상은 위임 자체가 아니라 ledger/status/wave_no/context/failure 기록이다. low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용하되, exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시에만 spawn/delegate를 강제한다. traces에 duration_ms를 추가해 skill_search/skill_decision/delegate/spawn 구간 시간을 측정한다.
 v3.4.9 변경: topic-recall 폴백을 현실 운영에 맞춰 topics → history.jsonl → sessions 원문 3단계로 개정한다. history.jsonl은 Consolidator가 주제별 요약과 핵심 식별자를 보존하므로 sessions 원문보다 먼저 쓰는 경량 폴백이다. 주제 스냅샷 작성 트리거는 "새 주제 답변 전 직전 미완 주제 기록"으로 명시화한다.
 v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. 설치 시 General/Student mode를 선택하고, Student mode에서는 담임 선생님 경험을 메인으로, 원본 nanobot 기능은 설정·고급 기능 하위 경로로 둔다. 간격 반복은 review-teacher 서브에이전트가 전담하며, safe_mode와 student_learning 전용 도구로 웹 UI의 위험 기능과 학습 데이터 쓰기 범위를 서버 측에서 제한한다.
+v3.4.11 변경: 워크플로우 설계 지시서 v2를 반영해 durable workflow 작업, `workflow` 도구, `WorkflowService`, 런타임 대기 줄, 명시적 resume 연결, 최종 전달 훅, 접근 검사, 동적 조합과 품질 평가를 별도 구현 축으로 추가한다. 단 `config.tools.workflow.enabled=false`가 기본이며 비활성 상태에서는 도구·서비스·훅·런타임 줄·파일 생성이 모두 무영향이어야 한다.
+v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기준으로 문서를 실제 구현 상태에 맞춰 현행화한다. Stage 0~5는 구현·테스트 완료, Stage 6 확장 harness는 별도 `feat/workflow-extension-stage6` 브랜치로 분리, 서브에이전트 scope 노출은 안전한 context/registry 연결 전까지 보류, LLM tool `input`은 세션 원문 대체값으로 쓰지 않는 것으로 정정한다.
 
 ---
 
@@ -21,6 +23,8 @@ v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. �
 - 핵심 실행 원칙: 단일 저위험 답변형 스킬은 메인이 직접 실행, 격리 필요 시에만 위임(3.4). 복합 작업에서도 절차 기록은 강제하지만, low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용한다. exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시 spawn/delegate를 사용한다(3.5).
 - 스킬 선택은 별도 파이프라인이 아니라 메인 에이전트 한 턴 안의 선택지다(3.1).
 - 학생 친화 배포판은 별도 포크 아키텍처가 아니라 설치 모드·프로파일·스킬·도구 정책의 조합이다. CLI는 원본 기능을 유지하고, 웹 UI는 Student mode에서 안전한 학습 흐름만 노출한다.
+- PR #23 이후 `workflow`는 별도 코드 구현이 아니라 실제 opt-in 도구/서비스 계층으로 존재한다. 기본값은 꺼짐이며, 켜진 경우에만 `WorkflowTool`, `WorkflowService`, runtime waiting lines, resume control, delivery hook이 연결된다.
+- Stage 6 확장/evaluation harness는 main의 PR #23 범위가 아니다. 별도 `feat/workflow-extension-stage6` 브랜치에 보존되어 있으며, 이 문서의 구현 상태 표에서는 미병합/후속으로 다룬다.
 
 ---
 
@@ -52,6 +56,10 @@ v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. �
 | Composer | skill-creator 확장 + 검토 스킬 4종 + `nanobot skill` CLI | **신규 #3** |
 | 동기 위임 | `delegate` 툴 | **신규 #4** |
 | Task Ledger | tasks.md 규약 (composite-task가 사용) + 기존 timeout/iteration | 코드 최소 |
+| Workflow Tool | `nanobot/agent/tools/workflow.py :: WorkflowTool` | 완료 — opt-in, `_scopes={"core"}`, `config.tools.workflow.enabled=false` 기본 |
+| Workflow Service | `nanobot/workflow/service.py :: WorkflowService` + `store.py` SQLite | 완료 — run/resume/status/cancel/list, lease, restart recovery |
+| Workflow Runtime 연결 | `agent/context.py`, `workflow/runtime_lines.py`, `workflow/control.py`, `workflow/delivery.py` | 완료 — enabled일 때만 대기 줄·명시 resume·최종 전달 훅 연결 |
+| Workflow Definition/Executor | `workflow/schema.py`, `validator.py`, `executor.py`, `definitions/situation_judgment.v1.json` | 완료 — 5개 단계 유형, validators, branch pruning |
 | 대화 메모리 | 기존 memory 시스템(sessions/*.jsonl, Consolidator, MEMORY.md, Dream) | 있음 (3.7의 소규모 보강) |
 | 멀티토픽 보강 | topic-recall 스킬 + topics/ 스냅샷 규약 + Consolidator 템플릿 수정 | **신규 #5 (스킬·규약 위주)** |
 | 설치 모드 | Quick Start의 General/Student mode + `config.studentMode` | **신규 #6** |
@@ -59,7 +67,7 @@ v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. �
 | 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** |
 | 웹 UI 안전 모드 | `tools.safeMode` + ToolLoader 차단 정책 | **신규 #9** |
 
-[구현 지시] 위 신규 항목 외의 새 컴포넌트를 만들지 마라. 특히 "Skill Executor", "Intent Router", "Response Composer", "Workflow Engine", "Composite Detector"라는 이름의 별도 모듈 금지 — 이들은 메인 에이전트 루프의 행동 또는 스킬 지시문이지 코드가 아니다.
+[구현 지시] 위 신규 항목 외의 새 컴포넌트를 만들지 마라. 특히 "Skill Executor", "Intent Router", "Response Composer", "Composite Detector"라는 이름의 별도 모듈 금지 — 이들은 메인 에이전트 루프의 행동 또는 스킬 지시문이지 코드가 아니다. 예외: PR #23에서 승인·병합된 `nanobot/workflow/` 패키지와 `WorkflowService`/`WorkflowTool`은 본 문서 v3.4.12의 현행 구현 기준이다. 새 "Workflow Engine" 이름의 병렬 시스템을 추가하지 말고 이 구현을 확장한다.
 
 ---
 
@@ -217,6 +225,69 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 - OAuth가 막히거나 제공 범위가 부족한 경우를 위해 API key 입력 + 즉시 테스트 호출을 폴백으로 유지한다.
 - 사용액 상한은 이 설계 범위에서 제외한다. 대신 온보딩 문서에는 provider 대시보드에서 직접 사용 한도를 설정하는 방법을 별도 안내할 수 있다.
 
+
+---
+
+### 3.9 Durable workflow runtime (v3.4.12 / PR #23 현행)
+
+PR #23은 워크플로우를 스킬 대체물이 아니라 **옵션 도구+서비스 계층**으로 병합했다. 기본값은 꺼짐이다.
+
+**활성화와 무영향 원칙**
+- 설정: `config.tools.workflow.enabled`, DTO는 `nanobot/workflow/config.py :: WorkflowToolConfig`.
+- 기본값: `enabled=false`, `sync_wait_seconds=60`.
+- 비활성 시 `WorkflowTool.enabled()`가 false라 registry에 도구가 등록되지 않는다.
+- 비활성 시 `AgentLoop`은 `workflow_service=None`이고 `WorkflowDeliveryHook`을 `_extra_hooks`에 추가하지 않는다.
+- 비활성 시 `agent/context.py :: runtime_lines()`는 workflow waiting line을 만들지 않고, `handle_runtime_control()`도 workflow resume 경로를 타지 않는다.
+- `.workflow/` 저장소는 첫 사용 시점에만 생성된다.
+
+**구현 위치**
+| 책임 | 실제 구현 | 상태 |
+|---|---|---|
+| 도구 진입점 | `nanobot/agent/tools/workflow.py :: WorkflowTool` | 완료 |
+| 설정 | `nanobot/workflow/config.py :: WorkflowToolConfig`, `nanobot/config/schema.py :: ToolsConfig.workflow` | 완료 |
+| 계약/DTO | `nanobot/workflow/schema.py` | 완료 |
+| principal/access | `nanobot/workflow/access.py` | 완료 |
+| 시스템 문맥 | `nanobot/workflow/context_builder.py` | 완료 |
+| 조건/검증 | `nanobot/workflow/conditions.py`, `validator.py`, `validators.py` | 완료 |
+| 실행기 | `nanobot/workflow/executor.py :: WorkflowExecutor` | 완료 |
+| 서비스/저장 | `nanobot/workflow/service.py :: WorkflowService`, `store.py :: WorkflowStore` | 완료 |
+| 런타임 대기 줄 | `nanobot/workflow/runtime_lines.py :: workflow_runtime_lines` | 완료 |
+| 명시적 resume 연결 | `nanobot/workflow/control.py :: handle_workflow_runtime_control` | 완료 |
+| 최종 전달 훅 | `nanobot/workflow/delivery.py :: WorkflowDeliveryHook` | 완료 |
+| 동적 조합/품질 | `composition.py`, `evaluation.py`, `quality.py`, `quality_cli.py` | 완료 — scaffolding 포함 |
+| 기본 정의 | `nanobot/workflow/definitions/situation_judgment.v1.json` | 완료 |
+
+**Stage 0~5 병합 상태**
+- Stage 0: 기존 구조 확인과 체크리스트 검토 완료.
+- Stage 1: 스키마, 작업 봉투, principal/access, 시스템 문맥, disabled-by-default tool skeleton 완료.
+- Stage 2: `llm`/`tool`/`branch`/`wait_user`/`end` 5개 단계 유형, validators, optional branch pruning, `situation_judgment.v1` 완료.
+- Stage 3: `WorkflowService`, lease, restart recovery, runtime lines, explicit resume/control path, delivery hook, session message 기반 입력 연결 완료.
+- Stage 4: 등록 정의 기반 동적 조합과 실행 전 validator rejection 완료.
+- Stage 5: workflow on/off quality comparison/report scaffolding 완료.
+- Stage 6: PR #23 범위에서 제외. `feat/workflow-extension-stage6` 브랜치에 분리 보존한다.
+
+**입력 신뢰 규칙**
+- `run`/`resume`은 현재 턴의 사용자 원문을 LLM tool argument `input`에서 가져오지 않는다.
+- `WorkflowTool`은 `current_request_context().message_id`와 세션 이력의 user message를 매칭해 `user_text`를 얻는다.
+- 매칭되는 세션 user text가 없으면 `NEEDS_ATTENTION`을 반환한다.
+- 정상 resume에서 LLM tool `input`은 `input_reference`로만 보존된다.
+- `AgentLoop.process_direct()`는 workflow enablement와 무관하게 `metadata["message_id"] = "direct:{time.time_ns()}"`를 만든다.
+
+**서브에이전트 범위**
+- 설계 v2의 초기안은 `_scopes={"core", "subagent"}`였지만, PR #23 현행 구현은 `_scopes={"core"}`다.
+- 이유: subagent의 filtered registry, request/session context, workflow_service를 안전하게 함께 연결하기 전까지 subagent scope에서 실행하면 잘못된 registry 또는 비어 있는 사용자/session context로 실행될 수 있다.
+- 후속 확장 전까지 subagent에서 workflow는 숨긴다.
+
+**재시작 복구**
+- `WorkflowService.start()`는 만료된 `RUNNING` lease를 자동 재실행하지 않는다.
+- 외부 side effect가 이미 발생했을 수 있으므로 `NEEDS_ATTENTION`으로 전환하고 기존 `data`/`trace`를 보존한다.
+- 사용자는 trace를 보고 retry/cancel/recreate 여부를 명시적으로 결정한다.
+
+**전달 의미**
+- `WorkflowDeliveryHook.finalize_content()`는 검증된 workflow payload가 있으면 최종 assistant content를 교체한다.
+- `delivery_state`는 채널 handoff 의미를 기록하며, `publish_outbound`가 실제 사용자 단말 도달을 보증한다고 가정하지 않는다.
+- streaming이 finalize 이전에 content를 내보내는 채널에서는 별도 rollout 검토가 필요하다.
+
 ---
 
 ## 4. 데이터 명세
@@ -318,7 +389,12 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 
 ## 8. Workflow / Task Ledger
 
-Phase 1은 코드 없이 규약으로. composite-task가 tasks.md에 하위 작업·상태(Pending/Running/Done/Failed/Skipped)·웨이브 번호를 기록·갱신한다. Watchdog은 기존 iteration limit + wall timeout으로 갈음. Heartbeat/Checkpoint 코드는 범위 제외(후속).
+두 층을 구분한다.
+
+1. **Composite task ledger**: `tasks.md` 규약은 계속 유지한다. composite-task가 하위 작업·상태(Pending/Running/Done/Failed/Skipped)·wave_no를 기록·갱신한다.
+2. **Durable workflow task store**: PR #23 이후 상태ful workflow 실행은 `WorkflowService`와 `WorkflowStore`가 담당한다. 기본 저장 위치는 workspace의 `.workflow/workflow.db`이며, 첫 workflow 사용 시 생성한다. 저장 대상은 task envelope, principal, definition id, context snapshot, data, trace, question_id, resume_next, lease다.
+
+기본 watchdog은 두 종류다. AgentLoop 턴은 기존 iteration/wall timeout을 따르고, workflow 내부는 `WorkflowBudget(max_steps, max_llm_calls, max_tool_calls, max_retries, wall_time_seconds)`와 service lease를 따른다. Heartbeat/Checkpoint형 재실행은 아직 후속이다.
 
 ## 9. 테스트 계획
 
@@ -352,9 +428,18 @@ Phase 1은 코드 없이 규약으로. composite-task가 tasks.md에 하위 작�
   ST3 복습 등록 → review-teacher가 매일 1개 cron과 review queue로 due 항목만 처리
   ST4 safe mode 세션에서 셸/파일쓰기 요청 → 서버 측에서 도구 부재 또는 차단으로 실패하고 안전한 대안을 안내
 
+**Workflow PR #23 회귀 테스트(현행)**
+- Stage 1 계약: `tests/workflow/test_stage1_contract.py`
+- Stage 2 실행기: `tests/workflow/test_stage2_executor.py`
+- Stage 3 서비스/연결: `tests/workflow/test_stage3_service_connection.py`
+- Stage 4 동적 조합/평가: `tests/workflow/test_stage4_dynamic_evaluation.py`
+- Stage 5 품질 리포트: `tests/workflow/test_stage5_quality_report.py`
+- PR #23 기준 targeted workflow suite는 `44 passed`로 보고되었다. 이후 review follow-up 기준 Stage 1~3 targeted check는 `33 passed`로 확인되었다.
+
 ## 10. 구현 마일스톤 (수용 기준)
 
 M0 (완료) — 프로파일/하네스 패치.
+MWF0~MWF5 (완료, PR #23) — workflow disabled-by-default 도구, 계약, 실행기, 서비스/연결, 동적 조합, 품질 리포트 scaffolding. Stage 6은 별도 브랜치.
 M1 — Skill Store: sqlite 스키마(4.2/4.3), 인덱서, reindex CLI. 수용: 스킬 5개 적재·검색·사이클 검증·system 행 보호.
 M2 — skill_search(배치) + 메인 프롬프트 규칙(3.1/3.3/3.4). 수용: S1~S7.
 M3 — delegate 툴. 수용: 동기 왕복 + 게이트 error 재위임.
@@ -365,7 +450,7 @@ M7 — Student mode 배포 흐름. 수용: Windows `install.bat`/`start-nanobot.
 
 ## 11. 미결 사항
 
-임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝) / OpenAI OAuth 가능 범위와 PKCE 등록 방식 / Windows 설치 파일 서명·SmartScreen 이탈률 / 학생 모드 자동 게시 재개 조건.
+임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / workflow streaming 전달 semantics / subagent-safe workflow scope 연결 / duplicate WorkflowService coordination / Stage 6 확장 harness 병합 여부 / 실제 provider 품질 평가 / production rollout 시 agent별 `tools.workflow.enabled` 설정·재시작 절차 / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝) / OpenAI OAuth 가능 범위와 PKCE 등록 방식 / Windows 설치 파일 서명·SmartScreen 이탈률 / 학생 모드 자동 게시 재개 조건.
 
 **업스트림 기준점**
 원본 nanobot을 그대로 따라갈 수 있을 정도로 변경량이 작지 않다. 따라서 “업스트림 전체 동기화”가 아니라 “기준 커밋을 기록하고 필요한 변경만 선별 반영”하는 전략을 쓴다. 기준 커밋/버전, 원저작자, 라이선스 표기는 README와 릴리스 노트에 고정한다. 이후 업스트림 diff는 provider·보안 패치·버그픽스처럼 이 포크에 필요한 항목만 검토해 가져온다.
