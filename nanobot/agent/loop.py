@@ -93,6 +93,8 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
+from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
+from nanobot.workflow.service import WorkflowService
 
 if TYPE_CHECKING:
     from nanobot.config.schema import (
@@ -312,7 +314,20 @@ class AgentLoop:
         )
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
-        self._extra_hooks: list[AgentHook] = hooks or []
+        self.workflow_enabled = bool(getattr(_tc.workflow, "enabled", False))
+        self.workflow_service = (
+            WorkflowService(
+                workspace=workspace,
+                provider_loader=lambda: self.provider,
+                bus=bus,
+                sync_wait_seconds=int(getattr(_tc.workflow, "sync_wait_seconds", 60)),
+            )
+            if self.workflow_enabled
+            else None
+        )
+        self._extra_hooks: list[AgentHook] = [*(hooks or [])]
+        if self.workflow_enabled:
+            self._extra_hooks.append(WorkflowDeliveryHook())
 
         self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
         self.proactive_skill_cards = (
@@ -596,6 +611,8 @@ class AgentLoop:
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
             student_mode=self.student_mode_config,
+            workflow_service=self.workflow_service if self.workflow_enabled else None,
+            workflow_registry=self.tools if self.workflow_enabled else None,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
@@ -808,6 +825,8 @@ class AgentLoop:
         has_text = isinstance(msg.content, str) and msg.content.strip()
         if has_text or media_paths:
             extra: dict[str, Any] = ({"media": list(media_paths)} if media_paths else {}) | agent_context.session_extra(msg.metadata)
+            if isinstance(msg.metadata, dict) and msg.metadata.get("message_id"):
+                extra.setdefault("message_id", msg.metadata.get("message_id"))
             extra.update(kwargs)
             text = msg.content if isinstance(msg.content, str) else ""
             text_override, automation_extra = automation_history_overrides(msg.metadata)
@@ -1056,6 +1075,7 @@ class AgentLoop:
             )
 
         session_metadata = session.metadata if session is not None else None
+        clear_workflow_turn_delivery()
         try:
             result = await self.runner.run(AgentRunSpec(
                 initial_messages=initial_messages,
@@ -1124,6 +1144,8 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         try:
+            if self.workflow_service is not None:
+                await self.workflow_service.start()
             await self._connect_mcp()
             logger.info("Agent loop started")
 
@@ -1228,6 +1250,8 @@ class AgentLoop:
                     else None
                 )
         finally:
+            if self.workflow_service is not None:
+                await self.workflow_service.stop()
             # MCP stdio transports use AnyIO cancel scopes; close them from the task that opened them.
             await self.close_mcp()
 
@@ -1393,6 +1417,8 @@ class AgentLoop:
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
+        if self.workflow_service is not None:
+            await self.workflow_service.stop()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
@@ -1692,17 +1718,6 @@ class AgentLoop:
         if self._restore_pending_user_turn(ctx.session):
             self.sessions.save(ctx.session)
 
-        if msg.sender_id != "subagent" and isinstance(msg.content, str) and msg.content.strip():
-            recent_history = ctx.session.get_history(max_messages=12, max_tokens=0, extend_to_user=False)
-            update_conversation_focus(
-                ctx.session.metadata,
-                user_text=msg.content,
-                history=recent_history,
-                workspace=self.workspace,
-                session_key=ctx.session_key,
-            )
-            self.sessions.save(ctx.session)
-
         return "ok"
 
     def _prepare_message_media(self, content: str, media: list[str]) -> tuple[str, list[str]]:
@@ -1815,6 +1830,15 @@ class AgentLoop:
             "extend_to_user": False,
         }
         ctx.history = ctx.session.get_history(**_hist_kwargs)
+        if ctx.msg.sender_id != "subagent" and isinstance(ctx.msg.content, str) and ctx.msg.content.strip():
+            update_conversation_focus(
+                ctx.session.metadata,
+                user_text=ctx.msg.content,
+                history=ctx.history,
+                workspace=self.workspace,
+                session_key=ctx.session_key,
+            )
+            self.sessions.save(ctx.session)
         self._runtime_events().record_turn_runtime(
             ctx.session_key,
             self.llm_runtime(),
@@ -2355,7 +2379,7 @@ class AgentLoop:
     ) -> OutboundMessage | None:
         """Process a message directly and return the outbound payload."""
         await self._connect_mcp()
-        metadata: dict[str, Any] = {}
+        metadata: dict[str, Any] = {"message_id": f"direct:{time.time_ns()}"}
         if not persist_user_message:
             metadata[turn_continuation.SKIP_USER_PERSIST_META] = True
         msg = InboundMessage(

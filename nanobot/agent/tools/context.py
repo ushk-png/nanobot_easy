@@ -60,3 +60,5 @@ class ToolContext:
     runtime_events: Any | None = None
     subagent_depth: int = 0
     student_mode: Any | None = None
+    workflow_service: Any | None = None
+    workflow_registry: Any | None = None

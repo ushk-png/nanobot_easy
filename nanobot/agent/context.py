@@ -22,6 +22,8 @@ from nanobot.utils.helpers import (
     truncate_text_to_tokens,
 )
 from nanobot.utils.prompt_templates import render_template
+from nanobot.workflow.control import handle_workflow_runtime_control
+from nanobot.workflow.runtime_lines import workflow_runtime_lines
 
 
 def session_extra(metadata: Mapping[str, Any] | None) -> dict[str, Any]:
@@ -39,6 +41,11 @@ def runtime_lines(state: Any, msg: Any, workspace: Path, *, skip: bool = False) 
             connected_server_names=set(state._mcp_stacks),
             skip=skip,
         ),
+        *(
+            workflow_runtime_lines(state, msg, workspace, skip=skip)
+            if getattr(state, "workflow_enabled", False)
+            else []
+        ),
     ]
 
 
@@ -47,6 +54,9 @@ async def connect_mcp(state: Any, tools: ToolRegistry) -> None:
 
 
 async def handle_runtime_control(state: Any, msg: InboundMessage, tools: ToolRegistry) -> bool:
+    if getattr(state, "workflow_enabled", False):
+        if await handle_workflow_runtime_control(state, msg, tools):
+            return True
     return await mcp_tools.handle_runtime_control(state, msg, tools)
 
 

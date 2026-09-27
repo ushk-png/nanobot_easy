@@ -1,0 +1,174 @@
+{
+  "id": "situation_judgment.v1",
+  "version": "1.0.0",
+  "title": "Situation Judgment Workflow",
+  "description": "Minimal stage-2 workflow: system context -> sufficiency judgment -> optional memory/search/user question or answer -> review -> final.",
+  "start": "receive_context",
+  "referenced_skills": [],
+  "referenced_tools": ["search_memory", "web_search"],
+  "budget": {
+    "max_steps": 40,
+    "max_llm_calls": 8,
+    "max_tool_calls": 12,
+    "max_retries": 3,
+    "wall_time_seconds": 600
+  },
+  "steps": [
+    {
+      "id": "receive_context",
+      "type": "llm",
+      "next": "judge_sufficiency",
+      "inputs": {
+        "system_context": {"ref": "context"},
+        "available_actions": {"ref": "available_actions"}
+      },
+      "output": "received_context",
+      "config": {
+        "prompt": "Read the system-built workflow context. Return JSON {\"ack\": true, \"notes\": \"...\"}.",
+        "validators": ["required_field"],
+        "validator_config": {"field": "ack"}
+      }
+    },
+    {
+      "id": "judge_sufficiency",
+      "type": "llm",
+      "next": "choose_action",
+      "inputs": {
+        "system_context": {"ref": "context"},
+        "available_actions": {"ref": "available_actions"},
+        "tool_observations": {"ref": "tool_observations"}
+      },
+      "output": "judge_sufficiency",
+      "config": {
+        "prompt": "Judge whether the request has enough information. Return JSON with action in available_actions: memory, search, ask_user, or answer. Include reason and optional question.",
+        "validators": ["required_field"],
+        "validator_config": {"field": "action"}
+      }
+    },
+    {
+      "id": "choose_action",
+      "type": "branch",
+      "config": {
+        "value": {"ref": "results.judge_sufficiency.action"},
+        "default": "end_needs_attention",
+        "branches": {
+          "memory": {"next": "search_memory", "tool": "search_memory", "required": false},
+          "search": {"next": "web_search", "tool": "web_search", "required": false},
+          "ask_user": {"next": "ask_user"},
+          "answer": {"next": "draft_answer"}
+        }
+      }
+    },
+    {
+      "id": "search_memory",
+      "type": "tool",
+      "next": "judge_sufficiency",
+      "inputs": {
+        "query": {"ref": "context.user_text"},
+        "exact": [],
+        "after": null,
+        "before": null,
+        "event_types": [],
+        "order": "relevance",
+        "limit": 5,
+        "max_context_tokens": 2000,
+        "exclude_event_ids": []
+      },
+      "output": "memory_result",
+      "config": {"tool": "search_memory"}
+    },
+    {
+      "id": "web_search",
+      "type": "tool",
+      "next": "judge_sufficiency",
+      "inputs": {
+        "query": {"ref": "context.user_text"},
+        "count": 5,
+        "timeRange": "",
+        "authLevel": 0,
+        "queryRewrite": true
+      },
+      "output": "search_result",
+      "config": {"tool": "web_search"}
+    },
+    {
+      "id": "ask_user",
+      "type": "wait_user",
+      "next": "judge_sufficiency",
+      "output": "user_question",
+      "config": {
+        "question": {"ref": "results.judge_sufficiency.question"}
+      }
+    },
+    {
+      "id": "draft_answer",
+      "type": "llm",
+      "next": "review_answer",
+      "inputs": {
+        "system_context": {"ref": "context"},
+        "tool_observations": {"ref": "tool_observations"},
+        "judgment": {"ref": "results.judge_sufficiency"}
+      },
+      "output": "draft_answer",
+      "config": {
+        "prompt": "Draft the final answer. Return JSON {\"answer\": \"...\"}.",
+        "validators": ["non_empty_text"],
+        "validator_config": {"field": "answer"}
+      }
+    },
+    {
+      "id": "review_answer",
+      "type": "llm",
+      "next": "review_branch",
+      "inputs": {
+        "system_context": {"ref": "context"},
+        "draft": {"ref": "results.draft_answer"},
+        "tool_observations": {"ref": "tool_observations"}
+      },
+      "output": "review_answer",
+      "config": {
+        "prompt": "Review the draft against the request and evidence. Return JSON {\"decision\": \"pass|rewrite|need_evidence|limit_exceeded\", \"reason\": \"...\"}.",
+        "validators": ["allowed_review_decision"],
+        "validator_config": {"field": "decision"}
+      }
+    },
+    {
+      "id": "review_branch",
+      "type": "branch",
+      "config": {
+        "value": {"ref": "results.review_answer.decision"},
+        "default": "end_failed",
+        "branches": {
+          "pass": {"next": "end_success"},
+          "rewrite": {"next": "draft_answer"},
+          "need_evidence": {"next": "judge_sufficiency"},
+          "limit_exceeded": {"next": "end_needs_attention"}
+        }
+      }
+    },
+    {
+      "id": "end_success",
+      "type": "end",
+      "config": {
+        "state": "COMPLETED",
+        "answer": {"ref": "results.draft_answer.answer"}
+      }
+    },
+    {
+      "id": "end_needs_attention",
+      "type": "end",
+      "config": {
+        "state": "NEEDS_ATTENTION",
+        "reason": {"ref": "results.judge_sufficiency.reason"}
+      }
+    },
+    {
+      "id": "end_failed",
+      "type": "end",
+      "config": {
+        "state": "FAILED",
+        "reason": {"ref": "results.review_answer.reason"}
+      }
+    }
+  ]
+}
