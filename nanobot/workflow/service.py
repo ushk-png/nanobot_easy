@@ -2,12 +2,13 @@
 
 This is intentionally conservative: it persists task envelopes and supports
 run/status/list/cancel plus deterministic resume of a waiting task into a final
-answer. Full restart recovery/lease semantics can be expanded in later hardening,
-but the public connection points and access checks are present.
+answer. Restart recovery never auto-replays RUNNING work when external side
+effects may be unclear; expired leases are surfaced for operator attention.
 """
 from __future__ import annotations
 
 import asyncio
+import time
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,7 @@ from nanobot.workflow.store import WorkflowStore
 from nanobot.workflow.access import WorkflowAccessDenied, ensure_task_access
 
 _TERMINAL_STATES = {"COMPLETED", "FAILED", "NEEDS_ATTENTION", "CANCELLED", "WAITING_USER"}
+_LEASE_SECONDS = 300
 
 
 class WorkflowService:
@@ -46,6 +48,7 @@ class WorkflowService:
 
     async def start(self) -> None:
         self._running = True
+        self._recover_expired_leases()
 
     async def stop(self) -> None:
         self._running = False
@@ -58,6 +61,41 @@ class WorkflowService:
 
     def waiting_tasks_for_principal(self, principal: WorkflowPrincipal) -> list[dict[str, Any]]:
         return self.store.list_tasks(principal, states={"WAITING_USER"})
+
+    def _recover_expired_leases(self) -> None:
+        """Mark abandoned RUNNING tasks for attention without replaying work.
+
+        A process restart loses in-memory executor state. Because a RUNNING
+        workflow may already have invoked external tools before the process died,
+        automatically replaying from the last persisted input could duplicate
+        side effects or overwrite an unclear result. Until step-level idempotent
+        checkpoints exist, startup recovery is therefore conservative: expired
+        RUNNING leases become NEEDS_ATTENTION and require explicit operator/user
+        action.
+        """
+        for row in self.store.list_expired_leases(now=time.time(), states={"RUNNING"}):
+            task_id = str(row.get("task_id") or "")
+            if not task_id:
+                continue
+            previous = WorkflowEnvelope.model_validate(row.get("envelope") or {})
+            envelope = WorkflowEnvelope(
+                task_id=task_id,
+                state="NEEDS_ATTENTION",
+                delivery_state=previous.delivery_state,
+                reason="workflow restart recovery requires attention; expired running lease was not automatically replayed",
+                next_hint="Inspect prior trace/data before deciding whether to retry, cancel, or recreate the workflow.",
+            )
+            self.store.upsert_task(
+                task_id=task_id,
+                principal=WorkflowPrincipal.model_validate(row.get("principal") or {}),
+                definition_id=row.get("definition_id") or "situation_judgment.v1",
+                envelope=envelope,
+                context=row.get("context") or {},
+                data=row.get("data") or {},
+                trace=row.get("trace") or [],
+                question_id=row.get("question_id"),
+                resume_next=row.get("resume_next"),
+            )
 
     def list_definitions(self) -> list[dict[str, Any]]:
         definition = self._load_definition("situation_judgment.v1")
@@ -116,6 +154,7 @@ class WorkflowService:
             envelope=running,
             context=context,
         )
+        self.store.set_lease(executor.task_id, lease_until=time.time() + _LEASE_SECONDS)
         coro = self._execute_and_persist(executor, principal, definition, context)
         if self.sync_wait_seconds <= 0:
             task = asyncio.create_task(coro)
@@ -269,6 +308,7 @@ class WorkflowService:
         coro = self._execute_and_persist(executor, principal, definition, context)
         if self.sync_wait_seconds <= 0:
             running = WorkflowEnvelope(task_id=task_id, state="RUNNING", reason="workflow resume execution started")
+            self.store.set_lease(task_id, lease_until=time.time() + _LEASE_SECONDS)
             task = asyncio.create_task(coro)
             self._tasks[task_id] = task
             task.add_done_callback(lambda t, task_id=task_id: self._tasks.pop(task_id, None))
@@ -286,6 +326,7 @@ class WorkflowService:
             return await asyncio.wait_for(asyncio.shield(coro), timeout=self.sync_wait_seconds)
         except asyncio.TimeoutError:
             running = WorkflowEnvelope(task_id=task_id, state="RUNNING", reason="workflow resume execution started")
+            self.store.set_lease(task_id, lease_until=time.time() + _LEASE_SECONDS)
             task = asyncio.create_task(coro)
             self._tasks[task_id] = task
             task.add_done_callback(lambda t, task_id=task_id: self._tasks.pop(task_id, None))

@@ -129,6 +129,25 @@ class WorkflowStore:
                 (envelope.state, envelope.delivery_state, self._dumps(envelope.model_dump()), task_id),
             )
 
+    def list_expired_leases(self, *, now: float, states: set[str] | None = None) -> list[dict[str, Any]]:
+        sql = "SELECT * FROM workflow_tasks WHERE lease_until <= ?"
+        args: list[Any] = [now]
+        if states:
+            placeholders = ",".join("?" for _ in states)
+            sql += f" AND state IN ({placeholders})"
+            args.extend(sorted(states))
+        sql += " ORDER BY updated_at ASC"
+        with self._connect() as con:
+            rows = con.execute(sql, args).fetchall()
+        return [self._row_to_task(row) for row in rows]
+
+    def set_lease(self, task_id: str, *, lease_until: float) -> None:
+        with self._connect() as con:
+            con.execute(
+                "UPDATE workflow_tasks SET lease_until=?, updated_at=strftime('%s','now') WHERE task_id=?",
+                (lease_until, task_id),
+            )
+
     def mark_delivered(self, task_id: str, *, handed_to_channel: bool = True) -> None:
         state = "handed_to_channel" if handed_to_channel else "failed"
         task = self.get_task(task_id)

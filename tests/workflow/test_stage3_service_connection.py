@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock
@@ -102,6 +103,61 @@ def principal(tmp_path: Path) -> WorkflowPrincipal:
         channel="telegram",
         chat_id="1",
     )
+
+
+@pytest.mark.asyncio
+async def test_workflow_service_start_marks_expired_running_lease_needs_attention(tmp_path: Path) -> None:
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    p = principal(tmp_path)
+    service.store.upsert_task(
+        task_id="wf_running",
+        principal=p,
+        definition_id="situation_judgment.v1",
+        envelope=WorkflowEnvelope(task_id="wf_running", state="RUNNING", reason="in progress"),
+        context={"user_text": "질문"},
+        data={"results": {"external_tool": {"status": "maybe_done"}}},
+        trace=[{"step": "external_tool", "type": "tool"}],
+    )
+    service.store.set_lease("wf_running", lease_until=time.time() - 10)
+
+    await service.start()
+
+    row = service.store.get_task("wf_running")
+    assert row is not None
+    assert row["state"] == "NEEDS_ATTENTION"
+    assert row["data"]["results"]["external_tool"] == {"status": "maybe_done"}
+    assert row["trace"] == [{"step": "external_tool", "type": "tool"}]
+    envelope = WorkflowEnvelope.model_validate(row["envelope"])
+    assert "expired running lease was not automatically replayed" in (envelope.reason or "")
+    assert "Inspect prior trace/data" in (envelope.next_hint or "")
+
+
+@pytest.mark.asyncio
+async def test_workflow_service_start_leaves_active_or_waiting_tasks_unchanged(tmp_path: Path) -> None:
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    p = principal(tmp_path)
+    service.store.upsert_task(
+        task_id="wf_active",
+        principal=p,
+        definition_id="situation_judgment.v1",
+        envelope=WorkflowEnvelope(task_id="wf_active", state="RUNNING", reason="in progress"),
+        context={},
+    )
+    service.store.set_lease("wf_active", lease_until=time.time() + 300)
+    service.store.upsert_task(
+        task_id="wf_waiting",
+        principal=p,
+        definition_id="situation_judgment.v1",
+        envelope=WorkflowEnvelope(task_id="wf_waiting", state="WAITING_USER", question="확인?", question_id="q1"),
+        context={},
+        question_id="q1",
+    )
+    service.store.set_lease("wf_waiting", lease_until=time.time() - 10)
+
+    await service.start()
+
+    assert service.store.get_task("wf_active")["state"] == "RUNNING"  # type: ignore[index]
+    assert service.store.get_task("wf_waiting")["state"] == "WAITING_USER"  # type: ignore[index]
 
 
 @pytest.mark.asyncio
