@@ -185,6 +185,15 @@ class TestBuildDreamPrompt:
         assert "Always strip these bracketed tags from saved memory content" in prompt
 
 
+def _dream_tool_intent(target: str) -> dict[str, object]:
+    return {
+        "intent_summary": "Dream test updates managed memory or skill files.",
+        "target": target,
+        "scope": "persistent",
+        "reversible": True,
+    }
+
+
 class TestDreamTools:
     def test_dream_tools_are_restricted_to_file_edits(self, store):
         tools = store.build_dream_tools()
@@ -210,7 +219,8 @@ class TestDreamTools:
                         "old_text": "Project X active",
                         "new_text": "Project Y active",
                     }
-                ]
+                ],
+                **_dream_tool_intent("memory/MEMORY.md"),
             },
         )
         soul_result = await tools.execute(
@@ -219,6 +229,7 @@ class TestDreamTools:
                 "path": "SOUL.md",
                 "old_text": "Helpful",
                 "new_text": "Precise",
+                **_dream_tool_intent("SOUL.md"),
             },
         )
 
@@ -237,6 +248,7 @@ class TestDreamTools:
             {
                 "path": "skills/demo/SKILL.md",
                 "content": "---\nname: demo\ndescription: Demo skill.\n---\n\nUse when needed.\n",
+                **_dream_tool_intent("skills/demo/SKILL.md"),
             },
         )
 
@@ -256,7 +268,11 @@ class TestDreamTools:
         try:
             outside_result = await tools.execute(
                 "write_file",
-                {"path": str(outside_target), "content": "owned"},
+                {
+                    "path": str(outside_target),
+                    "content": "owned",
+                    **_dream_tool_intent(str(outside_target)),
+                },
             )
             skill_result = await tools.execute(
                 "apply_patch",
@@ -267,7 +283,8 @@ class TestDreamTools:
                             "action": "add",
                             "new_text": "---\nname: scoped\n---\n",
                         }
-                    ]
+                    ],
+                    **_dream_tool_intent("skills/scoped/SKILL.md"),
                 },
             )
         finally:
@@ -294,7 +311,8 @@ class TestDreamTools:
                         "old_text": "before",
                         "new_text": "after",
                     }
-                ]
+                ],
+                **_dream_tool_intent("memory/history.jsonl"),
             },
         )
         cursor_result = await tools.execute(
@@ -303,6 +321,7 @@ class TestDreamTools:
                 "path": "memory/.dream_cursor",
                 "old_text": "1",
                 "new_text": "2",
+                **_dream_tool_intent("memory/.dream_cursor"),
             },
         )
 
@@ -326,7 +345,8 @@ class TestDreamTools:
                         "action": "add",
                         "new_text": "owned",
                     }
-                ]
+                ],
+                **_dream_tool_intent("memory/MEMORY.md/evil.txt"),
             },
         )
         user_result = await tools.execute(
@@ -335,6 +355,7 @@ class TestDreamTools:
                 "path": "USER.md/evil.txt",
                 "old_text": "",
                 "new_text": "owned",
+                **_dream_tool_intent("USER.md/evil.txt"),
             },
         )
 
