@@ -16,6 +16,7 @@ from nanobot.bus.events import InboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.config.schema import Config, ToolsConfig
 from nanobot.providers.base import LLMProvider, LLMResponse
+from nanobot.session.manager import SessionManager
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.schema import WorkflowDefinition, WorkflowEnvelope, WorkflowPrincipal
 from nanobot.workflow.service import WorkflowService
@@ -140,6 +141,49 @@ async def test_resume_returns_needs_attention_when_required_tool_is_missing(tmp_
 
     assert resumed.state == "NEEDS_ATTENTION"
     assert "required tools are unavailable: web_search" in (resumed.reason or "")
+
+
+@pytest.mark.asyncio
+async def test_workflow_tool_builds_context_from_session_not_llm_input(tmp_path: Path) -> None:
+    provider = ScriptedProvider([
+        {"ack": True},
+        {"action": "answer", "reason": "enough"},
+        {"answer": "세션 원문 기준 답변"},
+        {"decision": "pass", "reason": "ok"},
+    ])
+    sessions = SessionManager(tmp_path)
+    session = sessions.get_or_create("telegram:1")
+    session.metadata["goal_state"] = {"status": "active", "objective": "세션 목표"}
+    session.metadata["conversation_focus"] = {"current_focus": "세션 초점"}
+    session.add_message("assistant", "이전 답변")
+    session.add_message("user", "진짜 사용자 원문", message_id="m1")
+    sessions.save(session)
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: provider, bus=MessageBus())
+    ctx = ToolContext(
+        config=ToolsConfig(workflow={"enabled": True}),
+        workspace=str(tmp_path),
+        sessions=sessions,
+        workflow_service=service,
+        workflow_registry=ToolRegistry(),
+    )
+    token = bind_request_context(RequestContext(channel="telegram", chat_id="1", session_key="telegram:1", message_id="m1"))
+    try:
+        tool = WorkflowTool.create(ctx)
+        result = json.loads(await tool.execute(action="run", input="LLM이 지어낸 다른 요청"))
+    finally:
+        reset_request_context(token)
+
+    assert result["state"] == "COMPLETED"
+    first_payload = provider.payloads[0]
+    system_context = first_payload["inputs"]["system_context"]
+    assert system_context["user_text"] == "진짜 사용자 원문"
+    assert system_context["recent_history"][-1]["content"] == "진짜 사용자 원문"
+    assert system_context["goal_lines"]
+    assert system_context["focus_lines"]
+    row = service.store.get_task(result["task_id"])
+    assert row is not None
+    assert row["context"]["user_text"] == "진짜 사용자 원문"
+    assert row["context"]["goal"] == "LLM이 지어낸 다른 요청"
 
 
 @pytest.mark.asyncio

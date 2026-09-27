@@ -77,6 +77,7 @@ class WorkflowService:
         workflow_id: str = "situation_judgment.v1",
         session_metadata: dict[str, Any] | None = None,
         recent_history: list[dict[str, Any]] | None = None,
+        goal: str | None = None,
     ) -> WorkflowEnvelope:
         provider = self.provider_loader() if self.provider_loader else None
         if provider is None:
@@ -96,6 +97,8 @@ class WorkflowService:
             same_session_workflows=self._same_session_summary(principal),
         )
         context["workflow_composition"] = composition.model_dump()
+        if goal is not None:
+            context["goal"] = goal
         executor = WorkflowExecutor(
             definition=definition,
             tools=registry,

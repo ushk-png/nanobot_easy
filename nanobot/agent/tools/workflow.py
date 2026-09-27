@@ -5,7 +5,7 @@ import json
 from typing import Any
 
 from nanobot.agent.tools.base import Tool, tool_parameters
-from nanobot.agent.tools.context import ToolContext
+from nanobot.agent.tools.context import ToolContext, current_request_context
 from nanobot.agent.tools.schema import StringSchema, tool_parameters_schema
 from nanobot.workflow.access import build_principal
 from nanobot.workflow.config import WorkflowToolConfig
@@ -101,6 +101,7 @@ class WorkflowTool(Tool):
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
 
         principal = build_principal(self._ctx)
+        request_ctx = current_request_context()
         registry = getattr(self._ctx, "workflow_registry", None)
         normalized = str(action)
         if normalized == WorkflowAction.LIST.value:
@@ -134,13 +135,57 @@ class WorkflowTool(Tool):
             if registry is None:
                 from nanobot.agent.tools.registry import ToolRegistry
                 registry = ToolRegistry()
+            workflow_context = self._system_workflow_context(request_ctx, fallback_user_text=input or "")
             envelope = await service.run(
                 principal=principal,
-                user_text=input or "",
+                user_text=workflow_context["user_text"],
                 registry=registry,
                 workflow_id=workflow_id or "situation_judgment.v1",
+                session_metadata=workflow_context["session_metadata"],
+                recent_history=workflow_context["recent_history"],
+                goal=input or "",
             )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
 
         envelope = WorkflowEnvelope(state="NEEDS_ATTENTION", reason=f"unknown workflow action: {action}")
         return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
+
+    def _system_workflow_context(self, request_ctx: Any | None, *, fallback_user_text: str) -> dict[str, Any]:
+        session = None
+        session_key = getattr(request_ctx, "session_key", None) if request_ctx is not None else None
+        if session_key and getattr(self._ctx, "sessions", None) is not None:
+            try:
+                session = self._ctx.sessions.get_or_create(str(session_key))
+            except Exception:
+                session = None
+        metadata = dict(getattr(session, "metadata", {}) or {}) if session is not None else {}
+        recent_history: list[dict[str, Any]] = []
+        if session is not None:
+            try:
+                recent_history = list(session.get_history(max_messages=20))
+            except Exception:
+                recent_history = []
+        user_text = self._user_text_from_session(session, getattr(request_ctx, "message_id", None) if request_ctx is not None else None)
+        if not user_text:
+            user_text = fallback_user_text
+        return {
+            "user_text": user_text,
+            "recent_history": recent_history,
+            "session_metadata": metadata,
+        }
+
+    @staticmethod
+    def _user_text_from_session(session: Any | None, message_id: str | None) -> str:
+        if session is None:
+            return ""
+        messages = list(getattr(session, "messages", []) or [])
+        if message_id:
+            for message in reversed(messages):
+                if message.get("role") == "user" and str(message.get("message_id") or "") == str(message_id):
+                    content = message.get("content")
+                    return content if isinstance(content, str) else ""
+        for message in reversed(messages):
+            if message.get("role") == "user":
+                content = message.get("content")
+                return content if isinstance(content, str) else ""
+        return ""
