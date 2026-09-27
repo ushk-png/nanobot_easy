@@ -330,6 +330,41 @@ async def test_workflow_runtime_control_resume_passes_real_message_content(tmp_p
 
 
 @pytest.mark.asyncio
+async def test_workflow_tool_resume_requires_session_user_text(tmp_path: Path) -> None:
+    service = WorkflowService(workspace=tmp_path, provider_loader=lambda: ScriptedProvider([]), bus=MessageBus())
+    p = principal(tmp_path)
+    service.store.upsert_task(
+        task_id="wf_wait",
+        principal=p,
+        definition_id="situation_judgment.v1",
+        envelope=WorkflowEnvelope(task_id="wf_wait", state="WAITING_USER", question="확인?", question_id="q1", deliver="question"),
+        context={"user_text": "질문"},
+        data={"results": {"user_question": {"question_id": "q1", "question": "확인?"}}},
+        question_id="q1",
+        resume_next=None,
+    )
+    ctx = ToolContext(
+        config=ToolsConfig(workflow={"enabled": True}),
+        workspace=str(tmp_path),
+        sessions=SessionManager(tmp_path),
+        workflow_service=service,
+        workflow_registry=ToolRegistry(),
+    )
+    token = bind_request_context(RequestContext(channel="telegram", chat_id="1", session_key="telegram:1", message_id="missing"))
+    try:
+        tool = WorkflowTool.create(ctx)
+        result = json.loads(await tool.execute(action="resume", task_id="wf_wait", question_id="q1", input="LLM 답변"))
+    finally:
+        reset_request_context(token)
+
+    assert result["state"] == "NEEDS_ATTENTION"
+    assert "current user message from session history" in result["reason"]
+    row = service.store.get_task("wf_wait")
+    assert row is not None
+    assert "user_answer" not in row["data"].get("results", {})
+
+
+@pytest.mark.asyncio
 async def test_resume_returns_needs_attention_when_required_tool_is_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     definition = load_definition().model_copy(deep=True)
     definition.referenced_tools = ["web_search"]
@@ -500,7 +535,7 @@ async def test_workflow_tool_uses_service_for_list_status_cancel(tmp_path: Path)
         assert listed[0]["id"] == "situation_judgment.v1"
         run = json.loads(await tool.execute(action="run", input="hello"))
         assert run["state"] == "NEEDS_ATTENTION"
-        assert "active provider" in run["reason"]
+        assert "current user message from session history" in run["reason"]
     finally:
         reset_request_context(token)
 

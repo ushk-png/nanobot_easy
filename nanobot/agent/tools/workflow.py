@@ -123,38 +123,44 @@ class WorkflowTool(Tool):
                 if registry is None:
                     from nanobot.agent.tools.registry import ToolRegistry
                     registry = ToolRegistry()
-                workflow_context = self._system_workflow_context(request_ctx, fallback_user_text=input or "")
-                envelope = await service.resume(
-                    principal=principal,
-                    task_id=task_id,
-                    question_id=question_id,
-                    answer=workflow_context["user_text"],
-                    registry=registry,
-                    answer_source=workflow_context["user_text_source"],
-                    input_reference=input or "",
-                )
+                workflow_context = self._system_workflow_context(request_ctx)
+                if not workflow_context["user_text"]:
+                    envelope = self._missing_session_user_text_envelope(task_id=task_id)
+                else:
+                    envelope = await service.resume(
+                        principal=principal,
+                        task_id=task_id,
+                        question_id=question_id,
+                        answer=workflow_context["user_text"],
+                        registry=registry,
+                        answer_source=workflow_context["user_text_source"],
+                        input_reference=input or "",
+                    )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
         if normalized == WorkflowAction.RUN.value:
             if registry is None:
                 from nanobot.agent.tools.registry import ToolRegistry
                 registry = ToolRegistry()
-            workflow_context = self._system_workflow_context(request_ctx, fallback_user_text=input or "")
-            envelope = await service.run(
-                principal=principal,
-                user_text=workflow_context["user_text"],
-                registry=registry,
-                workflow_id=workflow_id or "situation_judgment.v1",
-                session_metadata=workflow_context["session_metadata"],
-                recent_history=workflow_context["recent_history"],
-                goal=input or "",
-                user_text_source=workflow_context["user_text_source"],
-            )
+            workflow_context = self._system_workflow_context(request_ctx)
+            if not workflow_context["user_text"]:
+                envelope = self._missing_session_user_text_envelope()
+            else:
+                envelope = await service.run(
+                    principal=principal,
+                    user_text=workflow_context["user_text"],
+                    registry=registry,
+                    workflow_id=workflow_id or "situation_judgment.v1",
+                    session_metadata=workflow_context["session_metadata"],
+                    recent_history=workflow_context["recent_history"],
+                    goal=input or "",
+                    user_text_source=workflow_context["user_text_source"],
+                )
             return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
 
         envelope = WorkflowEnvelope(state="NEEDS_ATTENTION", reason=f"unknown workflow action: {action}")
         return json.dumps(envelope.model_dump(), ensure_ascii=False, indent=2)
 
-    def _system_workflow_context(self, request_ctx: Any | None, *, fallback_user_text: str) -> dict[str, Any]:
+    def _system_workflow_context(self, request_ctx: Any | None) -> dict[str, Any]:
         session = None
         session_key = getattr(request_ctx, "session_key", None) if request_ctx is not None else None
         if session_key and getattr(self._ctx, "sessions", None) is not None:
@@ -173,9 +179,6 @@ class WorkflowTool(Tool):
             session,
             getattr(request_ctx, "message_id", None) if request_ctx is not None else None,
         )
-        if not user_text:
-            user_text = fallback_user_text
-            user_text_source = "input_fallback"
         return {
             "user_text": user_text,
             "user_text_source": user_text_source,
@@ -184,9 +187,18 @@ class WorkflowTool(Tool):
         }
 
     @staticmethod
+    def _missing_session_user_text_envelope(task_id: str | None = None) -> WorkflowEnvelope:
+        return WorkflowEnvelope(
+            task_id=task_id,
+            state="NEEDS_ATTENTION",
+            reason="workflow requires the current user message from session history, but none was found",
+            next_hint="Retry from a normal chat turn so the user message is stored before calling workflow.",
+        )
+
+    @staticmethod
     def _user_text_from_session(session: Any | None, message_id: str | None) -> tuple[str, str]:
         if session is None:
-            return "", "input_fallback"
+            return "", "missing_session"
         messages = list(getattr(session, "messages", []) or [])
         if message_id:
             for message in reversed(messages):
@@ -197,4 +209,4 @@ class WorkflowTool(Tool):
             if message.get("role") == "user":
                 content = message.get("content")
                 return (content if isinstance(content, str) else "", "latest_fallback")
-        return "", "input_fallback"
+        return "", "missing_user_text"
