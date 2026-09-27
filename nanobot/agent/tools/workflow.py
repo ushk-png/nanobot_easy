@@ -217,6 +217,7 @@ class WorkflowTool(Tool):
                 if message.get("role") == "user" and str(message.get("message_id") or "") == str(message_id):
                     content = message.get("content")
                     return (content if isinstance(content, str) else "", "message_id")
+            return "", "missing_user_text"
         for message in reversed(messages):
             if message.get("role") == "user":
                 content = message.get("content")
