@@ -199,6 +199,8 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 
 ### 3.8 학생 친화 설치 모드와 학습 스킬 운용 (v3.4.10)
 
+현재 미지원. WebUI에서 숨김. safe_mode 연동이 WebUI 경로에 없어 제약이 적용되지 않기 때문.
+
 학생 모드는 기존 nanobot을 대체하는 별도 런타임이 아니다. 설치 온보딩에서 선택되는 설정 묶음이며, 같은 코드베이스에서 다음 두 모드로 동작한다.
 
 | 모드 | 메인 경험 | 서브에이전트 구성 | 웹 UI 노출 |
@@ -572,8 +574,7 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 
 ### 13.3 결정이 필요한 곳
 
-- Student mode 선택 위치: 현재 온보딩 마법사에는 mode 선택 단계가 없다. `student_mode.mode`는 `webui/src/components/settings/AdvancedSettings.tsx` / `SettingsView.tsx`의 설정 화면에서 바뀐다. 설치 시 선택을 복원할지, 설정 화면 전환 방침으로 문서를 더 바꿀지 결정이 필요하다.
-- `tools.safe_mode`와 WebUI 학생 모드 잠금: 서버 설정은 `config.tools.safe_mode`와 `config.student_mode.mode`가 별도 항목이다. WebUI는 `student_mode.mode === "student"`일 때 안내 문구를 보여주지만, 같은 값으로 ToolLoader의 safe mode가 자동 동기화되는지는 이 문서 갱신 범위에서 미검증이다.
+- Student mode 선택 위치 / `tools.safe_mode`와 WebUI 학생 모드 잠금: 학생 모드는 미지원으로 결정한다. WebUI에서는 General/Student 선택 UI를 숨기고, 이미 `student`로 저장된 설정에만 지원 중단 경고와 General 되돌리기 버튼을 노출한다. 재도입 시에는 `student_mode.mode` 변경보다 먼저 ToolLoader의 `tools.safe_mode` 연동부터 구현해야 한다.
 
 ### 13.4 워크플로우를 켜기 전 확인 사항
 

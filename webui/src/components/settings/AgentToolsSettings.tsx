@@ -28,7 +28,6 @@ export function AgentToolsSettings({
     fallbackTitle: string;
     descKey: string;
     fallbackDesc: string;
-    locked?: boolean;
   }> = [
     {
       key: "webEnabled",
@@ -74,7 +73,6 @@ export function AgentToolsSettings({
       fallbackTitle: "Run commands",
       descKey: "settings.agentTools.exec.desc",
       fallbackDesc: "Run commands directly on this computer.",
-      locked: true,
     },
   ];
 
@@ -109,11 +107,6 @@ export function AgentToolsSettings({
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-[13.5px] font-medium text-foreground">
                 {t(row.titleKey, { defaultValue: row.fallbackTitle })}
-                {row.locked ? (
-                  <span className="rounded-full border border-amber-300/60 bg-amber-50 px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wide text-amber-700 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-300">
-                    {t("settings.agentTools.needsApproval", { defaultValue: "Needs approval" })}
-                  </span>
-                ) : null}
               </div>
               <p className="text-[12px] text-muted-foreground">
                 {t(row.descKey, { defaultValue: row.fallbackDesc })}

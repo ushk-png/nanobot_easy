@@ -96,6 +96,21 @@ function settingsPayload(): SettingsPayload {
       exec_path_prepend_set: false,
       exec_path_append_set: false,
     },
+    student_mode: {
+      mode: "general",
+      coach_name: "담임 선생님",
+      review_teacher_name: "AGENT_A 선생님",
+      study_log_path: "study_log.jsonl",
+      review_queue_path: "review_queue.jsonl",
+      daily_review_cron_name: "student-mode-daily-review",
+    },
+    agent_tools: {
+      web_enabled: true,
+      file_enabled: true,
+      exec_enabled: false,
+      cli_apps_enabled: false,
+      image_generation_enabled: false,
+    },
     requires_restart: false,
   };
 }
@@ -1068,6 +1083,88 @@ describe("SettingsView Apps catalog", () => {
         }),
       ),
     );
+  });
+
+  it("hides the student mode picker when general mode is active", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/settings") return jsonResponse(settingsPayload());
+        if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+        if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      }),
+    );
+
+    renderSettingsView({ initialSection: "advanced" });
+
+    expect(await screen.findByText("Web safety")).toBeInTheDocument();
+    expect(screen.queryByText("student_mode.mode")).not.toBeInTheDocument();
+    expect(screen.queryByText("Student mode")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "학생" })).not.toBeInTheDocument();
+  });
+
+  it("shows only an unsupported warning and reset action for persisted student mode", async () => {
+    const payload: SettingsPayload = {
+      ...settingsPayload(),
+      student_mode: {
+        ...settingsPayload().student_mode!,
+        mode: "student",
+      },
+    };
+    const generalPayload: SettingsPayload = {
+      ...payload,
+      student_mode: {
+        ...payload.student_mode!,
+        mode: "general",
+      },
+    };
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/settings") return jsonResponse(payload);
+      if (url === "/api/settings/cli-apps") return jsonResponse({ apps: [], installed_count: 0 });
+      if (url === "/api/settings/mcp-presets") return jsonResponse({ presets: [], installed_count: 0 });
+      if (url === "/api/settings/student-mode/update?mode=general&coach_name=%EB%8B%B4%EC%9E%84+%EC%84%A0%EC%83%9D%EB%8B%98&review_teacher_name=AGENT_A+%EC%84%A0%EC%83%9D%EB%8B%98&study_log_path=study_log.jsonl&review_queue_path=review_queue.jsonl&daily_review_cron_name=student-mode-daily-review") {
+        return jsonResponse(generalPayload);
+      }
+      return { ok: false, status: 404, json: async () => ({}) } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    renderSettingsView({ initialSection: "advanced" });
+
+    expect(await screen.findByText("Student mode is no longer supported")).toBeInTheDocument();
+    expect(screen.getByText("학생 모드는 지원이 중단되었고 도구 제한이 적용되지 않습니다")).toBeInTheDocument();
+    expect(screen.queryByText("student_mode.mode")).not.toBeInTheDocument();
+    expect(screen.queryByText("coach_name")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "General로 되돌리기" }));
+
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/settings/student-mode/update?mode=general&coach_name=%EB%8B%B4%EC%9E%84+%EC%84%A0%EC%83%9D%EB%8B%98&review_teacher_name=AGENT_A+%EC%84%A0%EC%83%9D%EB%8B%98&study_log_path=study_log.jsonl&review_queue_path=review_queue.jsonl&daily_review_cron_name=student-mode-daily-review",
+        expect.objectContaining({
+          headers: { Authorization: "Bearer tok" },
+        }),
+      ),
+    );
+  });
+
+  it("does not show a locked or approval badge on agent tool toggles", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url === "/api/settings") return jsonResponse(settingsPayload());
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      }),
+    );
+
+    renderSettingsView({ initialSection: "tools" });
+
+    expect(await screen.findByText("Run commands")).toBeInTheDocument();
+    expect(screen.queryByText("Needs approval")).not.toBeInTheDocument();
   });
 
   it("saves network safety without exposing technical SSRF copy", async () => {
