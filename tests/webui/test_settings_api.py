@@ -1317,3 +1317,18 @@ def test_agent_profiles_payload_hides_student_mode_profiles(
     payload = agent_profiles_payload()
     names = {row["name"] for row in payload["agents"]}
     assert names == {"my-agent"}
+
+
+def test_default_agent_profile_tools_are_registered() -> None:
+    from nanobot.agent.tools.filesystem import ReadFileTool
+    from nanobot.agent.tools.search import FindFilesTool, GrepTool
+    from nanobot.webui.settings_api import _DEFAULT_AGENT_PROFILE_TOOLS
+
+    registered_read_only_search_tools = {
+        ReadFileTool().name,
+        GrepTool().name,
+        FindFilesTool().name,
+    }
+
+    assert _DEFAULT_AGENT_PROFILE_TOOLS == ["read_file", "grep", "find_files"]
+    assert set(_DEFAULT_AGENT_PROFILE_TOOLS) <= registered_read_only_search_tools
