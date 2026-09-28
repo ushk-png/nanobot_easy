@@ -1,4 +1,4 @@
-# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.12
+# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.13
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 
 대상 독자: 코드 생성 도구(Claude Code, Codex) 및 구현자.
@@ -12,7 +12,8 @@ v3.4.8 변경: v3.4.7의 전면 위임 강제는 지연이 커서 선별 위임�
 v3.4.9 변경: topic-recall 폴백을 현실 운영에 맞춰 topics → history.jsonl → sessions 원문 3단계로 개정한다. history.jsonl은 Consolidator가 주제별 요약과 핵심 식별자를 보존하므로 sessions 원문보다 먼저 쓰는 경량 폴백이다. 주제 스냅샷 작성 트리거는 "새 주제 답변 전 직전 미완 주제 기록"으로 명시화한다.
 v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. 설치 시 General/Student mode를 선택하고, Student mode에서는 담임 선생님 경험을 메인으로, 원본 nanobot 기능은 설정·고급 기능 하위 경로로 둔다. 간격 반복은 review-teacher 서브에이전트가 전담하며, safe_mode와 student_learning 전용 도구로 웹 UI의 위험 기능과 학습 데이터 쓰기 범위를 서버 측에서 제한한다.
 v3.4.11 변경: 워크플로우 설계 지시서 v2를 반영해 durable workflow 작업, `workflow` 도구, `WorkflowService`, 런타임 대기 줄, 명시적 resume 연결, 최종 전달 훅, 접근 검사, 동적 조합과 품질 평가를 별도 구현 축으로 추가한다. 단 `config.tools.workflow.enabled=false`가 기본이며 비활성 상태에서는 도구·서비스·훅·런타임 줄·파일 생성이 모두 무영향이어야 한다.
-v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기준으로 문서를 실제 구현 상태에 맞춰 현행화한다. Stage 0~5는 구현·테스트 완료, Stage 6 확장 harness는 별도 `feat/workflow-extension-stage6` 브랜치로 분리, 서브에이전트 scope 노출은 안전한 context/registry 연결 전까지 보류, LLM tool `input`은 세션 원문 대체값으로 쓰지 않는 것으로 정정한다.
+v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기준으로 문서를 실제 구현 상태에 맞춰 현행화한다. Stage 0~4는 구현·테스트 완료, Stage 5는 평가 도구만 구현했고 실제 모델 on/off 평가는 미실시, Stage 6 확장 harness는 별도 `feat/workflow-extension-stage6` 브랜치로 분리, 서브에이전트 scope 노출은 안전한 context/registry 연결 전까지 보류, LLM tool `input`은 세션 원문 대체값으로 쓰지 않는 것으로 정정한다.
+v3.4.13 변경: PR #24(`16dfbb9f`)에서 빠진 이전 설치·온보딩·에이전트 관리 개정안(구 v3.4.11 패치)은 적용되지 않았고 이번 v3.4.13에 통합한다. 구 v3.4.11 패치는 현재의 워크플로우 v3.4.11 명칭과 충돌하고 PR #24 이후 문서에 직접 적용되지 않으므로 참고 자료로만 보며, 현재 코드 확인 결과에 따라 3.8 설치/LLM 연결, 3.10 설치 경로, 3.11 브라우저 온보딩, 3.12 에이전트 관리, 12장 relay 현황, 13장 설계서와 구현의 차이를 갱신한다.
 
 ---
 
@@ -23,8 +24,9 @@ v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기�
 - 핵심 실행 원칙: 단일 저위험 답변형 스킬은 메인이 직접 실행, 격리 필요 시에만 위임(3.4). 복합 작업에서도 절차 기록은 강제하지만, low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용한다. exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시 spawn/delegate를 사용한다(3.5).
 - 스킬 선택은 별도 파이프라인이 아니라 메인 에이전트 한 턴 안의 선택지다(3.1).
 - 학생 친화 배포판은 별도 포크 아키텍처가 아니라 설치 모드·프로파일·스킬·도구 정책의 조합이다. CLI는 원본 기능을 유지하고, 웹 UI는 Student mode에서 안전한 학습 흐름만 노출한다.
-- PR #23 이후 `workflow`는 별도 코드 구현이 아니라 실제 opt-in 도구/서비스 계층으로 존재한다. 기본값은 꺼짐이며, 켜진 경우에만 `WorkflowTool`, `WorkflowService`, runtime waiting lines, resume control, delivery hook이 연결된다.
+- PR #23 이후 `workflow`는 별도 코드 구현이 아니라 실제 opt-in 도구/서비스 계층으로 존재한다. 기본값은 꺼짐이며, 켜진 경우에만 `WorkflowTool`, `WorkflowService`, runtime waiting lines, resume control, delivery hook이 연결된다. 단 Stage 5는 평가 도구 구현 상태이고 실제 모델로 workflow on/off 품질 비교는 아직 수행하지 않았다.
 - Stage 6 확장/evaluation harness는 main의 PR #23 범위가 아니다. 별도 `feat/workflow-extension-stage6` 브랜치에 보존되어 있으며, 이 문서의 구현 상태 표에서는 미병합/후속으로 다룬다.
+- v3.4.13은 PR #24에서 빠진 설치·온보딩·에이전트 관리·relay-setup 현황과 설계서/구현 차이를 문서에 통합한다. 구현 차이와 결정 필요 항목은 13장을 먼저 확인한다.
 
 ---
 
@@ -66,6 +68,10 @@ v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기�
 | 학생 학습 스킬 | `highschool-study`, `spaced-review` | **신규 #7 (내장 스킬)** |
 | 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** |
 | 웹 UI 안전 모드 | `tools.safeMode` + ToolLoader 차단 정책 | **신규 #9** |
+| 단일 파일 설치 | `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat` + `nanobot/cli/commands.py :: up`/`down`/`restart` | 완료 — 플랫폼 래퍼는 얇게 두고 `nanobot/cli/up.py`에 공통 로직 집중 |
+| 브라우저 온보딩 마법사 | `webui/src/components/onboarding/OnboardingWizardPage.tsx`, `webui/src/App.tsx :: onboardingNeeded` | 완료 — provider 미설정 시 설정/easy-setup으로 자동 진입 |
+| 에이전트 관리 UI | `webui/src/components/settings/AgentManagementSettings.tsx`, `nanobot/webui/settings_api.py :: save_agent_profile` | 완료 — 사용자 프로파일 CRUD, 단 `when_not_to_use` 입력 UI 없음 |
+| Relay setup skill | `nanobot/skills/relay-setup/SKILL.md` + `nanobot relay` CLI | 구현됨 — candidate, high risk, exec 필요, raw token 비노출 지침 포함 |
 
 [구현 지시] 위 신규 항목 외의 새 컴포넌트를 만들지 마라. 특히 "Skill Executor", "Intent Router", "Response Composer", "Composite Detector"라는 이름의 별도 모듈 금지 — 이들은 메인 에이전트 루프의 행동 또는 스킬 지시문이지 코드가 아니다. 예외: PR #23에서 승인·병합된 `nanobot/workflow/` 패키지와 `WorkflowService`/`WorkflowTool`은 본 문서 v3.4.12의 현행 구현 기준이다. 새 "Workflow Engine" 이름의 병렬 시스템을 추가하지 말고 이 구현을 확장한다.
 
@@ -215,14 +221,15 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 - 복습 큐 쓰기는 범용 파일 쓰기 도구가 아니라 `student_learning` 툴만 사용한다.
 
 **설치와 첫 실행**
-- Windows를 1순위 배포 대상으로 둔다. 1차 단계는 `install.bat`이 `powershell.exe -ExecutionPolicy Bypass -File scripts/install.ps1`을 호출하는 방식으로 PowerShell 실행 정책 이탈을 줄인다.
-- `start-nanobot.bat`은 설치된 venv, `uv tool run`, PATH의 `nanobot` 순서로 실행 경로를 탐색한다.
-- SmartScreen 경고 대처는 README에 스크린샷 기반으로 설명한다.
+- Windows 1순위 `install.bat` 방침은 낡았다. 현재 설치 경로는 3플랫폼 단일 파일 부트스트랩과 `nanobot up` 공통 런처로 개정되었으며, 상세는 3.10을 따른다.
 - 언어 선택 화면은 필수가 아니다. 웹 UI는 저장된 언어 설정이 없으면 브라우저/OS locale을 읽고, `ko-*`는 한국어로 시작한다. 사용자는 나중에 설정에서 바꿀 수 있다.
 
 **LLM 연결**
 - OpenAI 연결은 OAuth/로그인 기반 흐름을 우선 검토한다. 오픈소스 클라이언트 특성상 client secret을 숨길 수 없으므로 PKCE 공개 클라이언트 방식을 전제로 한다.
 - OAuth가 막히거나 제공 범위가 부족한 경우를 위해 API key 입력 + 즉시 테스트 호출을 폴백으로 유지한다.
+- 구현 현황: `webui/src/components/onboarding/OnboardingWizardPage.tsx`의 OpenAI 카드에는 `openai_codex` OAuth 로그인 경로와 API key 입력 경로가 병렬로 있다. `nanobot/webui/settings_api.py :: _oauth_provider_status`는 `openai_codex`와 `github_copilot` OAuth 상태를 별도로 확인한다.
+- 로컬 백엔드는 단일 provider가 아니라 `nanobot/providers/registry.py`와 온보딩의 `LOCAL_BACKENDS` 기준 `ollama`, `lm_studio`, `vllm`, `sglang`, `ovms`, `atomic_chat` 개별 provider다.
+- 연결 후에는 `webui/src/components/onboarding/OnboardingWizardPage.tsx :: loadModels`가 `fetchProviderModels()`를 호출하고, WebUI API는 `/api/settings/provider-models` 경로로 실제 모델 목록을 조회해 기본 preset에 반영한다.
 - 사용액 상한은 이 설계 범위에서 제외한다. 대신 온보딩 문서에는 provider 대시보드에서 직접 사용 한도를 설정하는 방법을 별도 안내할 수 있다.
 
 
@@ -254,7 +261,7 @@ PR #23은 워크플로우를 스킬 대체물이 아니라 **옵션 도구+서�
 | 런타임 대기 줄 | `nanobot/workflow/runtime_lines.py :: workflow_runtime_lines` | 완료 |
 | 명시적 resume 연결 | `nanobot/workflow/control.py :: handle_workflow_runtime_control` | 완료 |
 | 최종 전달 훅 | `nanobot/workflow/delivery.py :: WorkflowDeliveryHook` | 완료 |
-| 동적 조합/품질 | `composition.py`, `evaluation.py`, `quality.py`, `quality_cli.py` | 완료 — scaffolding 포함 |
+| 동적 조합/품질 | `composition.py`, `evaluation.py`, `quality.py`, `quality_cli.py` | 평가 틀 구현 — 실제 모델로 켬/끔 비교는 미실시 |
 | 기본 정의 | `nanobot/workflow/definitions/situation_judgment.v1.json` | 완료 |
 
 **Stage 0~5 병합 상태**
@@ -263,7 +270,7 @@ PR #23은 워크플로우를 스킬 대체물이 아니라 **옵션 도구+서�
 - Stage 2: `llm`/`tool`/`branch`/`wait_user`/`end` 5개 단계 유형, validators, optional branch pruning, `situation_judgment.v1` 완료.
 - Stage 3: `WorkflowService`, lease, restart recovery, runtime lines, explicit resume/control path, delivery hook, session message 기반 입력 연결 완료.
 - Stage 4: 등록 정의 기반 동적 조합과 실행 전 validator rejection 완료.
-- Stage 5: workflow on/off quality comparison/report scaffolding 완료.
+- Stage 5: workflow on/off quality comparison/report scaffolding 완료. 단 실제 모델로 workflow 켬/끔 품질 비교는 미실시.
 - Stage 6: PR #23 범위에서 제외. `feat/workflow-extension-stage6` 브랜치에 분리 보존한다.
 
 **입력 신뢰 규칙**
@@ -287,6 +294,51 @@ PR #23은 워크플로우를 스킬 대체물이 아니라 **옵션 도구+서�
 - `WorkflowDeliveryHook.finalize_content()`는 검증된 workflow payload가 있으면 최종 assistant content를 교체한다.
 - `delivery_state`는 채널 handoff 의미를 기록하며, `publish_outbound`가 실제 사용자 단말 도달을 보증한다고 가정하지 않는다.
 - streaming이 finalize 이전에 content를 내보내는 채널에서는 별도 rollout 검토가 필요하다.
+
+---
+
+### 3.10 설치 경로 (v3.4.13 현행)
+
+v3.4.10의 Windows 1순위 방침은 현재 배포 흐름과 맞지 않는다. 실제 저장소에는 `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat`가 모두 있고, 사용자의 주 경로는 플랫폼별 파일 하나를 실행하는 것이다. 터미널 원라이너는 보조 경로로만 둔다.
+
+| 플랫폼 | 진입 파일 | 의도한 사용자 동작 |
+|---|---|---|
+| macOS | `bootstrap.command` | Finder 더블클릭 |
+| Windows | `bootstrap.bat` | 탐색기 더블클릭 |
+| Linux | `bootstrap.sh` | 더블클릭 또는 `./bootstrap.sh` |
+
+공통 런처는 `nanobot/cli/commands.py :: up`, `down`, `restart`이며 실제 포트 점유 확인, PID 추적, WebUI 빌드 신선도 확인, 설정 생성, 브라우저 열기, 중지/재시작 처리는 `nanobot/cli/up.py`에 있다. `nanobot/cli/up.py`의 모듈 설명도 과거 셸/PowerShell 중복 로직을 Python 구현으로 옮겨 플랫폼 drift를 줄이는 목적을 명시한다.
+
+왜 바꿨는가: 플랫폼별 설치 스크립트가 따로 발전하면 Windows만 뒤처지는 문제가 반복된다. 예전 설계의 `install.bat` 중심 설명은 이 위험을 키웠고, 현재 구현은 `.sh`/`.command`/`.ps1`/`.bat`가 venv를 준비한 뒤 `nanobot up`을 호출하는 얇은 래퍼가 되는 방향이다. 첫 실행 설정도 CLI 프롬프트가 아니라 `nanobot/cli/up.py :: ensure_config`가 `nanobot onboard --wizard=false` 경로로 기본 설정만 만들고, 실제 설정은 3.11의 브라우저 마법사로 넘긴다.
+
+### 3.11 첫 실행 온보딩 (v3.4.13 현행)
+
+첫 실행은 CLI Quick Start 프롬프트가 아니라 브라우저 마법사 중심이다. `webui/src/App.tsx :: onboardingNeeded`는 현재 provider가 설정되지 않았으면 settings의 `easy-setup` 섹션으로 이동시키고, 해당 섹션은 `webui/src/components/onboarding/OnboardingWizardPage.tsx`를 렌더링한다.
+
+마법사 구성은 4단계다.
+
+1. 모델 연결 — OpenAI/Codex OAuth, API key, 로컬 provider, 기타 provider 선택.
+2. 메신저 연결 — Telegram/WhatsApp/Slack 등 채널 feature 연결.
+3. 도구 — Web, File, Exec, CLI Apps, 이미지 생성 등 도구 토글.
+4. 완료 — 설정 완료 후 채팅 화면으로 복귀.
+
+provider 미설정 상태에서도 게이트웨이가 떠야 한다. 이를 위해 `nanobot/providers/factory.py :: UnconfiguredProvider`가 존재하며, 실제 chat 요청에는 "No model is configured yet" 오류 응답을 돌려 서버 프로세스를 종료하지 않는다.
+
+현재 온보딩 마법사에는 Student mode 선택 단계가 없다. Student mode는 `webui/src/components/settings/SettingsView.tsx`와 `AdvancedSettings.tsx`의 설정 화면에서 `updateStudentModeSettings()`를 통해 바뀐다. 따라서 3.8의 "설치 시 General/Student mode 선택" 문구는 구현과 다르며, 결정 필요 항목은 13장에 기록한다.
+
+### 3.12 에이전트 관리 화면 (v3.4.13 현행)
+
+사용자 생성 subagent profile은 WebUI에서 관리한다. 화면은 `webui/src/components/settings/AgentManagementSettings.tsx`, 서버 CRUD는 `nanobot/webui/settings_api.py :: agent_profiles_payload`, `save_agent_profile`, `delete_agent_profile`가 담당한다.
+
+구현 현황:
+
+- 사용자 생성 프로필의 생성, 이름 변경, 요구사항 수정, 삭제를 지원한다.
+- `study-coach`, `review-teacher`는 `settings_api.py :: _agent_profiles_rows`와 `_validate_agent_name`에서 숨기거나 예약어로 처리한다. 학생 모드 seed 프로필은 모드 설정 흐름이 관리하므로 에이전트 관리 화면에서 중복 노출하지 않는다.
+- 아이콘은 `SubagentProfile` 스키마가 아니라 workspace-local 사이드카 `.nanobot/agent_icons.json`에 저장한다.
+- `save_agent_profile`은 자유 텍스트 `requirements`를 `description`과 단일 `when_to_use`로 저장한다.
+- 새 프로필의 기본 도구는 `tools=["read_file", "search"]`, `can_spawn=False`다. 이는 설계 원문의 `tools: None`(전체 허용)보다 보수적인 기본값이며, 비개발자 UI에서 안전한 출발점을 주기 위한 의도된 차이다.
+
+확인 결과: 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. API payload는 `when_not_to_use`를 읽어 표시 데이터에 포함할 수 있지만, 현재 UI draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. 위임 판단 카드가 `when_to_use`와 `when_not_to_use` 양쪽을 근거로 삼는 설계와 차이가 있으므로 13장에 구현 누락으로 남긴다.
 
 ---
 
@@ -405,7 +457,7 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 - Student mode 회귀: Quick Start에서 General/Student 선택 시 `studentMode.mode`, `tools.safeMode`, `highschool-study`, `study-coach`, `review-teacher` 프로파일이 의도대로 구성되는지 확인.
 - Safe mode 회귀: 위험 도구는 로드되지 않고 `student_learning`은 로드되는지 확인한다.
 - 학습 데이터 회귀: `study_log.jsonl` append, `review_queue.jsonl` upsert, `subject + concept` 중복 판단, `due_reviews` 조회를 테스트한다.
-- 설치 회귀: Windows에서 `install.bat` → `install.ps1`, `start-nanobot.bat` 실행 경로를 수동 smoke test한다. SmartScreen 안내는 README 이미지 절차로 검증한다.
+- 설치 회귀: `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat`가 얇은 래퍼로 동작하고 `nanobot up`/`down`/`restart` 공통 경로를 타는지 플랫폼별 smoke test한다. Windows SmartScreen 안내는 README 이미지 절차로 검증한다.
 - WebUI 회귀: 저장된 locale이 없을 때 브라우저/OS locale로 한국어가 선택되는지 확인한다.
 - 수용 시나리오 (시뮬레이션 셋):
   S1 인사/일반지식 → 직접 답변, 검색 0회
@@ -434,19 +486,19 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 - Stage 3 서비스/연결: `tests/workflow/test_stage3_service_connection.py`
 - Stage 4 동적 조합/평가: `tests/workflow/test_stage4_dynamic_evaluation.py`
 - Stage 5 품질 리포트: `tests/workflow/test_stage5_quality_report.py`
-- PR #23 기준 targeted workflow suite는 `44 passed`로 보고되었다. 이후 review follow-up 기준 Stage 1~3 targeted check는 `33 passed`로 확인되었다.
+- PR #23 기준 targeted workflow suite는 `44 passed`로 보고되었다. 이후 review follow-up 기준 Stage 1~3 targeted check는 `33 passed`로 확인되었다. 이 모의/targeted 테스트 통과는 회귀 방지 근거이며, 실제 모델 품질 개선의 근거로 쓰지 않는다.
 
 ## 10. 구현 마일스톤 (수용 기준)
 
 M0 (완료) — 프로파일/하네스 패치.
-MWF0~MWF5 (완료, PR #23) — workflow disabled-by-default 도구, 계약, 실행기, 서비스/연결, 동적 조합, 품질 리포트 scaffolding. Stage 6은 별도 브랜치.
+MWF0~MWF4 (완료, PR #23) — workflow disabled-by-default 도구, 계약, 실행기, 서비스/연결, 동적 조합. MWF5 — 품질 리포트/비교 도구 scaffolding 구현, 실제 모델 켬/끔 평가는 미실시. Stage 6은 별도 브랜치.
 M1 — Skill Store: sqlite 스키마(4.2/4.3), 인덱서, reindex CLI. 수용: 스킬 5개 적재·검색·사이클 검증·system 행 보호.
 M2 — skill_search(배치) + 메인 프롬프트 규칙(3.1/3.3/3.4). 수용: S1~S7.
 M3 — delegate 툴. 수용: 동기 왕복 + 게이트 error 재위임.
 M4 — 수동 스킬 15~20개 + **composite-task 작성** + **topic-recall 작성 + 주제 스냅샷 규약 + Consolidator 템플릿 수정(3.7)** + Routing Test 러너. 수용: 라우팅 정확도 ≥90%, C1~C5, T1~T2.
 M5 — Composer 스킬군 + approve CLI + 생명주기. 수용: P1 E2E.
 M6 — 통계 가중 랭킹(Phase 2), Hot Path 승격 리포트, 강등 규칙.
-M7 — Student mode 배포 흐름. 수용: Windows `install.bat`/`start-nanobot.bat`, Quick Start 모드 선택, `highschool-study`/`spaced-review`, `student_learning`, safe mode, locale 자동 선택이 ST1~ST4를 통과한다.
+M7 — Student mode 배포 흐름. 수용: `bootstrap.sh`/`bootstrap.command`/`bootstrap.ps1`/`bootstrap.bat`와 `nanobot up` 경로, 브라우저 온보딩, 설정 화면 Student mode 전환, `highschool-study`/`spaced-review`, `student_learning`, safe mode, locale 자동 선택이 ST1~ST4를 통과한다.
 
 ## 11. 미결 사항
 
@@ -478,6 +530,66 @@ M7 — Student mode 배포 흐름. 수용: Windows `install.bat`/`start-nanobot.
 - 허용 preset 밖의 model 요청은 400.
 - 정상 요청은 provider 직접 호출로 응답하며 tool_calls와 streaming SSE를 OpenAI-compatible 형태로 보존.
 - revoke 후 기존 PSK는 즉시 실패.
+
+**구현 현황(v3.4.13)**
+
+- Relay 백엔드: `nanobot/api/relay.py :: RelayRuntime`, `create_relay_app`, `/health`, `/v1/models`, `/v1/chat/completions`가 구현되어 있다. relay는 AgentLoop가 아니라 provider snapshot을 직접 호출한다.
+- CLI: `nanobot/cli/commands.py`의 `relay issue`, `list`, `rotate`, `revoke`, `test`가 구현되어 있다. `issue`와 `rotate`는 raw token을 한 번 출력하고, 기본값 `--write-env`로 workspace `.secrets/relay/<client>.env`를 쓴다.
+- `relay-setup` 스킬: `nanobot/skills/relay-setup/SKILL.md`가 존재하며 status는 candidate, `category: external.tool`, `risk_level: high`, `requires_exec: true`다.
+
+`relay-setup` 대조 결과:
+
+| 기준 | 확인 결과 |
+|---|---|
+| raw 토큰을 대화에 출력하지 않음 | 스킬의 Handling the token 절이 raw `nbrelay_...`를 대화에 다시 쓰지 말고 `.secrets/relay/<client-id>.env` 경로만 안내하라고 명시한다. |
+| `--write-env`를 스킬이 중복으로 쓰지 않음 | `--write-env` 기본값이 env 파일을 쓰며, 스킬은 해당 파일을 직접 쓰지 말라고 명시한다. |
+| `yq-setup` 형식 | Install / Verify / Uninstall / Failure Rules 구조와 승인 게이트를 갖는다. 형식상 setup 스킬 패턴을 따른다. |
+| `risk_level: high` | frontmatter에 `risk_level: high`가 있다. |
+| MCP·CLI 앱 설치와 라우팅 구분 | description과 When Not To Use가 MCP server 연결, CLI 앱 설치, nanobot provider 설정과 구분한다. |
+
+WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발급은 채팅 경로와 `relay-setup` 스킬로 통일하고, WebUI가 필요하다면 상태 표시 수준에 머문다.
+
+---
+
+## 13. 설계서와 구현의 차이 (v3.4.13)
+
+이 장은 구현 지시가 아니라 현재 문서와 코드가 어긋났던 지점과 아직 결정이 필요한 지점을 기록한다. 확인하지 않은 항목은 구현됨으로 쓰지 않는다.
+
+### 13.1 문서가 낡았던 곳 — 이번에 고친 것
+
+| 항목 | 낡은 문서 내용 | 확인한 현황 | 처리 |
+|---|---|---|---|
+| 설치 | Windows 1순위 `install.bat` 중심 | `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat` + `nanobot up` 공통 런처 | 3.8은 3.10 참조로 축소, 3.10 신설 |
+| 온보딩 | CLI Quick Start에서 설치 모드 선택 | `webui/src/App.tsx :: onboardingNeeded` + `OnboardingWizardPage.tsx` 브라우저 마법사 | 3.11 신설 |
+| 에이전트 관리 | config 직접 편집 전제 | `AgentManagementSettings.tsx`와 `settings_api.py :: save_agent_profile` WebUI CRUD | 3.12 신설 |
+| relay setup | 구 패치에서는 미구현으로 기록 | `nanobot/skills/relay-setup/SKILL.md`가 candidate로 존재 | 12장 현황 갱신 |
+| 로컬 LLM | 단일 로컬 provider처럼 보일 수 있음 | `ollama`, `lm_studio`, `vllm`, `sglang`, `ovms`, `atomic_chat` 개별 provider | 3.8 LLM 연결에 반영 |
+
+### 13.2 구현이 빠진 곳
+
+- 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. `settings_api.py :: _agent_profiles_rows`는 `when_not_to_use`를 payload에 포함하지만, `AgentManagementSettings.tsx`의 편집 draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. `save_agent_profile`도 `requirements`를 `description`과 단일 `when_to_use`로만 저장한다.
+
+### 13.3 결정이 필요한 곳
+
+- Student mode 선택 위치: 현재 온보딩 마법사에는 mode 선택 단계가 없다. `student_mode.mode`는 `webui/src/components/settings/AdvancedSettings.tsx` / `SettingsView.tsx`의 설정 화면에서 바뀐다. 설치 시 선택을 복원할지, 설정 화면 전환 방침으로 문서를 더 바꿀지 결정이 필요하다.
+- `tools.safe_mode`와 WebUI 학생 모드 잠금: 서버 설정은 `config.tools.safe_mode`와 `config.student_mode.mode`가 별도 항목이다. WebUI는 `student_mode.mode === "student"`일 때 안내 문구를 보여주지만, 같은 값으로 ToolLoader의 safe mode가 자동 동기화되는지는 이 문서 갱신 범위에서 미검증이다.
+
+### 13.4 워크플로우를 켜기 전 확인 사항
+
+3.9에 이미 있는 내용은 중복 서술하지 않고 참조한다.
+
+1. 스트리밍 채널에서는 `WorkflowDeliveryHook.finalize_content()`가 검증 답변으로 교체하기 전에 원래 답변 일부가 먼저 보일 수 있다. 3.9의 전달 의미 절도 이 rollout 검토 필요성을 기록한다.
+2. 실제 모델로 workflow 켬/끔 품질 비교를 아직 수행하지 않았다. Stage 5는 평가 도구 구현 상태다.
+3. 재시작으로 `NEEDS_ATTENTION`이 된 작업을 사용자에게 자동 알리는 수단은 없다. 3.9의 재시작 복구 절은 상태 전환까지만 설명한다.
+4. 한 워크스페이스를 여러 `AgentLoop`이 쓸 때 복구 중복 가능성이 있다. 11장의 duplicate WorkflowService coordination 미결 항목과 연결된다.
+5. 게이트웨이 종료와 사용자 중지 구분 플래그는 미구현이다.
+6. workflow tool의 subagent scope는 미지원이다. 3.9의 서브에이전트 범위 절은 `_scopes={"core"}`만 노출한다고 기록한다.
+7. 6단계 확장은 `feat/workflow-extension-stage6` 브랜치에 보관되어 있고 main에는 포함되지 않는다.
+
+### 13.5 알려진 기존 문제 (워크플로우와 무관)
+
+- PR #23 기준 전체 pytest 기존 실패는 94개로 기록되어 있다(이전 101개에서 감소).
+- 일부 테스트가 저장소 루트에 `memory/conversation_memory.db`, `memory/eval_report.json`, `<MagicMock ...>/memory/...`를 만드는 문제가 알려져 있다. 원인 후보는 `tests/test_memory_eval.py`의 기본 작업 폴더 사용과 워크스페이스로 MagicMock 객체를 넘기는 테스트다.
 
 ---
 
