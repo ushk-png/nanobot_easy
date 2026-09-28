@@ -338,7 +338,7 @@ provider 미설정 상태에서도 게이트웨이가 떠야 한다. 이를 위�
 - `study-coach`, `review-teacher`는 `settings_api.py :: _agent_profiles_rows`와 `_validate_agent_name`에서 숨기거나 예약어로 처리한다. 학생 모드 seed 프로필은 모드 설정 흐름이 관리하므로 에이전트 관리 화면에서 중복 노출하지 않는다.
 - 아이콘은 `SubagentProfile` 스키마가 아니라 workspace-local 사이드카 `.nanobot/agent_icons.json`에 저장한다.
 - `save_agent_profile`은 자유 텍스트 `requirements`를 `description`과 단일 `when_to_use`로 저장한다.
-- 새 프로필의 기본 도구는 `tools=["read_file", "search"]`, `can_spawn=False`로 저장된다. 단 `search`라는 Agent Tool 이름은 존재하지 않고 실제 파일 검색 도구는 `grep`, `find_files`다. `profile.tools`가 서브에이전트 도구를 필터하므로, 현재 새 프로필은 결과적으로 `read_file`만 사용할 수 있다. 의도된 차이는 이 잘못된 도구 목록 자체가 아니라, 설계 원문의 `tools: None`(전체 허용) 대신 보수적 기본값을 주려는 방침에만 있다.
+- 새 프로필의 기본 도구는 수정 후 `tools=["read_file", "grep", "find_files"]`, `can_spawn=False`로 저장된다. 이는 설계 원문의 `tools: None`(전체 허용)보다 보수적인 기본값을 주려는 방침에 따른 것이며, 읽기 전용 파일 읽기와 검색만 허용한다. 과거 `search`라는 존재하지 않는 Agent Tool 이름을 넣어 결과적으로 `read_file`만 남던 결함은 `grep`, `find_files`로 교체해 수정했다.
 
 확인 결과: 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. API payload는 `when_not_to_use`를 읽어 표시 데이터에 포함할 수 있지만, 현재 UI draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. 위임 판단 카드가 `when_to_use`와 `when_not_to_use` 양쪽을 근거로 삼는 설계와 차이가 있으므로 13장에 구현 누락으로 남긴다.
 
@@ -570,7 +570,7 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 ### 13.2 구현이 빠진 곳
 
 - 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. `settings_api.py :: _agent_profiles_rows`는 `when_not_to_use`를 payload에 포함하지만, `AgentManagementSettings.tsx`의 편집 draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. `save_agent_profile`도 `requirements`를 `description`과 단일 `when_to_use`로만 저장한다.
-- `save_agent_profile`의 새 프로필 기본 도구 목록에 존재하지 않는 `search`가 들어 있어, `profile.tools` 필터 이후 실제 사용 가능 도구가 의도보다 좁은 `read_file`만 남는다. 파일 검색을 허용하려면 실제 도구명인 `grep`, `find_files`로 고쳐야 한다.
+- 수정됨: `save_agent_profile`의 새 프로필 기본 도구 목록에 존재하지 않는 `search`가 들어 있어, `profile.tools` 필터 이후 실제 사용 가능 도구가 의도보다 좁은 `read_file`만 남던 결함은 기본값을 `read_file`, `grep`, `find_files`로 바꾸고 등록 가능 도구명 검증 테스트를 추가해 막았다.
 
 ### 13.3 결정이 필요한 곳
 

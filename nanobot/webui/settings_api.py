@@ -1721,6 +1721,7 @@ def update_agent_tools_settings(query: QueryParams) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 
 _DEFAULT_AGENT_ICON = "\U0001f4a1"  # 💡
+_DEFAULT_AGENT_PROFILE_TOOLS = ["read_file", "grep", "find_files"]
 _AGENT_NAME_MAX_LEN = 60
 _AGENT_REQUIREMENTS_MAX_LEN = 2000
 
@@ -1823,7 +1824,7 @@ def save_agent_profile(query: QueryParams) -> dict[str, Any]:
     profile = SubagentProfile(
         description=requirements,
         when_to_use=[requirements],
-        tools=["read_file", "search"],  # safe minimal default; adjust in Advanced
+        tools=list(_DEFAULT_AGENT_PROFILE_TOOLS),  # safe read-only default; adjust in Advanced
         can_spawn=False,
     )
 
