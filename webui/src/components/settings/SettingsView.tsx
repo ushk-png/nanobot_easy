@@ -1072,11 +1072,13 @@ export function SettingsView({
     }
   };
 
-  const saveStudentModeSettings = async () => {
-    if (!settings || !studentModeDirty || studentModeSaving) return;
+  const saveStudentModeSettings = async (override?: Required<StudentModeSettingsUpdate>) => {
+    const nextForm = override ?? studentModeForm;
+    if (!settings || studentModeSaving) return;
+    if (!override && !studentModeDirty) return;
     setStudentModeSaving(true);
     try {
-      const payload = await updateStudentModeSettings(token, studentModeForm);
+      const payload = await updateStudentModeSettings(token, nextForm);
       applyPayload(payload);
       if (payload.requires_restart) {
         setPendingRestartSections((prev) => ({ ...prev, runtime: true }));
@@ -1088,6 +1090,12 @@ export function SettingsView({
     } finally {
       setStudentModeSaving(false);
     }
+  };
+
+  const resetStudentModeToGeneral = () => {
+    const nextForm = { ...studentModeForm, mode: "general" as const };
+    setStudentModeForm(nextForm);
+    void saveStudentModeSettings(nextForm);
   };
 
   const saveProvider = async (providerName: string) => {
@@ -1787,13 +1795,13 @@ export function SettingsView({
                 onChange={setSkillGovernanceForm}
                 onSave={saveSkillGovernanceSettings}
               />
-              <StudentModeQuickPanel
-                form={studentModeForm}
-                dirty={studentModeDirty}
-                saving={studentModeSaving}
-                onChange={setStudentModeForm}
-                onSave={saveStudentModeSettings}
-              />
+              {studentModeForm.mode === "student" ? (
+                <StudentModeQuickPanel
+                  form={studentModeForm}
+                  saving={studentModeSaving}
+                  onResetToGeneral={resetStudentModeToGeneral}
+                />
+              ) : null}
             </div>
           </div>
         );

@@ -75,16 +75,12 @@ export function SkillGovernanceQuickPanel({
 
 export function StudentModeQuickPanel({
   form,
-  dirty,
   saving,
-  onChange,
-  onSave,
+  onResetToGeneral,
 }: {
   form: Required<StudentModeSettingsUpdate>;
-  dirty: boolean;
   saving: boolean;
-  onChange: Dispatch<SetStateAction<Required<StudentModeSettingsUpdate>>>;
-  onSave: () => void;
+  onResetToGeneral: () => void;
 }) {
   const { t } = useTranslation();
   const tx = (key: string, fallback: string) => t(key, { defaultValue: fallback });
@@ -92,27 +88,25 @@ export function StudentModeQuickPanel({
     <section className="space-y-3">
       <SettingsSectionTitle>{tx("settings.easySetup.studentMode", "Student mode")}</SettingsSectionTitle>
       <SettingsGroup>
-        <SettingsRow title="student_mode.mode" description="general | student">
-          <SegmentedControl value={form.mode} options={[{ value: "general", label: "일반" }, { value: "student", label: "학생" }]} onChange={(mode) => onChange((prev) => ({ ...prev, mode: mode as "general" | "student" }))} />
-        </SettingsRow>
-        <SettingsRow title="coach_name" description="Default: 담임 선생님">
-          <Input value={form.coachName} onChange={(event) => onChange((prev) => ({ ...prev, coachName: event.target.value }))} className="h-8 w-44 rounded-full" />
-        </SettingsRow>
-        <SettingsRow title="review_teacher_name" description="Default: AGENT_A 선생님">
-          <Input value={form.reviewTeacherName} onChange={(event) => onChange((prev) => ({ ...prev, reviewTeacherName: event.target.value }))} className="h-8 w-44 rounded-full" />
-        </SettingsRow>
-        <SettingsRow title="study_log_path" description="Workspace-relative path">
-          <Input value={form.studyLogPath} onChange={(event) => onChange((prev) => ({ ...prev, studyLogPath: event.target.value }))} className="h-8 w-48 rounded-full font-mono text-[12px]" />
-        </SettingsRow>
-        <SettingsRow title="review_queue_path" description="Workspace-relative path">
-          <Input value={form.reviewQueuePath} onChange={(event) => onChange((prev) => ({ ...prev, reviewQueuePath: event.target.value }))} className="h-8 w-48 rounded-full font-mono text-[12px]" />
-        </SettingsRow>
-        <SettingsRow title="daily_review_cron_name">
-          <Input value={form.dailyReviewCronName} onChange={(event) => onChange((prev) => ({ ...prev, dailyReviewCronName: event.target.value }))} className="h-8 w-44 rounded-full font-mono text-[12px]" />
-        </SettingsRow>
-        <SettingsRow title={tx("settings.actions.save", "Save")}>
-          <Button size="sm" className="rounded-full" onClick={onSave} disabled={!dirty || saving}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}{tx("settings.actions.save", "Save")}</Button>
-        </SettingsRow>
+        {form.mode === "student" ? (
+          <SettingsRow
+            title={tx("settings.studentMode.unsupportedTitle", "Student mode is no longer supported")}
+            description={tx(
+              "settings.studentMode.unsupportedDescription",
+              "학생 모드는 지원이 중단되었고 도구 제한이 적용되지 않습니다",
+            )}
+          >
+            <Button
+              size="sm"
+              className="rounded-full"
+              onClick={onResetToGeneral}
+              disabled={saving}
+            >
+              {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}
+              {tx("settings.studentMode.resetToGeneral", "General로 되돌리기")}
+            </Button>
+          </SettingsRow>
+        ) : null}
       </SettingsGroup>
     </section>
   );
