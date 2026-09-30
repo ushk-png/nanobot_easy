@@ -314,7 +314,8 @@ describe("ThreadComposer", () => {
     expect(input.className).toContain("pt-[27px]");
     fireEvent.change(input, { target: { value: "1" } });
     expect(input.className).toContain("pt-[27px]");
-    expect(input.parentElement?.parentElement?.className).toContain("max-w-[58rem]");
+    expect(input.parentElement?.parentElement?.className).toContain("max-w-[620px]");
+    expect(input.parentElement?.parentElement?.className).toContain("focus-within:border-primary");
   });
 
   it("keeps the thread composer compact while matching the hero style", () => {
@@ -333,9 +334,9 @@ describe("ThreadComposer", () => {
     const input = screen.getByPlaceholderText("Type your message...");
     expect(input.className).toContain("min-h-[50px]");
     expect(input.className).toContain("text-[16px]");
-    expect(input.parentElement?.parentElement?.className).toContain("max-w-[49.5rem]");
-    expect(input.parentElement?.parentElement?.className).toContain("rounded-[22px]");
-    expect(input.parentElement?.parentElement?.className).toContain("shadow-[0_12px_30px_rgba(15,23,42,0.07)]");
+    expect(input.parentElement?.parentElement?.className).toContain("max-w-[640px]");
+    expect(input.parentElement?.parentElement?.className).toContain("rounded-[16px]");
+    expect(input.parentElement?.parentElement?.className).toContain("shadow-sm");
     expect(screen.getByRole("button", { name: "Attach file" }).className).toContain("bg-card");
     expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-foreground");
     expect(screen.queryByText(/Enter to send/)).not.toBeInTheDocument();

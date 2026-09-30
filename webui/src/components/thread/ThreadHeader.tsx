@@ -35,8 +35,8 @@ export function ThreadHeader({
   return (
     <div
       className={cn(
-        "relative z-10 flex items-center justify-between gap-3 px-3 py-2",
-        minimal && "h-11",
+        "relative z-10 flex min-h-12 shrink-0 items-center justify-between gap-3 border-b border-border bg-background px-4 py-2 sm:px-5",
+        minimal && "h-12",
         !minimal && hostChromeTitleInset && "lg:pl-[128px]",
       )}
     >
@@ -54,7 +54,7 @@ export function ThreadHeader({
           <Menu className="h-3.5 w-3.5" />
         </Button>
         {!minimal ? (
-          <div className="flex min-w-0 items-center rounded-md px-1.5 py-1 text-[12px] font-medium text-muted-foreground">
+          <div className="flex min-w-0 items-center rounded-md px-1.5 py-1 text-[13.5px] font-semibold text-foreground/80">
             <span className="max-w-[min(60vw,32rem)] truncate">{title}</span>
           </div>
         ) : null}

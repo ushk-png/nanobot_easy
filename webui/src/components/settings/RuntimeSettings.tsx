@@ -126,14 +126,14 @@ export function RuntimeSettings({
             <Input
               value={form.botName}
               onChange={(event) => setForm((prev) => ({ ...prev, botName: event.target.value }))}
-              className="h-8 w-[220px] rounded-full text-[13px]"
+              className="h-8 w-[220px] rounded-[7px] text-[13px]"
             />
           </SettingsRow>
           <SettingsRow title={tx("settings.rows.botIcon", "Bot icon")} description={tx("settings.help.botIcon", "Short emoji or text shown with the bot name.")}>
             <Input
               value={form.botIcon}
               onChange={(event) => setForm((prev) => ({ ...prev, botIcon: event.target.value }))}
-              className="h-8 w-[120px] rounded-full text-center text-[13px]"
+              className="h-8 w-[120px] rounded-[7px] text-center text-[13px]"
             />
           </SettingsRow>
           <SettingsRow title={tx("settings.rows.timezone", "Timezone")} description={tx("settings.help.timezone", "Used for schedules and time-aware replies.")}>
@@ -189,7 +189,7 @@ export function RuntimeSettings({
                     )
                   }
                   disabled={hostActionBusy !== null}
-                  className="rounded-full"
+                  className="rounded-[7px]"
                 >
                   {hostActionBusy === "logs"
                     ? tx("settings.actions.opening", "Opening...")
@@ -228,7 +228,7 @@ export function RuntimeSettings({
                     )
                   }
                   disabled={hostActionBusy !== null}
-                  className="rounded-full"
+                  className="rounded-[7px]"
                 >
                   {hostActionBusy === "diagnostics"
                     ? tx("settings.actions.exporting", "Exporting...")
@@ -261,7 +261,7 @@ export function RuntimeSettings({
                 variant="outline"
                 onClick={onRestart}
                 disabled={isRestarting}
-                className="rounded-full"
+                className="rounded-[7px]"
               >
                 {isRestarting ? (
                   <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -298,7 +298,7 @@ export function TimezonePicker({
           type="button"
           variant="outline"
           className={cn(
-            "h-8 w-[220px] justify-between rounded-full border-input bg-background px-3 text-[13px] font-normal shadow-none",
+            "h-8 w-[220px] justify-between rounded-[7px] border-input bg-background px-3 text-[13px] font-normal shadow-none",
             "hover:bg-accent/55 focus-visible:ring-2 focus-visible:ring-ring",
           )}
         >
@@ -311,7 +311,7 @@ export function TimezonePicker({
         className="w-[340px] max-w-[calc(100vw-2rem)]"
       >
         <div className="sticky top-0 z-10 bg-popover px-1 pb-1">
-          <div className="flex h-9 items-center gap-2 rounded-full border border-input bg-background px-3">
+          <div className="flex h-9 items-center gap-2 rounded-[7px] border border-input bg-background px-3">
             <Search className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden />
             <Input
               autoFocus

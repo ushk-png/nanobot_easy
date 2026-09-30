@@ -145,7 +145,7 @@ export function AutomationsSettings({
       <section className="shrink-0">
         <div className="mx-auto flex w-full max-w-[56rem] flex-col gap-3">
           <div className="-mx-1 overflow-x-auto px-1 pb-0.5">
-            <div className="grid w-full min-w-[36rem] grid-cols-5 gap-1 rounded-[15px] bg-muted/42 p-1 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.035)] dark:bg-background/30">
+            <div className="grid w-full min-w-[36rem] grid-cols-5 gap-1 rounded-[11px] border border-border bg-muted/40 p-1">
               {summaryOptions.map((option) => (
                 <button
                   key={option.value}
@@ -154,7 +154,7 @@ export function AutomationsSettings({
                   className={cn(
                     "inline-flex h-8 min-w-0 shrink-0 items-center justify-center gap-2 whitespace-nowrap rounded-[11px] px-3 text-[12px] font-medium text-muted-foreground transition-colors",
                     filter === option.value &&
-                      "bg-background text-foreground shadow-[0_8px_20px_rgba(15,23,42,0.07)] dark:bg-background/80",
+                      "bg-background text-primary shadow-sm",
                     automationFilterToneClass(option.value, option.count, filter === option.value),
                   )}
                 >
@@ -182,14 +182,14 @@ export function AutomationsSettings({
                   "settings.automations.search",
                   "Search task, message, linked chat, or schedule",
                 )}
-                className="h-9 w-full rounded-[13px] border-border/45 bg-background/85 pl-9 text-[13px] shadow-[0_8px_22px_rgba(15,23,42,0.04)] dark:border-white/10 dark:bg-background/40"
+                className="h-9 w-full rounded-[7px] border-input bg-background pl-9 text-[13px] shadow-none"
               />
             </div>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-9 min-w-[8.5rem] items-center justify-center gap-1.5 whitespace-nowrap rounded-[13px] border border-border/45 bg-background/85 px-3 text-[12px] font-medium text-muted-foreground shadow-[0_8px_22px_rgba(15,23,42,0.04)] transition-colors hover:bg-muted/70 hover:text-foreground dark:border-white/10 dark:bg-background/40 sm:w-auto"
+                  className="inline-flex h-9 min-w-[8.5rem] items-center justify-center gap-1.5 whitespace-nowrap rounded-[7px] border border-input bg-background px-3 text-[12px] font-medium text-muted-foreground transition-colors hover:border-primary hover:text-primary sm:w-auto"
                 >
                   <ArrowUpDown className="h-3.5 w-3.5" aria-hidden />
                   <span>{sortLabel[sort]}</span>
@@ -222,7 +222,7 @@ export function AutomationsSettings({
           {tx("settings.automations.loading", "Loading automations...")}
         </div>
       ) : filtered.length && selectedJob ? (
-        <section className="grid min-h-0 overflow-hidden rounded-[22px] border border-border/45 bg-transparent shadow-none dark:border-white/10 xl:grid-cols-[minmax(16rem,18rem)_minmax(0,1fr)] xl:items-stretch">
+        <section className="grid min-h-0 overflow-hidden rounded-[11px] border border-border bg-background shadow-none xl:grid-cols-[minmax(16rem,18rem)_minmax(0,1fr)] xl:items-stretch">
           <aside className="flex min-h-0 flex-col overflow-hidden border-b border-border/35 bg-background/36 dark:border-white/10 dark:bg-background/18 xl:border-b-0 xl:border-r">
             <div className="flex shrink-0 items-center justify-between gap-3 px-4 py-3">
               <h2 className="text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
@@ -315,7 +315,7 @@ export function SimpleAutomationsList({
 
   if (!jobs.length) {
     return (
-      <div className="rounded-[18px] border border-dashed border-border/60 bg-card/60 px-5 py-8 text-center text-[13px] text-muted-foreground">
+      <div className="rounded-[11px] border border-dashed border-input bg-background px-5 py-8 text-center text-[13px] text-muted-foreground">
         <p>{tx("settings.automations.empty", "No automations yet.")}</p>
         <p className="mt-1.5 text-[12px]">
           {tx(
@@ -332,7 +332,7 @@ export function SimpleAutomationsList({
       {jobs.map((job) => (
         <div
           key={job.id}
-          className="flex items-center gap-3 rounded-[14px] border border-border/60 bg-card/70 px-4 py-3"
+          className="flex flex-wrap items-center gap-3 rounded-[11px] border border-border bg-background px-3.5 py-3"
         >
           <div className="min-w-0 flex-1">
             <p className="truncate text-[13.5px] font-medium text-foreground">
