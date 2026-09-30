@@ -32,6 +32,18 @@
     --input: 0 0% 89.8%;
     --ring: 214 52% 25%;
     --radius: 0.4375rem;
+    --radius-lg: 0.6875rem;
+    --font-sans: -apple-system, "Apple SD Gothic Neo", "Pretendard", "Malgun Gothic", system-ui, sans-serif;
+    --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+    /* Mockup additions; line uses border, ink uses foreground, accent uses primary. */
+    --panel: 225 33.333% 97.647%;
+    --border-strong: 240 4.878% 84.314%;
+    --foreground-secondary: 240 5.263% 26.078%;
+    --primary-secondary: 213.488 49.425% 34.118%;
+    --accent-border: 212.727 41.772% 84.51%;
+    --warning-border: 34.615 68.421% 85.098%;
+    --overlay: 240 5.882% 10%;
+    --shadow: 0 0% 0%;
     --sidebar: 0 0% 98.5%;
     --sidebar-foreground: 0 0% 3.9%;
     --sidebar-accent: 213 48% 95%;
@@ -39,15 +51,6 @@
     --sidebar-border: 0 0% 89.8%;
     --scrollbar-thumb: hsl(var(--muted-foreground) / 0.26);
     --scrollbar-thumb-hover: hsl(var(--muted-foreground) / 0.42);
-  }
-
-  /* nanobot-easy first-run wizard: its own live/warn accents (primary/accent
-     now inherit the app-wide navy brand from :root above). */
-  .nanobot-easy-wizard {
-    --ne-live: 170 59% 30%;
-    --ne-live-soft: 162 31% 94%;
-    --ne-warn: 26 90% 37%;
-    --ne-warn-soft: 33 90% 96%;
   }
 
   .dark {
@@ -77,6 +80,12 @@
     --border: 0 0% 18%;
     --input: 0 0% 18%;
     --ring: 210 65% 68%;
+    --panel: 225 10% 13%;
+    --border-strong: 240 5% 28%;
+    --foreground-secondary: 240 5% 78%;
+    --primary-secondary: 210 65% 76%;
+    --accent-border: 213 30% 36%;
+    --warning-border: 32 40% 32%;
     --sidebar: 0 0% 11.5%;
     --sidebar-foreground: 0 0% 98%;
     --sidebar-accent: 213 30% 20%;
