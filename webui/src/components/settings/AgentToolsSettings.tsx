@@ -5,7 +5,7 @@ import { updateAgentToolsSettings } from "@/lib/api";
 import type { AgentToolsSettingsUpdate, SettingsPayload } from "@/lib/types";
 import { useClient } from "@/providers/ClientProvider";
 
-import { ToggleButton } from "@/components/settings/settings-primitives";
+import { SettingsGroup, ToggleButton } from "@/components/settings/settings-primitives";
 
 export function AgentToolsSettings({
   settings,
@@ -101,9 +101,9 @@ export function AgentToolsSettings({
         })}
       </p>
       {error ? <p className="text-[12px] text-destructive">{error}</p> : null}
-      <div className="divide-y divide-border/60 overflow-hidden rounded-[12px] border border-border/60 bg-card/60">
+      <SettingsGroup>
         {rows.map((row) => (
-          <div key={row.key} className="flex items-center gap-3 px-4 py-3">
+          <div key={row.key} className="flex items-center gap-3 bg-card px-[14px] py-[11px]">
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 text-[13.5px] font-medium text-foreground">
                 {t(row.titleKey, { defaultValue: row.fallbackTitle })}
@@ -120,7 +120,7 @@ export function AgentToolsSettings({
             />
           </div>
         ))}
-      </div>
+      </SettingsGroup>
     </div>
   );
 }

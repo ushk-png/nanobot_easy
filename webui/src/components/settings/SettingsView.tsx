@@ -1897,7 +1897,12 @@ export function SettingsView({
                 {t("settings.sidebar.title")}
               </p>
             ) : null}
-            <h1 className="text-[24px] font-normal leading-tight tracking-normal text-foreground sm:text-[28px]">
+            <h1 className={cn(
+              "leading-tight text-foreground",
+              activeSection === "tools"
+                ? "text-[22px] font-semibold tracking-[-0.02em]"
+                : "text-[24px] font-normal tracking-normal sm:text-[28px]",
+            )}>
               {text(`settings.nav.${activeSection}`, titleForSection(activeSection))}
             </h1>
             {!showSidebar && PAGE_INTRO_FALLBACK[activeSection] ? (
@@ -1908,7 +1913,12 @@ export function SettingsView({
           </div>
 
           {loading ? (
-            <div className="flex h-48 items-center justify-center rounded-[24px] border border-border/50 bg-card/75 text-sm text-muted-foreground shadow-[0_20px_70px_rgba(15,23,42,0.07)]">
+            <div className={cn(
+              "flex h-48 items-center justify-center border text-sm text-muted-foreground",
+              activeSection === "tools"
+                ? "rounded-xl border-border bg-card"
+                : "rounded-[24px] border-border/50 bg-card/75 shadow-[0_20px_70px_rgba(15,23,42,0.07)]",
+            )}>
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               {t("settings.status.loading")}
             </div>
