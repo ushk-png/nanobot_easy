@@ -379,7 +379,7 @@ function ManagedSkillsSettings({
       <OperationalSkillsPanel skills={operationalSkills} />
 
       {drafts.length || registryDrafts.length ? (
-        <section className="rounded-[18px] border border-amber-500/20 bg-amber-500/[0.055] p-3">
+        <section className="rounded-xl border border-amber-500/20 bg-amber-500/[0.055] p-3">
           <div className="mb-2 flex items-center justify-between">
             <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
               Inbox
@@ -432,7 +432,7 @@ function ManagedSkillsSettings({
       ) : null}
 
       <div className="grid min-h-0 flex-1 gap-4 overflow-x-auto pb-1 lg:grid-cols-[minmax(20rem,24rem)_minmax(54rem,1fr)]">
-        <section className="min-h-0 rounded-[18px] border border-border/50 bg-background/45">
+        <section className="min-h-0 rounded-xl border border-border bg-card">
           <div className="border-b border-border/45 p-3">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
@@ -440,7 +440,7 @@ function ManagedSkillsSettings({
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
                 placeholder="Search skills"
-                className="h-9 rounded-[10px] pl-9 text-[13px]"
+                className="h-9 rounded-lg pl-9 text-[13px]"
               />
             </div>
             <div className="mt-3 flex flex-wrap gap-1.5">
@@ -535,8 +535,8 @@ function ManagedSkillRow({
       type="button"
       onClick={onSelect}
       className={cn(
-        "mb-1 flex w-full min-w-0 items-center gap-3 rounded-[12px] px-2.5 py-2.5 text-left transition-colors",
-        selected ? "bg-muted shadow-sm" : "hover:bg-muted/55",
+        "mb-1 flex w-full min-w-0 items-center gap-3 rounded-xl border px-[14px] py-[11px] text-left transition-colors",
+        selected ? "border-primary bg-accent" : "border-transparent hover:bg-muted",
       )}
     >
       <span className={cn("h-2.5 w-2.5 shrink-0 rounded-full", successTone)} title={successRateTitle(skill.success_rate)} />
@@ -562,7 +562,7 @@ function ManagedSkillRow({
 function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
   const attention = audit.attention.slice(0, 6);
   return (
-    <section className="rounded-[18px] border border-amber-500/25 bg-amber-500/[0.055] p-3">
+    <section className="rounded-xl border border-amber-500/25 bg-amber-500/[0.055] p-3">
       <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div>
           <div className="flex items-center gap-2">
@@ -625,7 +625,7 @@ function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
   const countFor = (status: "system" | "verified" | "candidate") =>
     operational.filter((skill) => skill.status === status).length;
   return (
-    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+    <section className="rounded-xl border border-border bg-card p-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
@@ -686,7 +686,7 @@ function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
 function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) {
   const available = skills.filter((skill) => skill.available);
   return (
-    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+    <section className="rounded-xl border border-border bg-card p-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
           <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
@@ -1637,7 +1637,7 @@ function ManagedSkillDetailPanel({
 
   if (!skill) {
     return (
-      <section className="rounded-[18px] border border-border/50 p-8 text-center text-sm text-muted-foreground">
+      <section className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-foreground">
         Select a skill to inspect it.
       </section>
     );
@@ -1721,7 +1721,7 @@ function ManagedSkillDetailPanel({
   };
 
   return (
-    <section className="min-h-0 overflow-hidden rounded-[18px] border border-border/50 bg-background/45">
+    <section className="min-h-0 overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex items-start justify-between gap-4 border-b border-border/45 px-4 py-4">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -2139,8 +2139,8 @@ function StatusFilterButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "rounded-full px-2.5 py-1 text-[12px] font-medium transition-colors",
-        active ? "bg-foreground text-background" : "bg-muted text-muted-foreground hover:text-foreground",
+        "rounded-full border px-[13px] py-1.5 text-[12.5px] font-medium transition-colors",
+        active ? "border-primary bg-primary text-primary-foreground" : "border-border-strong bg-card text-foreground hover:border-primary",
       )}
     >
       {children}
@@ -2172,7 +2172,7 @@ function draftInboxSummary(draft: ManagedSkillDraft): string {
 
 function MetricPill({ label, value }: { label: string; value: number }) {
   return (
-    <span className="rounded-[12px] bg-muted/55 px-3 py-2">
+    <span className="rounded-xl border border-border bg-panel px-3 py-2">
       <span className="block text-[11px] text-muted-foreground">{label}</span>
       <span className="block text-[15px] font-semibold leading-5">{value}</span>
     </span>
@@ -2259,17 +2259,17 @@ function SkillCatalogRow({
       })}
       onClick={() => onSelect(skill)}
       className={cn(
-        "group flex min-w-0 items-center gap-3 rounded-[16px] px-3 py-3 text-left transition-colors",
+        "group flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card px-[14px] py-[11px] text-left transition-colors",
         "hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
         !skill.available && "opacity-65",
       )}
     >
-      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[14px] bg-muted/70 text-muted-foreground">
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-panel text-muted-foreground">
         <Brain className="h-5 w-5" strokeWidth={1.8} aria-hidden />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-2">
-          <h3 className="truncate text-[15px] font-semibold leading-5 text-foreground">
+          <h3 className="truncate text-[13.5px] font-medium leading-5 text-foreground">
             {skill.name}
           </h3>
           <span className="shrink-0 rounded-full bg-muted px-1.5 py-0.5 text-[10px] font-semibold leading-none text-muted-foreground">
