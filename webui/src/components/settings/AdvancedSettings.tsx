@@ -51,22 +51,22 @@ export function SkillGovernanceQuickPanel({
           <SegmentedControl value={form.securityRiskAtLeast} options={[{ value: "low", label: "낮음" }, { value: "medium", label: "중간" }, { value: "high", label: "높음" }]} onChange={(securityRiskAtLeast) => onChange((prev) => ({ ...prev, securityRiskAtLeast: securityRiskAtLeast as SkillGovernanceLevel }))} />
         </SettingsRow>
         <SettingsRow title="draft_expire_days" description="1–365">
-          <Input type="number" min={1} max={365} value={form.draftExpireDays} onChange={(event) => onChange((prev) => ({ ...prev, draftExpireDays: Number(event.target.value) }))} className="h-8 w-24 rounded-full text-right" />
+          <Input type="number" min={1} max={365} value={form.draftExpireDays} onChange={(event) => onChange((prev) => ({ ...prev, draftExpireDays: Number(event.target.value) }))} className="h-8 w-24 rounded-[7px] text-right" />
         </SettingsRow>
         <SettingsRow title="duplicate_score_at_least" description="0.0–1.0, default 0.8">
-          <Input type="number" min={0} max={1} step={0.01} value={form.duplicateScoreAtLeast} onChange={(event) => onChange((prev) => ({ ...prev, duplicateScoreAtLeast: Number(event.target.value) }))} className="h-8 w-24 rounded-full text-right" />
+          <Input type="number" min={0} max={1} step={0.01} value={form.duplicateScoreAtLeast} onChange={(event) => onChange((prev) => ({ ...prev, duplicateScoreAtLeast: Number(event.target.value) }))} className="h-8 w-24 rounded-[7px] text-right" />
         </SettingsRow>
         <SettingsRow title="external_tool_skills.allowed_install_domains" description={domainText}>
-          <Input value={domainText} onChange={(event) => onChange((prev) => ({ ...prev, allowedInstallDomains: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} className="h-8 max-w-[340px] rounded-full text-[12px]" />
+          <Input value={domainText} onChange={(event) => onChange((prev) => ({ ...prev, allowedInstallDomains: event.target.value.split(",").map((item) => item.trim()).filter(Boolean) }))} className="h-8 max-w-[340px] rounded-[7px] text-[12px]" />
         </SettingsRow>
         <SettingsRow title="external_tool_skills.install_root" description="Relative workspace path, default tools">
-          <Input value={form.installRoot} onChange={(event) => onChange((prev) => ({ ...prev, installRoot: event.target.value }))} className="h-8 w-36 rounded-full text-[12px]" />
+          <Input value={form.installRoot} onChange={(event) => onChange((prev) => ({ ...prev, installRoot: event.target.value }))} className="h-8 w-36 rounded-[7px] text-[12px]" />
         </SettingsRow>
         <SettingsRow title="external_tool_skills.deny_global_install">
           <ToggleButton checked={form.denyGlobalInstall} label={form.denyGlobalInstall ? "On" : "Off"} onChange={(denyGlobalInstall) => onChange((prev) => ({ ...prev, denyGlobalInstall }))} />
         </SettingsRow>
         <SettingsRow title={tx("settings.actions.save", "Save")}>
-          <Button size="sm" className="rounded-full" onClick={onSave} disabled={!dirty || saving}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}{tx("settings.actions.save", "Save")}</Button>
+          <Button size="sm" className="rounded-[7px]" onClick={onSave} disabled={!dirty || saving}>{saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" /> : null}{tx("settings.actions.save", "Save")}</Button>
         </SettingsRow>
       </SettingsGroup>
     </section>
@@ -98,7 +98,7 @@ export function StudentModeQuickPanel({
           >
             <Button
               size="sm"
-              className="rounded-full"
+              className="rounded-[7px]"
               onClick={onResetToGeneral}
               disabled={saving}
             >

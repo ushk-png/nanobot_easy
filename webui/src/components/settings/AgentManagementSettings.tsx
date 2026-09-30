@@ -125,7 +125,7 @@ export function AgentManagementSettings({ settings }: { settings: SettingsPayloa
                   key={agent.name}
                   className="flex items-center gap-3 rounded-[12px] border border-amber-300/70 bg-amber-50/70 px-4 py-3 dark:border-amber-500/40 dark:bg-amber-500/10"
                 >
-                  <span className="text-[18px]">{agent.icon}</span>
+                  <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/10 text-[16px] text-primary">{agent.icon}</span>
                   <div className="min-w-0 flex-1">
                     <p className="text-[13.5px] font-medium text-foreground">
                       {t("settings.agentManagement.confirmDeleteTitle", {
@@ -168,9 +168,9 @@ export function AgentManagementSettings({ settings }: { settings: SettingsPayloa
             return (
               <div
                 key={agent.name}
-                className="flex items-center gap-3 rounded-[12px] border border-border/60 bg-card/60 px-4 py-3"
+                className="flex flex-wrap items-center gap-3 rounded-[11px] border border-border bg-background px-3.5 py-3"
               >
-                <span className="text-[18px]">{agent.icon}</span>
+                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/10 text-[16px] text-primary">{agent.icon}</span>
                 <div className="min-w-0 flex-1">
                   <p className="text-[13.5px] font-medium text-foreground">{agent.name}</p>
                   <p className="truncate text-[12px] text-muted-foreground">{agent.description}</p>
@@ -201,7 +201,7 @@ export function AgentManagementSettings({ settings }: { settings: SettingsPayloa
             <button
               type="button"
               onClick={() => startEdit(null)}
-              className="w-full rounded-[12px] border border-dashed border-border/70 px-4 py-3 text-[13px] font-medium text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+              className="w-full rounded-[11px] border border-dashed border-input bg-background px-4 py-3 text-[13px] font-medium text-muted-foreground transition-colors hover:border-primary hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               {t("settings.agentManagement.addAgent", { defaultValue: "+ Add a new agent" })}
             </button>
