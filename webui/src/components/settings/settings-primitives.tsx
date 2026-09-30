@@ -46,7 +46,7 @@ export const AppsActionButton = forwardRef<HTMLButtonElement, {
 
 export function SettingsSectionTitle({ children }: { children: ReactNode }) {
   return (
-    <h2 className="mb-2 px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
+    <h2 className="mb-2 px-1 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
       {children}
     </h2>
   );
@@ -54,8 +54,8 @@ export function SettingsSectionTitle({ children }: { children: ReactNode }) {
 
 export function SettingsGroup({ children }: { children: ReactNode }) {
   return (
-    <div className="overflow-hidden rounded-[22px] border border-border/45 bg-card/86 shadow-[0_18px_65px_rgba(15,23,42,0.075)] backdrop-blur-xl dark:border-white/10 dark:shadow-[0_18px_65px_rgba(0,0,0,0.24)]">
-      <div className="divide-y divide-border/45">{children}</div>
+    <div className="overflow-hidden rounded-xl border border-border bg-card">
+      <div className="divide-y divide-border">{children}</div>
     </div>
   );
 }
@@ -70,9 +70,9 @@ export function SettingsRow({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex min-h-[62px] flex-col gap-3 px-4 py-3.5 sm:flex-row sm:items-center sm:justify-between sm:px-5">
+    <div className="flex flex-col gap-3 bg-card px-[14px] py-[11px] sm:flex-row sm:items-center sm:justify-between">
       <div className="min-w-0">
-        <div className="text-[14px] font-medium leading-5 text-foreground">{title}</div>
+        <div className="text-[13.5px] font-medium leading-5 text-foreground">{title}</div>
         {description ? (
           <div className="mt-0.5 max-w-[28rem] text-[12px] leading-5 text-muted-foreground">
             {description}
@@ -272,12 +272,13 @@ export function StatusPill({
   return (
     <span
       className={cn(
-        "inline-flex max-w-[260px] items-center rounded-full px-2.5 py-1 text-[12px] font-medium",
-        tone === "success" && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300",
-        tone === "warning" && "bg-amber-500/10 text-amber-700 dark:text-amber-300",
-        tone === "neutral" && "bg-muted text-muted-foreground",
+        "inline-flex max-w-[260px] items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium",
+        tone === "success" && "border-success bg-success-soft text-success",
+        tone === "warning" && "border-warning bg-warning-soft text-warning",
+        tone === "neutral" && "border-border bg-panel text-muted-foreground",
       )}
     >
+      <span aria-hidden className="h-1.5 w-1.5 shrink-0 rounded-full bg-current" />
       <span className="truncate">{children}</span>
     </span>
   );
@@ -293,15 +294,18 @@ export function SegmentedControl({
   onChange: (value: string) => void;
 }) {
   return (
-    <div className="inline-flex h-8 items-center rounded-full bg-muted p-0.5 text-[12px] font-medium text-muted-foreground">
+    <div className="inline-flex items-center gap-1.5 text-[12.5px] text-foreground">
       {options.map((option) => (
         <button
           key={option.value}
           type="button"
+          aria-pressed={value === option.value}
           onClick={() => onChange(option.value)}
           className={cn(
-            "rounded-full px-3 py-1 transition-colors",
-            value === option.value && "bg-background text-foreground shadow-sm",
+            "flex-1 rounded-lg border px-[9px] py-[9px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+            value === option.value
+              ? "border-primary bg-primary font-semibold text-primary-foreground"
+              : "border-border-strong bg-background hover:border-primary",
           )}
         >
           {option.label}
@@ -330,19 +334,17 @@ export function ToggleButton({
       aria-label={ariaLabel ?? label}
       onClick={() => onChange(!checked)}
       className={cn(
-        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full p-[2px]",
-        "transition-colors duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
-        checked
-          ? "bg-success shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)]"
-          : "bg-muted shadow-[inset_0_0_0_1px_rgba(0,0,0,0.035)] hover:bg-muted/80",
+        "relative inline-flex h-[21px] w-[36px] shrink-0 items-center rounded-full p-[2.5px]",
+        "transition-colors duration-[180ms] ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
+        checked ? "bg-success" : "bg-border-strong",
       )}
     >
       <span
         aria-hidden
         className={cn(
-          "h-[18px] w-[18px] rounded-full bg-background shadow-[0_1px_2px_rgba(0,0,0,0.18),0_2px_7px_rgba(0,0,0,0.11)]",
-          "transition-transform duration-200 ease-out",
-          checked ? "translate-x-[16px]" : "translate-x-0",
+          "h-4 w-4 rounded-full bg-success-foreground shadow-[0_1px_2px_rgba(0,0,0,0.2)]",
+          "transition-transform duration-[180ms] ease-out",
+          checked ? "translate-x-[15px]" : "translate-x-0",
         )}
       />
       <span className="sr-only">{label}</span>
