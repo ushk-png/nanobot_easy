@@ -1899,7 +1899,7 @@ export function SettingsView({
             ) : null}
             <h1 className={cn(
               "leading-tight text-foreground",
-              activeSection === "tools" || activeSection === "skills"
+              activeSection === "tools" || activeSection === "skills" || activeSection === "apps"
                 ? "text-[22px] font-semibold tracking-[-0.02em]"
                 : "text-[24px] font-normal tracking-normal sm:text-[28px]",
             )}>
@@ -1915,7 +1915,7 @@ export function SettingsView({
           {loading ? (
             <div className={cn(
               "flex h-48 items-center justify-center border text-sm text-muted-foreground",
-              activeSection === "tools" || activeSection === "skills"
+              activeSection === "tools" || activeSection === "skills" || activeSection === "apps"
                 ? "rounded-xl border-border bg-card"
                 : "rounded-[24px] border-border/50 bg-card/75 shadow-[0_20px_70px_rgba(15,23,42,0.07)]",
             )}>

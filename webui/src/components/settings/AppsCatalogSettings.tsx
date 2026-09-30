@@ -213,7 +213,7 @@ export function AppsCatalogSettings({
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder={tx("settings.apps.searchPlaceholder", "Search Apps")}
-              className="h-12 rounded-[14px] border-border/70 bg-card/90 pl-11 text-[15px] shadow-sm"
+              className="h-12 rounded-lg border-border bg-card pl-11 text-[13px]"
             />
           </div>
           <SegmentedControl
@@ -291,7 +291,7 @@ export function AppsCatalogSettings({
             {tx("settings.apps.loading", "Loading Apps...")}
           </div>
         ) : items.length ? (
-          <div className="grid gap-x-10 gap-y-1 py-3 md:grid-cols-2">
+          <div className="grid gap-3 py-3 md:grid-cols-2">
             {items.map((item) =>
               item.kind === "nanobot" ? (
                 <NanobotFeatureCatalogRow
@@ -371,8 +371,8 @@ export function NanobotFeatureCatalogRow({
     : installSupportLabel;
 
   return (
-    <article className="group flex min-w-0 items-center gap-3 rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/45">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] border border-border/55 bg-card text-muted-foreground shadow-sm">
+    <article className="group flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card px-[14px] py-[11px] transition-colors hover:bg-muted/45">
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-panel text-muted-foreground">
         <Bot className="h-4 w-4" aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
@@ -453,7 +453,7 @@ export function CliAppsCatalogRow({
   const description = app.description || app.requires || app.entry_point || app.name;
 
   return (
-    <article className="group flex min-w-0 items-center gap-3 rounded-[14px] px-3 py-3 transition-colors hover:bg-muted/45">
+    <article className="group flex min-w-0 items-center gap-3 rounded-xl border border-border bg-card px-[14px] py-[11px] transition-colors hover:bg-muted/45">
       <CliAppLogo app={app} showBrandLogos={showBrandLogos} />
       <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-baseline gap-2">
@@ -584,8 +584,8 @@ export function McpAppsCatalogRow({
   };
 
   return (
-    <article className="rounded-[14px] transition-colors hover:bg-muted/45">
-      <div className="group flex min-w-0 items-center gap-3 px-3 py-3">
+    <article className="rounded-xl border border-border bg-card transition-colors hover:bg-muted/45">
+      <div className="group flex min-w-0 items-center gap-3 px-[14px] py-[11px]">
         <McpPresetLogo preset={preset} showBrandLogos={showBrandLogos} />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-baseline gap-2">
@@ -663,7 +663,7 @@ export function McpAppsCatalogRow({
       </div>
 
       {setupOpen && preset.install_supported && hasFields ? (
-        <div className="mx-3 mb-3 rounded-[14px] border border-border/45 bg-card/85 p-3 shadow-sm">
+        <div className="mx-3 mb-3 rounded-xl border border-border bg-panel p-3">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
               <div className="truncate text-[12.5px] font-semibold text-foreground">
@@ -734,7 +734,7 @@ export function McpAppsCatalogRow({
       ) : null}
 
       {toolsOpen && readyInstalled && toolNames.length ? (
-        <div className="mx-3 mb-3 rounded-[14px] border border-border/45 bg-card/85 p-3 shadow-sm">
+        <div className="mx-3 mb-3 rounded-xl border border-border bg-panel p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="text-[11.5px] font-medium text-muted-foreground">
               {tx("settings.mcp.toolScope", "Tools")}
@@ -896,7 +896,7 @@ export function McpCustomServerPanel({
   ];
 
   return (
-    <section className="overflow-hidden rounded-[16px] border border-border/45 bg-card/72 shadow-[0_10px_30px_rgba(15,23,42,0.045)]">
+    <section className="overflow-hidden rounded-xl border border-border bg-card">
       <div className="flex flex-col gap-3 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 items-center gap-3">
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-[11px] bg-muted text-muted-foreground">
@@ -1177,8 +1177,7 @@ export function CliAppReadyPanel({
   return (
     <section
       className={cn(
-        "rounded-[12px] border border-border/55 bg-card/88 px-4 py-3",
-        "shadow-[0_8px_26px_rgba(15,23,42,0.055)]",
+        "rounded-xl border border-border bg-card px-4 py-3",
       )}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
