@@ -2,6 +2,26 @@ import { useTranslation } from "react-i18next";
 import { Blocks, Brain, Wrench } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { Chip } from "@/components/ui/chip";
+
+/** Example questions are draft suggestions, never submit actions. */
+export function HomeExampleQuestions({
+  actions,
+  onChoose,
+}: {
+  actions: { key: string; title: string; prompt: string }[];
+  onChoose: (prompt: string) => void;
+}) {
+  return (
+    <div className="example-grid mx-auto mt-5 flex w-full max-w-[620px] flex-wrap justify-center gap-2">
+      {actions.map((action) => (
+        <Chip key={action.key} variant="example" onClick={() => onChoose(action.prompt)}>
+          {action.prompt}
+        </Chip>
+      ))}
+    </div>
+  );
+}
 
 interface HomeHeroProps {
   greeting: string;
@@ -12,6 +32,8 @@ interface HomeHeroProps {
   onOpenApps?: () => void;
   onOpenTools?: () => void;
   onOpenSkills?: () => void;
+  examples?: { key: string; title: string; prompt: string }[];
+  onChooseExample?: (text: string) => void;
 }
 
 function StatusPill({
@@ -30,8 +52,8 @@ function StatusPill({
       onClick={onClick}
       className={cn(
         "inline-flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[12px] font-medium",
-        "border-success/35 bg-success-soft text-success",
-        onClick && "transition-colors hover:bg-success/15",
+        "status-pill border-success bg-success-soft text-success",
+        onClick && "cursor-pointer border-dashed transition-colors hover:bg-background",
       )}
     >
       {icon}
@@ -49,6 +71,8 @@ export function HomeHero({
   onOpenApps,
   onOpenTools,
   onOpenSkills,
+  examples = [],
+  onChooseExample,
 }: HomeHeroProps) {
   const { t } = useTranslation();
   return (
@@ -74,6 +98,7 @@ export function HomeHero({
           {t("thread.empty.skillsAvailable", { count: skillsCount, defaultValue: `${skillsCount} skills available` })}
         </StatusPill>
       </div>
+      {onChooseExample && <HomeExampleQuestions actions={examples} onChoose={onChooseExample} />}
     </div>
   );
 }

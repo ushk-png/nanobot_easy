@@ -790,6 +790,13 @@
         "build": "Que construisons-nous aujourd'hui ?",
         "tackle": "Que résout-on ensemble ?"
       },
+      "exampleQuestions": {
+        "plan": "Help me create a project plan.",
+        "analyze": "Analyze this data and find the key patterns.",
+        "brainstorm": "Suggest practical ideas for this problem.",
+        "code": "Help me write code for this task.",
+        "summarize": "Summarize this document and its key points."
+      },
       "quickActions": {
         "plan": {
           "title": "Créer un plan de projet",

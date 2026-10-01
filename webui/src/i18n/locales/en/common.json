@@ -790,6 +790,13 @@
         "build": "What are we building today?",
         "tackle": "What should we tackle together?"
       },
+      "exampleQuestions": {
+        "plan": "Help me create a project plan.",
+        "analyze": "Analyze this data and find the key patterns.",
+        "brainstorm": "Suggest practical ideas for this problem.",
+        "code": "Help me write code for this task.",
+        "summarize": "Summarize this document and its key points."
+      },
       "quickActions": {
         "plan": {
           "title": "Create a project plan",

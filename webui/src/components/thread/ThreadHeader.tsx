@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { ConnectionBadge } from "@/components/ConnectionBadge";
 import { cn } from "@/lib/utils";
 
 interface ThreadHeaderProps {
@@ -63,6 +64,7 @@ export function ThreadHeader({
       <div className="ml-auto flex shrink-0 items-center gap-1">
         {sessionInfoAction}
         {promptNavigatorAction}
+        <ConnectionBadge showLabel variant="pill" />
         {!hideThemeButton ? (
           <ThemeButton
             theme={theme}

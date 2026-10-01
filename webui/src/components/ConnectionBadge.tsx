@@ -24,7 +24,13 @@ const COPY: Record<ConnectionStatus, { color: string }> = {
   },
 };
 
-export function ConnectionBadge({ showLabel = false }: { showLabel?: boolean }) {
+export function ConnectionBadge({
+  showLabel = false,
+  variant = "default",
+}: {
+  showLabel?: boolean;
+  variant?: "default" | "footer" | "pill";
+}) {
   const { t } = useTranslation();
   const { client } = useClient();
   const [status, setStatus] = useState<ConnectionStatus>(client.status);
@@ -45,16 +51,20 @@ export function ConnectionBadge({ showLabel = false }: { showLabel?: boolean }) 
           ? "gap-1.5 rounded-full px-2.5 py-1.5 text-xs font-medium"
           : "h-8 w-8 justify-center rounded-full text-muted-foreground/70 hover:bg-sidebar-accent/65",
         meta.color,
+        showLabel && variant === "footer" && "conn-badge gap-[5px] p-0 pr-0.5 text-[11px] font-normal",
+        showLabel && variant === "pill" && "status-pill gap-1.5 rounded-full border border-current px-3 py-1.5 text-[12px] font-medium",
+        variant === "pill" && status === "open" && "bg-success-soft",
+        variant === "pill" && (status === "connecting" || status === "reconnecting") && "bg-warning-soft",
       )}
       aria-live="polite"
       role="status"
       title={showLabel ? undefined : label}
     >
-      <span className="relative flex h-2 w-2 shrink-0" aria-hidden>
+      <span className={cn("relative flex shrink-0", variant === "default" ? "h-2 w-2" : "h-1.5 w-1.5")} aria-hidden>
         {pulsing && (
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
         )}
-        <span className="relative inline-flex h-2 w-2 rounded-full bg-current" />
+        <span className="relative inline-flex h-full w-full rounded-full bg-current" />
       </span>
       {showLabel ? <span className="whitespace-nowrap">{label}</span> : <span className="sr-only">{label}</span>}
     </span>
