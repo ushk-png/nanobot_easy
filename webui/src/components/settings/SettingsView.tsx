@@ -109,6 +109,7 @@ import { TranscriptionSettings } from "@/components/settings/TranscriptionSettin
 import { WebSettings } from "@/components/settings/WebSettings";
 import { RuntimeSettings } from "@/components/settings/RuntimeSettings";
 import { SettingsSidebar } from "@/components/settings/SettingsSidebar";
+import { PageHeader } from "@/components/ui/page-header";
 
 export type { SettingsSectionKey };
 
@@ -149,6 +150,11 @@ type RestartAwarePayload = {
 export type ProviderApiType = "auto" | "chat_completions" | "responses";
 export type ProviderForm = { apiKey: string; apiBase: string; apiType: ProviderApiType };
 export type CustomMcpTransport = "stdio" | "streamableHttp" | "sse";
+
+// Connections and agents use the existing settings route keys, not their display labels.
+const MANAGEMENT_HEADER_SECTIONS: SettingsSectionKey[] = [
+  "tools", "skills", "apps", "automations", "agent-management",
+];
 
 const CLI_APPS_REFRESH_RETRY_MS = 2_000;
 const CLI_APPS_REFRESH_MAX_RETRIES = 30;
@@ -1897,19 +1903,25 @@ export function SettingsView({
                 {t("settings.sidebar.title")}
               </p>
             ) : null}
-            <h1 className={cn(
-              "leading-tight text-foreground",
-              activeSection === "tools" || activeSection === "skills" || activeSection === "apps"
-                ? "text-[22px] font-semibold tracking-[-0.02em]"
-                : "text-[24px] font-normal tracking-normal sm:text-[28px]",
-            )}>
-              {text(`settings.nav.${activeSection}`, titleForSection(activeSection))}
-            </h1>
-            {!showSidebar && PAGE_INTRO_FALLBACK[activeSection] ? (
-              <p className="mt-1.5 text-[13.5px] text-muted-foreground">
-                {text(`settings.pageIntros.${activeSection}`, PAGE_INTRO_FALLBACK[activeSection]!)}
-              </p>
-            ) : null}
+            {MANAGEMENT_HEADER_SECTIONS.includes(activeSection) ? (
+              <PageHeader
+                title={text(`settings.nav.${activeSection}`, titleForSection(activeSection))}
+                description={!showSidebar && PAGE_INTRO_FALLBACK[activeSection]
+                  ? text(`settings.pageIntros.${activeSection}`, PAGE_INTRO_FALLBACK[activeSection]!)
+                  : undefined}
+              />
+            ) : (
+              <>
+                <h1 className="text-[24px] font-normal leading-tight tracking-normal text-foreground sm:text-[28px]">
+                  {text(`settings.nav.${activeSection}`, titleForSection(activeSection))}
+                </h1>
+                {!showSidebar && PAGE_INTRO_FALLBACK[activeSection] ? (
+                  <p className="mt-1.5 text-[13.5px] text-muted-foreground">
+                    {text(`settings.pageIntros.${activeSection}`, PAGE_INTRO_FALLBACK[activeSection]!)}
+                  </p>
+                ) : null}
+              </>
+            )}
           </div>
 
           {loading ? (

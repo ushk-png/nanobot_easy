@@ -1,5 +1,9 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { AgentManagementSettings } from "@/components/settings/AgentManagementSettings";
+import { ModelPresetPicker } from "@/components/settings/ModelsSettings";
+import type { SettingsSectionKey } from "@/components/settings/settings-helpers";
 
 import { SettingsView } from "@/components/settings/SettingsView";
 import { ClientProvider } from "@/providers/ClientProvider";
@@ -174,7 +178,7 @@ const installedAnyGen = {
 
 function renderSettingsView(
   options: {
-    initialSection?: "overview" | "apps" | "automations" | "advanced" | "models" | "browser";
+    initialSection?: SettingsSectionKey;
     initialSettings?: SettingsPayload;
     showSidebar?: boolean;
     onSettingsChange?: (payload: SettingsPayload) => void;
@@ -1349,5 +1353,82 @@ describe("SettingsView Apps catalog", () => {
         }),
       ),
     );
+  });
+});
+
+
+describe("management primitive adoption", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it.each<SettingsSectionKey>(["tools", "skills", "apps", "automations", "agent-management"])(
+    "uses PageHeader only on the approved %s management surface",
+    (initialSection) => {
+      // Leave async loads pending: heading rendering must not depend on catalog responses.
+      vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+      renderSettingsView({ initialSection, initialSettings: settingsPayload(), showSidebar: false });
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading.parentElement?.parentElement?.tagName).toBe("HEADER");
+      expect(heading).toHaveClass("text-[22px]", "font-semibold");
+    },
+  );
+
+  it.each<SettingsSectionKey>(["models", "overview", "browser", "advanced"])(
+    "preserves the existing heading on %s",
+    (initialSection) => {
+      vi.stubGlobal("fetch", vi.fn(() => new Promise(() => {})));
+      renderSettingsView({ initialSection, initialSettings: settingsPayload(), showSidebar: false });
+      const heading = screen.getByRole("heading", { level: 1 });
+      expect(heading.closest("header")).toBeNull();
+      expect(heading).toHaveClass("font-normal", "text-[24px]");
+    },
+  );
+
+  it("keeps model menu semantics, selection state and selection callbacks", async () => {
+    const settings = settingsPayload();
+    settings.model_presets.push({ ...settings.model_presets[0], name: "fast", label: "Fast", is_default: false });
+    const onChange = vi.fn();
+    const user = userEvent.setup();
+    render(<ModelPresetPicker presets={settings.model_presets} value="default" settings={settings}
+      draftModel={settings.agent.model} draftProvider="auto" providerConfigured showProviderLogos={false}
+      onChange={onChange} onCreateConfiguration={() => {}} />);
+    await user.click(screen.getByRole("button", { name: "Current configuration" }));
+    const selected = screen.getByRole("menuitem", { name: /Default/ });
+    expect(selected).toHaveAttribute("data-selected", "true");
+    expect(selected).not.toHaveAttribute("aria-pressed");
+    expect(selected).not.toHaveAttribute("type");
+    const fast = screen.getByRole("menuitem", { name: /Fast/ });
+    expect(fast).toHaveAttribute("data-selected", "false");
+    await user.click(fast);
+    expect(onChange).toHaveBeenCalledOnce();
+    expect(onChange).toHaveBeenCalledWith("fast");
+  });
+
+  it("retains independent accessible agent Edit/Delete actions without nested buttons", async () => {
+    const settings = settingsPayload();
+    const agent = { name: "Coach", icon: "💡", description: "Study helper", when_to_use: [], when_not_to_use: [], tools: null, skills: [], can_spawn: false };
+    settings.agent_profiles = [agent];
+    const fetchMock = vi.fn(async () => jsonResponse({ agents: [] }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { container } = render(<ClientProvider client={{} as never} token="tok"><AgentManagementSettings settings={settings} /></ClientProvider>);
+    const edit = screen.getByRole("button", { name: "Edit" });
+    const card = edit.parentElement!;
+    expect(card.tagName).toBe("DIV");
+    expect(card).not.toHaveAttribute("role", "button");
+    expect(card).not.toHaveAttribute("aria-pressed");
+    expect(container.querySelector("button button")).toBeNull();
+    fireEvent.click(edit);
+    expect(screen.getByDisplayValue("Coach")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Study helper")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    expect(screen.getByText('Delete "Coach"?')).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.getByRole("button", { name: "Edit" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+    await waitFor(() => expect(screen.queryByText("Study helper")).not.toBeInTheDocument());
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(fetchMock).toHaveBeenCalledWith("/api/settings/agents/delete?name=Coach", expect.objectContaining({ credentials: "same-origin" }));
   });
 });

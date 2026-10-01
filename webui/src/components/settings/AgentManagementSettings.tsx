@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import { Button } from "@/components/ui/button";
+import { OptionCard } from "@/components/ui/option-card";
 import { deleteAgentProfile, fetchAgentProfiles, saveAgentProfile } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import type { SettingsPayload } from "@/lib/types";
@@ -166,22 +167,25 @@ export function AgentManagementSettings({ settings }: { settings: SettingsPayloa
               );
             }
             return (
-              <div
+              <OptionCard
                 key={agent.name}
-                className="flex flex-wrap items-center gap-3 rounded-[11px] border border-border bg-background px-3.5 py-3"
+                asChild
+                className="flex-wrap items-center gap-3 py-3 hover:border-border"
               >
-                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/10 text-[16px] text-primary">{agent.icon}</span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13.5px] font-medium text-foreground">{agent.name}</p>
-                  <p className="truncate text-[12px] text-muted-foreground">{agent.description}</p>
+                <div>
+                  <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[9px] bg-primary/10 text-[16px] text-primary">{agent.icon}</span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[13.5px] font-medium text-foreground">{agent.name}</p>
+                    <p className="truncate text-[12px] text-muted-foreground">{agent.description}</p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => startEdit(agent.name)}>
+                    {t("common.edit", { defaultValue: "Edit" })}
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteName(agent.name)}>
+                    {t("common.delete", { defaultValue: "Delete" })}
+                  </Button>
                 </div>
-                <Button variant="ghost" size="sm" onClick={() => startEdit(agent.name)}>
-                  {t("common.edit", { defaultValue: "Edit" })}
-                </Button>
-                <Button variant="ghost" size="sm" onClick={() => setConfirmDeleteName(agent.name)}>
-                  {t("common.delete", { defaultValue: "Delete" })}
-                </Button>
-              </div>
+              </OptionCard>
             );
           })}
           {editingName === "__new__" ? (
