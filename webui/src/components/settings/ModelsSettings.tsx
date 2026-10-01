@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
+import { OptionCard } from "@/components/ui/option-card";
 import { providerDisplayLabel } from "@/lib/provider-brand";
 import { cn } from "@/lib/utils";
 import type { SettingsPayload } from "@/lib/types";
@@ -445,24 +446,23 @@ export function ModelPresetPicker({
         {presets.map((preset) => {
           const selected = preset.name === value;
           return (
-            <DropdownMenuItem
+            <OptionCard
               key={preset.name}
-              onSelect={() => onChange(preset.name)}
-              className={cn(
-                "flex cursor-default items-center justify-between gap-3 rounded-[12px] px-2.5 py-2 text-[13px]",
-                "focus:bg-muted/85 focus:text-foreground",
-                selected && "bg-muted/80 text-foreground focus:bg-muted",
-              )}
+              asChild
+              selected={selected}
+              className="cursor-default items-center justify-between gap-3 px-2.5 py-2 text-[13px] focus:bg-accent focus:text-foreground"
             >
-              <ModelPresetOptionContent
-                preset={preset}
-                settings={settings}
-                draftModel={draftModel}
-                draftProvider={draftProvider}
-                showProviderLogos={showProviderLogos}
-              />
-              {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
-            </DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => onChange(preset.name)}>
+                <ModelPresetOptionContent
+                  preset={preset}
+                  settings={settings}
+                  draftModel={draftModel}
+                  draftProvider={draftProvider}
+                  showProviderLogos={showProviderLogos}
+                />
+                {selected ? <Check className="h-3.5 w-3.5 shrink-0" aria-hidden /> : null}
+              </DropdownMenuItem>
+            </OptionCard>
           );
         })}
         <div className="mt-1 border-t border-border/55 pt-1">

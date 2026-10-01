@@ -72,6 +72,20 @@ describe("shared UI primitives", () => {
     expect(screen.getByRole("button", { name: "Example" })).not.toHaveAttribute("aria-pressed");
   });
 
+  it("composes noninteractive cards without button-only attributes or nested buttons", () => {
+    const onEdit = vi.fn();
+    render(<OptionCard asChild selected><div aria-label="Agent card"><Button onClick={onEdit}>Edit agent</Button></div></OptionCard>);
+    const card = screen.getByLabelText("Agent card");
+    expect(card.tagName).toBe("DIV");
+    expect(card).toHaveAttribute("data-selected", "true");
+    expect(card).not.toHaveAttribute("type");
+    expect(card).not.toHaveAttribute("aria-pressed");
+    expect(card).not.toHaveAttribute("tabindex");
+    expect(card.querySelector("button button")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Edit agent" }));
+    expect(onEdit).toHaveBeenCalledOnce();
+  });
+
   it("renders page heading, optional description and actions without default copy", () => {
     const { rerender } = render(<PageHeader title="Tools" description="Available tools" actions={<Button>Refresh</Button>} aria-label="Tools header" />);
     expect(screen.getByRole("heading", { level: 1, name: "Tools" })).toBeInTheDocument();
