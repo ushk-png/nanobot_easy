@@ -790,6 +790,13 @@
         "build": "今天一起構建什麼？",
         "tackle": "我們要一起解決什麼？"
       },
+      "exampleQuestions": {
+        "plan": "Help me create a project plan.",
+        "analyze": "Analyze this data and find the key patterns.",
+        "brainstorm": "Suggest practical ideas for this problem.",
+        "code": "Help me write code for this task.",
+        "summarize": "Summarize this document and its key points."
+      },
       "quickActions": {
         "plan": {
           "title": "建立專案計畫",

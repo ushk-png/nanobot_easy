@@ -711,12 +711,18 @@ export function ThreadShell({
     [chatId, onForkChat],
   );
 
+  const [draftRequest, setDraftRequest] = useState<{ id: number; text: string }>();
+  const draftRequestCounter = useRef(0);
+  const chooseHeroExample = (text: string) => {
+    if (isStreaming || booting || (session && !chatId)) return;
+    setDraftRequest({ id: ++draftRequestCounter.current, text });
+  };
   const heroQuickActions = useMemo(
     () =>
       HERO_QUICK_ACTION_KEYS.map((key) => ({
         key,
         title: t(`thread.empty.quickActions.${key}.title`),
-        prompt: t(`thread.empty.quickActions.${key}.prompt`),
+        prompt: t(`thread.empty.exampleQuestions.${key}`),
       })),
     [t],
   );
@@ -770,7 +776,7 @@ export function ThreadShell({
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           pendingQueueKey={chatId}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
-          quickActions={showHeroComposer ? heroQuickActions : undefined}
+          draftRequest={draftRequest}
         />
       ) : (
         <ThreadComposer
@@ -802,7 +808,7 @@ export function ThreadShell({
           workspaceError={workspaceError}
           onWorkspaceScopeChange={onWorkspaceScopeChange}
           transcriptionProvider={settingsSnapshot?.transcription?.provider}
-          quickActions={heroQuickActions}
+          draftRequest={draftRequest}
         />
       )}
     </>
@@ -822,6 +828,8 @@ export function ThreadShell({
       onOpenApps={onOpenApps}
       onOpenTools={onOpenTools}
       onOpenSkills={onOpenSkills}
+      examples={heroQuickActions}
+      onChooseExample={chooseHeroExample}
     />
   );
   const sessionInfoAction = historyKey ? (

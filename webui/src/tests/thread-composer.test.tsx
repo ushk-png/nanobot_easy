@@ -338,7 +338,7 @@ describe("ThreadComposer", () => {
     expect(input.parentElement?.parentElement?.className).toContain("rounded-[16px]");
     expect(input.parentElement?.parentElement?.className).toContain("shadow-sm");
     expect(screen.getByRole("button", { name: "Attach file" }).className).toContain("bg-card");
-    expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-foreground");
+    expect(screen.getByRole("button", { name: "Send message" }).className).toContain("bg-primary");
     expect(screen.queryByText(/Enter to send/)).not.toBeInTheDocument();
   });
 

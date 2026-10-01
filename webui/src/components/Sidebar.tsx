@@ -93,14 +93,14 @@ export function Sidebar(props: SidebarProps) {
       aria-label={t("sidebar.navigation")}
       className={cn(
         "flex h-full w-full min-w-0 flex-col text-sidebar-foreground",
-        props.hostChromeInset ? "bg-transparent" : "bg-sidebar",
-        !props.hostChromeInset && "border-r border-sidebar-border/60",
+        props.hostChromeInset ? "bg-transparent" : "bg-panel",
+        !props.hostChromeInset && "border-r border-border",
       )}
     >
       <div
         className={cn(
-          "flex items-center px-3 pb-2.5",
-          props.hostChromeInset ? "pt-[2.85rem]" : "pt-3",
+          "side-brand flex items-center gap-2 px-4 pb-2.5",
+          props.hostChromeInset ? "pt-[2.85rem]" : "pt-4",
           collapsed ? "w-14 justify-start" : "justify-between",
         )}
       >
@@ -112,7 +112,7 @@ export function Sidebar(props: SidebarProps) {
           onClick={collapsed ? props.onExpand : undefined}
           tabIndex={collapsed ? 0 : -1}
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-xl transition-colors",
+            "flex h-[26px] w-[26px] shrink-0 items-center justify-center overflow-hidden rounded-lg bg-primary transition-colors",
             collapsed
               ? "-ml-0.5 hover:bg-sidebar-accent/75"
               : "pointer-events-none -ml-0.5",
@@ -121,10 +121,15 @@ export function Sidebar(props: SidebarProps) {
           <img
             src="/brand/nanobot_icon.png"
             alt=""
-            className="h-8 w-8 select-none object-contain"
+            className="h-6 w-6 select-none object-contain"
             draggable={false}
           />
         </button>
+        {!collapsed && (
+          <span className="min-w-0 flex-1 truncate text-[14.5px] font-bold tracking-[-0.01em] text-foreground">
+            nanobot-easy
+          </span>
+        )}
         {!collapsed && !props.hostChromeInset && (
           <Button
             variant="ghost"
@@ -140,7 +145,7 @@ export function Sidebar(props: SidebarProps) {
 
       <div
         className={cn(
-          "space-y-1.5 px-2 pb-2",
+          "space-y-0.5 px-3 pb-2",
           collapsed && "flex w-14 flex-col items-center px-0",
         )}
       >
@@ -165,7 +170,7 @@ export function Sidebar(props: SidebarProps) {
             type="button"
             onClick={props.onOpenSearch}
             aria-label={t("sidebar.searchAria")}
-            className="flex h-8 w-full items-center gap-2 rounded-full border border-sidebar-border/70 bg-background/60 px-3 text-[12.5px] text-muted-foreground transition-colors hover:border-accent-foreground/40 hover:text-sidebar-foreground"
+            className="side-search my-2 flex min-h-9 w-full items-center gap-2 rounded-[7px] border border-border-strong bg-background px-2.5 text-[12.5px] text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
           >
             <Search className="h-3.5 w-3.5 shrink-0" aria-hidden />
             <span className="truncate">{t("sidebar.searchPlaceholder")}</span>
@@ -254,10 +259,10 @@ export function Sidebar(props: SidebarProps) {
           />
         )}
       </div>
-      <Separator className="bg-sidebar-border/50" />
+      <Separator className="mx-3 w-auto bg-border" />
       <div
         className={cn(
-          "flex items-center gap-1 px-2.5 py-2.5 text-xs",
+          "side-bottom-row flex shrink-0 items-center gap-2 px-2.5 pb-2.5 pt-2 text-xs",
           collapsed && "w-14 flex-col px-0",
         )}
       >
@@ -268,7 +273,7 @@ export function Sidebar(props: SidebarProps) {
           className={collapsed ? undefined : "flex-1"}
           icon={<Settings className="h-4 w-4" />}
         />
-        <ConnectionBadge showLabel={!collapsed} />
+        <ConnectionBadge showLabel={!collapsed} variant="footer" />
       </div>
     </nav>
   );
@@ -307,15 +312,17 @@ function SidebarActionButton({
       title={title}
       onClick={() => onClick()}
       className={cn(
-        "group h-8 min-w-0 gap-2 overflow-hidden rounded-full font-medium",
+        "side-item group h-auto min-h-9 min-w-0 gap-2 overflow-hidden rounded-[7px] py-2 font-normal",
         "transition-[width,padding,border-radius,color,background-color] duration-300 ease-out",
         emphasize
-          ? "shadow-sm hover:bg-primary/90"
-          : "text-sidebar-foreground/85 hover:bg-sidebar-accent/75 hover:text-sidebar-foreground",
+          ? "new-chat border border-primary bg-primary font-semibold text-primary-foreground shadow-sm hover:bg-primary/90"
+          : "text-foreground-secondary hover:bg-background hover:text-foreground",
         collapsed
           ? "w-9 justify-center gap-0 rounded-xl px-0"
-          : "w-full justify-start gap-2 px-3 text-[12.5px]",
-        active && "bg-accent text-accent-foreground shadow-[inset_0_0_0_1px_hsl(var(--sidebar-border)/0.55)]",
+          : emphasize
+            ? "w-full justify-center gap-[7px] px-3 text-[13px]"
+            : "w-full justify-start gap-[9px] px-2.5 text-[13.5px]",
+        active && "bg-accent font-semibold text-primary hover:bg-accent hover:text-primary",
         className,
       )}
     >

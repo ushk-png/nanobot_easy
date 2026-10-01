@@ -657,14 +657,14 @@ describe("ThreadShell", () => {
 
     expect(screen.getByText(HERO_GREETING_PATTERN)).toBeInTheDocument();
     expect(screen.getByPlaceholderText("Ask anything...")).toBeInTheDocument();
-    const codeChip = screen.getByRole("button", { name: "Write code" });
+    const codeChip = screen.getByRole("button", { name: "Help me write code for this task." });
     expect(codeChip).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Create a project plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Help me create a project plan." })).toBeInTheDocument();
 
     fireEvent.click(codeChip);
     await waitFor(() =>
       expect(screen.getByPlaceholderText("Ask anything...")).toHaveValue(
-        "Help me write the code for this task, starting with the smallest useful change.",
+        "Help me write code for this task.",
       ),
     );
   });
