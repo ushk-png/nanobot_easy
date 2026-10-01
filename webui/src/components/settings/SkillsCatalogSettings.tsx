@@ -147,7 +147,7 @@ function ReadOnlySkillsCatalog({ skills }: { skills: SkillSummary[] }) {
             defaultValue: "Review the instruction skills this agent can load during a conversation.",
           })}
         </p>
-        <span className="text-[12px] font-medium text-muted-foreground">
+        <span className="text-xs font-medium text-muted-foreground">
           {t("settings.skills.caption", {
             available: availableCount,
             total: skills.length,
@@ -161,7 +161,7 @@ function ReadOnlySkillsCatalog({ skills }: { skills: SkillSummary[] }) {
           <h2 className="mb-2 px-1 text-[13px] font-semibold tracking-[-0.01em] text-foreground/85">
             {t("settings.skills.featured", { defaultValue: "Agent skills" })}
           </h2>
-          <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+          <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
             {skills.length}
           </span>
         </div>
@@ -333,7 +333,7 @@ function ManagedSkillsSettings({
             Registry-backed skill management. Drafts are separated from operational skills so registration decisions stay visually distinct.
           </p>
           {message ? (
-            <p className="mt-2 text-[12px] font-medium text-muted-foreground">{message}</p>
+            <p className="mt-2 text-xs font-medium text-muted-foreground">{message}</p>
           ) : null}
         </div>
         <div className="flex flex-col gap-2 sm:items-end">
@@ -344,7 +344,7 @@ function ManagedSkillsSettings({
               variant="outline"
               onClick={runAudit}
               disabled={auditBusy}
-              className="h-9 rounded-[10px]"
+              className="h-9 rounded-lg"
             >
               {auditBusy ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -360,7 +360,7 @@ function ManagedSkillsSettings({
                 setInitialCreateDraft(null);
                 setCreateOpen(true);
               }}
-              className="h-9 rounded-[10px]"
+              className="h-9 rounded-lg"
             >
               <Plus className="mr-1.5 h-3.5 w-3.5" aria-hidden />
               New skill
@@ -381,10 +381,10 @@ function ManagedSkillsSettings({
       {drafts.length || registryDrafts.length ? (
         <section className="rounded-xl border border-amber-500/20 bg-amber-500/[0.055] p-3">
           <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
               Inbox
             </h2>
-            <span className="text-[12px] text-muted-foreground">{drafts.length + registryDrafts.length}</span>
+            <span className="text-xs text-muted-foreground">{drafts.length + registryDrafts.length}</span>
           </div>
           <div className="flex gap-2 overflow-x-auto pb-1">
             {drafts.map((draft) => (
@@ -395,13 +395,13 @@ function ManagedSkillsSettings({
                   setInitialCreateDraft(draft);
                   setCreateOpen(true);
                 }}
-                className="min-w-[15rem] rounded-[12px] border border-amber-500/20 bg-background/55 px-3 py-2 text-left transition-colors hover:bg-background/80"
+                className="min-w-[15rem] rounded-xl border border-amber-500/20 bg-background/55 px-3 py-2 text-left transition-colors hover:bg-background/80"
               >
                 <div className="flex items-center justify-between gap-2">
                   <span className="truncate text-[13px] font-semibold">{draft.name}</span>
                   <DraftStatusBadge status={draft.status} />
                 </div>
-                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                <p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
                   {draftInboxSummary(draft)}
                 </p>
               </button>
@@ -412,7 +412,7 @@ function ManagedSkillsSettings({
                 type="button"
                 onClick={() => setSelectedName(skill.name)}
                 className={cn(
-                  "min-w-[15rem] rounded-[12px] border px-3 py-2 text-left transition-colors",
+                  "min-w-[15rem] rounded-xl border px-3 py-2 text-left transition-colors",
                   selectedName === skill.name
                     ? "border-amber-500/60 bg-background"
                     : "border-amber-500/20 bg-background/55 hover:bg-background/80",
@@ -422,7 +422,7 @@ function ManagedSkillsSettings({
                   <span className="truncate text-[13px] font-semibold">{skill.name}</span>
                   <StatusBadge status={skill.status} />
                 </div>
-                <p className="mt-1 line-clamp-2 text-[12px] leading-4 text-muted-foreground">
+                <p className="mt-1 line-clamp-2 text-xs leading-4 text-muted-foreground">
                   {skill.description || "Waiting for registration review."}
                 </p>
               </button>
@@ -545,7 +545,7 @@ function ManagedSkillRow({
           <span className="truncate text-[13px] font-semibold leading-5 text-foreground">{skill.name}</span>
           <StatusBadge status={skill.status} />
         </div>
-        <p className="line-clamp-1 text-[12px] leading-4 text-muted-foreground">
+        <p className="line-clamp-1 text-xs leading-4 text-muted-foreground">
           {skill.category || skill.description || "Uncategorized"}
         </p>
         <div className="mt-1 h-1 overflow-hidden rounded-full bg-muted">
@@ -567,15 +567,15 @@ function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
         <div>
           <div className="flex items-center gap-2">
             <CircleAlert className="h-4 w-4 text-amber-600 dark:text-amber-300" aria-hidden />
-            <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+            <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
               Needs attention
             </h2>
           </div>
-          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+          <p className="mt-1 text-xs leading-4 text-muted-foreground">
             Advisory audit only. No skill status was changed.
           </p>
         </div>
-        <div className="text-left text-[12px] text-muted-foreground sm:text-right">
+        <div className="text-left text-xs text-muted-foreground sm:text-right">
           <div>{audit.summary.attention} attention · {audit.summary.reference} reference</div>
           <div className="max-w-[22rem] truncate" title={audit.report_path}>
             {audit.report_path}
@@ -587,7 +587,7 @@ function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
           {attention.map((item, index) => (
             <div
               key={`${item.code}:${index}`}
-              className="rounded-[12px] border border-amber-500/20 bg-background/60 px-3 py-2"
+              className="rounded-xl border border-amber-500/20 bg-background/60 px-3 py-2"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <Pill>{item.code}</Pill>
@@ -595,7 +595,7 @@ function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
                   {item.skill_names.join(", ")}
                 </span>
               </div>
-              <p className="mt-1 text-[12px] leading-4 text-muted-foreground">{item.message}</p>
+              <p className="mt-1 text-xs leading-4 text-muted-foreground">{item.message}</p>
               {item.cluster_keys?.length ? (
                 <p className="mt-1 text-[11px] text-muted-foreground">
                   Keys: {item.cluster_keys.join(", ")}
@@ -604,13 +604,13 @@ function SkillAuditAttentionPanel({ audit }: { audit: SkillAuditReport }) {
             </div>
           ))}
           {audit.attention.length > attention.length ? (
-            <div className="px-1 text-[12px] text-muted-foreground">
+            <div className="px-1 text-xs text-muted-foreground">
               {audit.attention.length - attention.length} more attention finding(s) are in the report file.
             </div>
           ) : null}
         </div>
       ) : (
-        <div className="rounded-[12px] border border-border/40 bg-background/55 px-3 py-3 text-[13px] text-muted-foreground">
+        <div className="rounded-xl border border-border/40 bg-background/55 px-3 py-3 text-[13px] text-muted-foreground">
           No attention findings. Reference findings remain in the report file.
         </div>
       )}
@@ -628,14 +628,14 @@ function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
     <section className="rounded-xl border border-border bg-card p-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-foreground/70">
             Installed skills
           </h2>
-          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+          <p className="mt-1 text-xs leading-4 text-muted-foreground">
             Operational skills currently available to the agent.
           </p>
         </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {operational.length}
         </span>
       </div>
@@ -657,12 +657,12 @@ function OperationalSkillsPanel({ skills }: { skills: ManagedSkill[] }) {
         <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {filtered.map((skill) => (
-              <div key={skill.name} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+              <div key={skill.name} className="min-w-0 rounded-xl border border-border/40 bg-muted/15 px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
                   <StatusBadge status={skill.status} />
                 </div>
-                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                <p className="mt-1 truncate text-xs text-muted-foreground">
                   {skill.category || skill.description || "Uncategorized"}
                 </p>
               </div>
@@ -689,14 +689,14 @@ function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) 
     <section className="rounded-xl border border-border bg-card p-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-foreground/70">
             Installed skills
           </h2>
-          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+          <p className="mt-1 text-xs leading-4 text-muted-foreground">
             Skills currently available to the agent in this workspace.
           </p>
         </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {available.length}
         </span>
       </div>
@@ -704,12 +704,12 @@ function ReadOnlyOperationalSkillsPanel({ skills }: { skills: SkillSummary[] }) 
         <div className="max-h-[13.5rem] overflow-y-auto pr-1 [scrollbar-gutter:stable]">
           <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
             {available.map((skill) => (
-              <div key={`${skill.source}:${skill.name}`} className="min-w-0 rounded-[12px] border border-border/40 bg-muted/15 px-3 py-2">
+              <div key={`${skill.source}:${skill.name}`} className="min-w-0 rounded-xl border border-border/40 bg-muted/15 px-3 py-2">
                 <div className="flex min-w-0 items-center gap-2">
                   <span className="truncate text-[13px] font-semibold text-foreground">{skill.name}</span>
                   <Pill>{skill.source}</Pill>
                 </div>
-                <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                <p className="mt-1 truncate text-xs text-muted-foreground">
                   {skill.description || "No description."}
                 </p>
               </div>
@@ -735,21 +735,21 @@ export function InstalledToolsPanel({
   description?: string;
 }) {
   return (
-    <section className="rounded-[18px] border border-border/50 bg-background/45 p-3">
+    <section className="rounded-xl border border-border/50 bg-background/45 p-3">
       <div className="mb-3 flex items-center justify-between">
         <div>
-          <h2 className="text-[12px] font-semibold uppercase tracking-[0.08em] text-foreground/70">
+          <h2 className="text-xs font-semibold uppercase tracking-[0.08em] text-foreground/70">
             {title}
           </h2>
-          <p className="mt-1 text-[12px] leading-4 text-muted-foreground">
+          <p className="mt-1 text-xs leading-4 text-muted-foreground">
             {description}
           </p>
         </div>
-        <span className="rounded-full bg-muted px-2.5 py-1 text-[12px] font-medium text-muted-foreground">
+        <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
           {tools.length}
         </span>
       </div>
-      <div className="overflow-x-auto rounded-[12px] border border-border/45">
+      <div className="overflow-x-auto rounded-xl border border-border/45">
         {tools.length ? (
           <div className="min-w-[76rem]">
             <div className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/45 bg-muted/45 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.06em] text-muted-foreground">
@@ -765,7 +765,7 @@ export function InstalledToolsPanel({
             {tools.map((tool) => (
               <div
                 key={`${tool.name}:${tool.path || tool.source}`}
-                className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/30 px-3 py-2.5 text-[12px] last:border-b-0"
+                className="grid grid-cols-[minmax(8rem,1fr)_minmax(11rem,1.35fr)_7rem_7rem_minmax(9rem,1fr)_8rem_minmax(10rem,1.05fr)_minmax(14rem,1.4fr)] gap-3 border-b border-border/30 px-3 py-2.5 text-xs last:border-b-0"
               >
                 <span className="min-w-0 truncate font-medium text-foreground" title={tool.path || tool.source}>
                   {tool.name}
@@ -1111,7 +1111,7 @@ function SkillCreateWizard({
 
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? close() : onOpenChange(true))}>
-      <DialogContent className="max-h-[min(90vh,58rem)] max-w-[92rem] overflow-hidden rounded-[22px] border-border/70 bg-popover p-0 shadow-2xl">
+      <DialogContent className="max-h-[min(90vh,58rem)] max-w-[92rem] overflow-hidden rounded-xl border-border/70 bg-popover p-0 shadow-sm">
         <div className="border-b border-border/45 px-5 py-4">
           <DialogHeader>
             <DialogTitle>New skill</DialogTitle>
@@ -1151,25 +1151,25 @@ function SkillCreateWizard({
                 disabled={busy || importing}
                 spellCheck={false}
                 autoFocus
-                className="min-h-[20rem] w-full resize-y rounded-[14px] text-left font-mono text-[12px] leading-5"
+                className="min-h-[20rem] w-full resize-y rounded-xl text-left font-mono text-xs leading-5"
               />
-              <p className="text-[12px] leading-5 text-muted-foreground">
+              <p className="text-xs leading-5 text-muted-foreground">
                 A SKILL.md with frontmatter is parsed deterministically, with no LLM involved. Anything else is
                 normalized by AI into nanobot&apos;s format — estimated fields are marked for your review.
               </p>
-              <div className="grid w-full gap-2 rounded-[14px] border border-border/45 bg-muted/15 p-3 text-left">
+              <div className="grid w-full gap-2 rounded-xl border border-border/45 bg-muted/15 p-3 text-left">
                 <div className="flex items-start gap-2">
                   <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
                   <div>
                     <div className="text-[13px] font-semibold">Import package</div>
-                    <p className="mt-0.5 text-[12px] leading-5 text-muted-foreground">
+                    <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                       Select a skill folder or a set of files containing SKILL.md. Extra templates, examples,
                       scripts, and references are preserved in the draft and written only after registration.
                     </p>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
                     Folder
                     <input
                       type="file"
@@ -1180,7 +1180,7 @@ function SkillCreateWizard({
                       onChange={(event) => void applyPackageFiles(event.target.files)}
                     />
                   </label>
-                  <label className="inline-flex h-9 cursor-pointer items-center rounded-[10px] border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
+                  <label className="inline-flex h-9 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 text-[13px] font-medium hover:bg-muted/45">
                     Files
                     <input
                       type="file"
@@ -1207,7 +1207,7 @@ function SkillCreateWizard({
                   type="button"
                   onClick={applyFullPrompt}
                   disabled={!canApplyFullPrompt}
-                  className="rounded-[10px]"
+                  className="rounded-lg"
                 >
                   {importing ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <ClipboardPaste className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
                   Import &amp; preview
@@ -1218,7 +1218,7 @@ function SkillCreateWizard({
             <div className="grid gap-4 xl:grid-cols-[minmax(20rem,1fr)_minmax(22rem,1.15fr)]">
               <div className="space-y-3">
                 {importResult ? (
-                  <div className="space-y-2 rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2 text-[12px] leading-5">
+                  <div className="space-y-2 rounded-xl border border-border/45 bg-muted/15 px-3 py-2 text-xs leading-5">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-semibold">
                         {importResult.mode === "normalized" ? "Normalized by AI" : "Parsed from frontmatter"}
@@ -1233,17 +1233,17 @@ function SkillCreateWizard({
                         : "Method may have been rewritten during normalization — review it and the original paste carefully."}
                     </p>
                     {importErrors.length ? (
-                      <div className="rounded-[10px] bg-destructive/10 px-2.5 py-2 text-destructive">
+                      <div className="rounded-lg bg-destructive/10 px-2.5 py-2 text-destructive">
                         {importErrors.map((item) => <div key={item}>{item}</div>)}
                       </div>
                     ) : null}
                     {importWarnings.length ? (
-                      <div className="rounded-[10px] bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
+                      <div className="rounded-lg bg-amber-500/10 px-2.5 py-2 text-amber-700 dark:text-amber-300">
                         {importWarnings.map((item) => <div key={item}>{item}</div>)}
                       </div>
                     ) : null}
                     {importResult.package?.files?.length ? (
-                      <div className="rounded-[10px] bg-background/60 px-2.5 py-2">
+                      <div className="rounded-lg bg-background/60 px-2.5 py-2">
                         <div className="mb-1 font-medium">Package files</div>
                         <div className="max-h-24 overflow-y-auto">
                           {importResult.package.files.map((file) => (
@@ -1265,7 +1265,7 @@ function SkillCreateWizard({
                     onChange={(event) => setName(event.target.value)}
                     placeholder="review-renewal-notes"
                     disabled={busy || draft !== null}
-                    className="h-9 rounded-[10px]"
+                    className="h-9 rounded-lg"
                   />
                   {estimatedFields.has("name") ? <EstimatedBadge /> : null}
                 </LabeledField>
@@ -1275,14 +1275,14 @@ function SkillCreateWizard({
                     onChange={(event) => setDescription(event.target.value)}
                     placeholder="Review renewal notes and surface customer risk."
                     disabled={busy || draft !== null}
-                    className="min-h-[5rem] resize-y rounded-[10px]"
+                    className="min-h-[5rem] resize-y rounded-lg"
                   />
                   {estimatedFields.has("description") ? <EstimatedBadge /> : null}
                 </LabeledField>
                 <button
                   type="button"
                   onClick={() => setAdvancedFields((prev) => !prev)}
-                  className="text-[12px] font-medium text-primary hover:underline"
+                  className="text-xs font-medium text-primary hover:underline"
                 >
                   {advancedFields ? "Show simple view" : "Show advanced options (trigger, risk, method)"}
                 </button>
@@ -1294,7 +1294,7 @@ function SkillCreateWizard({
                     onChange={(event) => setTrigger(event.target.value)}
                     placeholder={"review this renewal\ncustomer renewal risk"}
                     disabled={busy || draft !== null}
-                    className="min-h-[5rem] resize-y rounded-[10px]"
+                    className="min-h-[5rem] resize-y rounded-lg"
                   />
                 </LabeledField>
                 <div className="grid gap-3 sm:grid-cols-2">
@@ -1303,7 +1303,7 @@ function SkillCreateWizard({
                       value={category}
                       onChange={(event) => setCategory(event.target.value)}
                       disabled={busy || draft !== null}
-                      className="h-9 rounded-[10px]"
+                      className="h-9 rounded-lg"
                     />
                     {estimatedFields.has("category") ? <EstimatedBadge /> : null}
                   </LabeledField>
@@ -1312,7 +1312,7 @@ function SkillCreateWizard({
                       value={riskLevel}
                       onChange={(event) => setRiskLevel(event.target.value)}
                       disabled={busy || draft !== null}
-                      className="h-9 w-full rounded-[10px] border border-input bg-background px-3 text-sm"
+                      className="h-9 w-full rounded-lg border border-input bg-background px-3 text-sm"
                     >
                       <option value="low">low</option>
                       <option value="medium">medium</option>
@@ -1321,7 +1321,7 @@ function SkillCreateWizard({
                     {estimatedFields.has("risk_level") ? <EstimatedBadge /> : null}
                   </LabeledField>
                 </div>
-                <label className="flex items-center gap-2 rounded-[10px] border border-border/45 px-3 py-2 text-[13px]">
+                <label className="flex items-center gap-2 rounded-lg border border-border/45 px-3 py-2 text-[13px]">
                   <input
                     type="checkbox"
                     checked={requiresExec}
@@ -1338,15 +1338,15 @@ function SkillCreateWizard({
                     onChange={(event) => setMethod(event.target.value)}
                     placeholder={"# Method\n1. Read the input.\n2. Identify risks.\n3. Return concise findings."}
                     disabled={busy || draft !== null}
-                    className="min-h-[9rem] resize-y rounded-[10px] font-mono text-[12px] leading-5"
+                    className="min-h-[9rem] resize-y rounded-lg font-mono text-xs leading-5"
                   />
                 </LabeledField>
                   </>
                 ) : null}
                 <LabeledField label="Supplemental files">
-                  <div className="rounded-[12px] border border-border/45 bg-muted/15 p-3">
+                  <div className="rounded-xl border border-border/45 bg-muted/15 p-3">
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 text-xs font-medium hover:bg-muted/45">
                         Add files
                         <input
                           type="file"
@@ -1356,7 +1356,7 @@ function SkillCreateWizard({
                           onChange={(event) => void attachSupplementalFiles(event.target.files)}
                         />
                       </label>
-                      <label className="inline-flex h-8 cursor-pointer items-center rounded-[9px] border border-border/60 bg-background px-3 text-[12px] font-medium hover:bg-muted/45">
+                      <label className="inline-flex h-8 cursor-pointer items-center rounded-lg border border-border/60 bg-background px-3 text-xs font-medium hover:bg-muted/45">
                         Add folder
                         <input
                           type="file"
@@ -1367,14 +1367,14 @@ function SkillCreateWizard({
                           onChange={(event) => void attachSupplementalFiles(event.target.files)}
                         />
                       </label>
-                      <span className="text-[12px] text-muted-foreground">
+                      <span className="text-xs text-muted-foreground">
                         {attachedFiles.length} file(s)
                       </span>
                     </div>
                     {attachedFiles.length ? (
-                      <div className="mt-2 max-h-28 overflow-y-auto rounded-[10px] bg-background/60 p-2">
+                      <div className="mt-2 max-h-28 overflow-y-auto rounded-lg bg-background/60 p-2">
                         {attachedFiles.map((file) => (
-                          <div key={file.path} className="flex items-center justify-between gap-2 py-1 text-[12px]">
+                          <div key={file.path} className="flex items-center justify-between gap-2 py-1 text-xs">
                             <span className="min-w-0 truncate">{file.path}</span>
                             <button
                               type="button"
@@ -1388,7 +1388,7 @@ function SkillCreateWizard({
                         ))}
                       </div>
                     ) : (
-                      <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+                      <p className="mt-2 text-xs leading-5 text-muted-foreground">
                         Optional templates, examples, scripts, or references. SKILL.md remains the entry point.
                       </p>
                     )}
@@ -1400,7 +1400,7 @@ function SkillCreateWizard({
                   <>
                     <div
                       className={cn(
-                        "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                        "rounded-xl border px-3.5 py-3 text-[13px] leading-5",
                         draftFailed
                           ? "border-destructive/30 bg-destructive/10"
                           : draftRunning
@@ -1440,7 +1440,7 @@ function SkillCreateWizard({
                     {draftReady && (blockingFlags.length || confirmationFlags.length) ? (
                       <div
                         className={cn(
-                          "rounded-[14px] border px-3.5 py-3 text-[13px] leading-5",
+                          "rounded-xl border px-3.5 py-3 text-[13px] leading-5",
                           blockingFlags.length
                             ? "border-destructive/30 bg-destructive/10"
                             : "border-amber-500/30 bg-amber-500/10",
@@ -1470,7 +1470,7 @@ function SkillCreateWizard({
                             onChange={(event) => setOverrideReason(event.target.value)}
                             placeholder="Example: Internal-only skill; neighboring trigger overlap is intentional."
                             disabled={busy}
-                            className="mt-3 min-h-[4.5rem] resize-y rounded-[10px] bg-background"
+                            className="mt-3 min-h-[4.5rem] resize-y rounded-lg bg-background"
                           />
                         ) : null}
                       </div>
@@ -1478,14 +1478,14 @@ function SkillCreateWizard({
                     {draftReady ? (
                       <>
                         <DetailSection title="Review">
-                          <pre className="max-h-28 overflow-auto rounded-[12px] bg-muted/35 p-3 text-[12px] leading-5">
+                          <pre className="max-h-28 overflow-auto rounded-xl bg-muted/35 p-3 text-xs leading-5">
                             {JSON.stringify(draft.review, null, 2)}
                           </pre>
                         </DetailSection>
                         <DetailSection title="Routing cases">
                           <div className="space-y-1.5">
                             {draft.routing_cases.map((row) => (
-                              <div key={`${row.query}:${row.expected}`} className="rounded-[10px] bg-muted/30 px-3 py-2 text-[12px]">
+                              <div key={`${row.query}:${row.expected}`} className="rounded-lg bg-muted/30 px-3 py-2 text-xs">
                                 <div className="truncate font-medium">{row.query}</div>
                                 <div className="text-muted-foreground">expected {row.expected}</div>
                               </div>
@@ -1493,7 +1493,7 @@ function SkillCreateWizard({
                           </div>
                         </DetailSection>
                         <DetailSection title="Draft">
-                          <div className="max-h-72 overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                          <div className="max-h-72 overflow-auto rounded-xl border border-border/45 bg-muted/15 px-3 py-2">
                             <MarkdownText className="max-w-none text-[13px] leading-6">
                               {draft.markdown}
                             </MarkdownText>
@@ -1505,13 +1505,13 @@ function SkillCreateWizard({
                 ) : (
                   <DetailSection title="SKILL.md preview">
                     {importResult?.normalized_markdown ? (
-                      <div className="max-h-[34rem] overflow-auto rounded-[12px] border border-border/45 bg-muted/15 px-3 py-2">
+                      <div className="max-h-[34rem] overflow-auto rounded-xl border border-border/45 bg-muted/15 px-3 py-2">
                         <MarkdownText className="max-w-none text-[13px] leading-6">
                           {formatSkillMarkdownForPreview(importResult.normalized_markdown)}
                         </MarkdownText>
                       </div>
                     ) : (
-                      <div className="flex min-h-[24rem] items-center justify-center rounded-[16px] border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
+                      <div className="flex min-h-[24rem] items-center justify-center rounded-xl border border-dashed border-border/60 px-6 text-center text-[13px] leading-5 text-muted-foreground">
                         Starting from scratch — fill in the fields, then create the draft.
                       </div>
                     )}
@@ -1521,7 +1521,7 @@ function SkillCreateWizard({
             </div>
           )}
           {error ? (
-            <p className="mt-4 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+            <p className="mt-4 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
               {error}
             </p>
           ) : null}
@@ -1579,7 +1579,7 @@ function SkillCreateWizard({
 function LabeledField({ label, children }: { label: string; children: ReactNode }) {
   return (
     <label className="block space-y-1.5">
-      <span className="text-[12px] font-semibold text-muted-foreground">{label}</span>
+      <span className="text-xs font-semibold text-muted-foreground">{label}</span>
       {children}
     </label>
   );
@@ -1739,7 +1739,7 @@ function ManagedSkillDetailPanel({
               variant={editing ? "outline" : "secondary"}
               onClick={editing ? closeEditor : startEditing}
               disabled={saving}
-              className="h-8 rounded-[9px]"
+              className="h-8 rounded-lg"
             >
               {editing ? <X className="mr-1.5 h-3.5 w-3.5" aria-hidden /> : <Edit3 className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
               {editing ? "Cancel" : "Edit"}
@@ -1752,7 +1752,7 @@ function ManagedSkillDetailPanel({
               variant={action === "reject" || action === "deprecate" ? "outline" : "default"}
               onClick={() => onAction(skill, action)}
               disabled={actionBusy === `${skill.name}:${action}`}
-              className="h-8 rounded-[9px]"
+              className="h-8 rounded-lg"
             >
               {actionBusy === `${skill.name}:${action}` ? (
                 <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden />
@@ -1792,7 +1792,7 @@ function ManagedSkillDetailPanel({
                     onSave={assessAndSave}
                   />
                 ) : (
-                  <div className="rounded-[14px] border border-border/40 bg-muted/15 px-3.5 py-3">
+                  <div className="rounded-xl border border-border/40 bg-muted/15 px-3.5 py-3">
                     <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
                       {formatSkillMarkdownForPreview(detail?.raw_markdown || "No SKILL.md content.")}
                     </MarkdownText>
@@ -1803,12 +1803,12 @@ function ManagedSkillDetailPanel({
                 {detail?.traces.length ? (
                   <div className="space-y-2">
                     {detail.traces.slice(0, 5).map((trace) => (
-                      <div key={trace.trace_id} className="rounded-[12px] bg-muted/30 px-3 py-2">
-                        <div className="flex items-center justify-between gap-2 text-[12px]">
+                      <div key={trace.trace_id} className="rounded-xl bg-muted/30 px-3 py-2">
+                        <div className="flex items-center justify-between gap-2 text-xs">
                           <span className="truncate font-medium">{trace.selection_reason || "trace"}</span>
                           <span className="shrink-0 text-muted-foreground">{trace.gate_result ?? "none"}</span>
                         </div>
-                        <p className="mt-1 truncate text-[12px] text-muted-foreground">
+                        <p className="mt-1 truncate text-xs text-muted-foreground">
                           {trace.query_digest || trace.session_key || trace.trace_id}
                         </p>
                       </div>
@@ -1878,14 +1878,14 @@ function RoutingTestPanel({
         variant="outline"
         onClick={onRun}
         disabled={busy}
-        className="h-8 rounded-[9px]"
+        className="h-8 rounded-lg"
       >
         {busy ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <PlayCircle className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
         Run test
       </Button>
       {result ? (
         result.available ? (
-          <div className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5">
+          <div className="rounded-xl bg-muted/30 px-3 py-2 text-xs leading-5">
             <div className="flex items-center justify-between gap-2">
               <span className="font-semibold">
                 {result.passed}/{result.total} passed
@@ -1896,7 +1896,7 @@ function RoutingTestPanel({
             </div>
             <div className="mt-2 space-y-1.5">
               {result.rows.slice(0, 5).map((row) => (
-                <div key={`${row.query}:${row.expected}`} className="min-w-0 rounded-[9px] bg-background/65 px-2 py-1.5">
+                <div key={`${row.query}:${row.expected}`} className="min-w-0 rounded-lg bg-background/65 px-2 py-1.5">
                   <div className="flex items-center gap-1.5">
                     {row.ok ? (
                       <Check className="h-3.5 w-3.5 shrink-0 text-emerald-600" aria-hidden />
@@ -1913,13 +1913,13 @@ function RoutingTestPanel({
             </div>
           </div>
         ) : (
-          <p className="rounded-[12px] bg-muted/30 px-3 py-2 text-[12px] leading-5 text-muted-foreground">
+          <p className="rounded-xl bg-muted/30 px-3 py-2 text-xs leading-5 text-muted-foreground">
             No routing_cases.json found for this skill.
           </p>
         )
       ) : null}
       {error ? (
-        <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+        <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
           {error}
         </p>
       ) : null}
@@ -1947,17 +1947,17 @@ function SkillInstructionEditor({
   onSave: () => void;
 }) {
   return (
-    <div className="rounded-[14px] border border-border/45 bg-background">
+    <div className="rounded-xl border border-border/45 bg-background">
       <details className="border-b border-border/45 px-3.5 py-3">
-        <summary className="cursor-pointer text-[12px] font-semibold text-muted-foreground">
+        <summary className="cursor-pointer text-xs font-semibold text-muted-foreground">
           Metadata form
         </summary>
-        <p className="mt-2 text-[12px] leading-5 text-muted-foreground">
+        <p className="mt-2 text-xs leading-5 text-muted-foreground">
           Structured frontmatter editing will sit here. For now this editor preserves the full SKILL.md document and lets the server classify changes before writing.
         </p>
       </details>
       <div className="flex items-center justify-between gap-2 border-b border-border/45 px-3 py-2">
-        <div className="flex rounded-[10px] bg-muted p-1">
+        <div className="flex rounded-lg bg-muted p-1">
           <EditorTabButton active={tab === "edit"} onClick={() => onTabChange("edit")}>
             <FileText className="h-3.5 w-3.5" aria-hidden />
             Edit
@@ -1971,7 +1971,7 @@ function SkillInstructionEditor({
           size="sm"
           onClick={onSave}
           disabled={saving}
-          className="h-8 rounded-[9px]"
+          className="h-8 rounded-lg"
         >
           {saving ? <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" aria-hidden /> : <Save className="mr-1.5 h-3.5 w-3.5" aria-hidden />}
           Save instructions
@@ -1984,10 +1984,10 @@ function SkillInstructionEditor({
             value={markdown}
             onChange={(event) => onChange(event.target.value)}
             spellCheck={false}
-            className="min-h-[24rem] resize-y rounded-[12px] border-border/50 font-mono text-[12px] leading-5"
+            className="min-h-[24rem] resize-y rounded-xl border-border/50 font-mono text-xs leading-5"
           />
         ) : (
-          <div className="min-h-[24rem] rounded-[12px] border border-border/45 bg-muted/15 px-3.5 py-3">
+          <div className="min-h-[24rem] rounded-xl border border-border/45 bg-muted/15 px-3.5 py-3">
             <MarkdownText className="max-w-none text-[13px] leading-6 text-foreground/85">
               {formatSkillMarkdownForPreview(markdown || "No SKILL.md content.")}
             </MarkdownText>
@@ -1995,7 +1995,7 @@ function SkillInstructionEditor({
         )}
         {assessment ? <AssessmentNotice assessment={assessment} /> : null}
         {error ? (
-          <p className="mt-3 rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+          <p className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
             {error}
           </p>
         ) : null}
@@ -2018,7 +2018,7 @@ function EditorTabButton({
       type="button"
       onClick={onClick}
       className={cn(
-        "inline-flex h-7 items-center gap-1.5 rounded-[8px] px-2 text-[12px] font-medium transition-colors",
+        "inline-flex h-7 items-center gap-1.5 rounded-lg px-2 text-xs font-medium transition-colors",
         active ? "bg-background text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground",
       )}
     >
@@ -2032,7 +2032,7 @@ function AssessmentNotice({ assessment }: { assessment: ManagedSkillUpdateAssess
   return (
     <div
       className={cn(
-        "mt-3 rounded-[12px] border px-3 py-2 text-[12px] leading-5",
+        "mt-3 rounded-xl border px-3 py-2 text-xs leading-5",
         major
           ? "border-amber-500/30 bg-amber-500/10 text-amber-800 dark:text-amber-200"
           : "border-border/45 bg-muted/25 text-muted-foreground",
@@ -2069,14 +2069,14 @@ function MajorUpdateDialog({
 }) {
   return (
     <Dialog open={open} onOpenChange={(next) => (!next ? onCancel() : undefined)}>
-      <DialogContent className="max-w-xl rounded-[22px] border-border/70 bg-popover p-5 shadow-2xl">
+      <DialogContent className="max-w-xl rounded-xl border-border/70 bg-popover p-5 shadow-sm">
         <DialogHeader>
           <DialogTitle>Method changed</DialogTitle>
           <DialogDescription>
             This skill will move from {assessment?.current_status ?? "current"} to {assessment?.next_status ?? "candidate"} and needs routing validation before it should be treated as stable again.
           </DialogDescription>
         </DialogHeader>
-        <div className="rounded-[14px] border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-[13px] leading-5 text-amber-900 dark:text-amber-100">
+        <div className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-3.5 py-3 text-[13px] leading-5 text-amber-900 dark:text-amber-100">
           <div className="mb-1 flex items-center gap-2 font-semibold">
             <CircleAlert className="h-4 w-4" aria-hidden />
             Major patch
@@ -2085,11 +2085,11 @@ function MajorUpdateDialog({
             Method, tools, execution requirements, or risk changed. The edit can be saved, but the skill is no longer considered verified until it is promoted again.
           </p>
           {assessment?.changed_fields.length ? (
-            <p className="mt-2 text-[12px]">Changed: {assessment.changed_fields.join(", ")}</p>
+            <p className="mt-2 text-xs">Changed: {assessment.changed_fields.join(", ")}</p>
           ) : null}
         </div>
         {error ? (
-          <p className="rounded-[10px] bg-destructive/10 px-3 py-2 text-[12px] font-medium text-destructive">
+          <p className="rounded-lg bg-destructive/10 px-3 py-2 text-xs font-medium text-destructive">
             {error}
           </p>
         ) : null}
@@ -2280,7 +2280,7 @@ function SkillCatalogRow({
           {skill.description}
         </p>
         {!skill.available && skill.unavailable_reason ? (
-          <p className="mt-1 truncate text-[12px] leading-4 text-muted-foreground/80">
+          <p className="mt-1 truncate text-xs leading-4 text-muted-foreground/80">
             {t("settings.skills.unavailableReason", {
               reason: skill.unavailable_reason,
               defaultValue: "Missing: {{reason}}",
@@ -2291,7 +2291,7 @@ function SkillCatalogRow({
       <span
         title={!skill.available && skill.unavailable_reason ? skill.unavailable_reason : undefined}
         className={cn(
-          "hidden shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-medium sm:inline-flex",
+          "hidden shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium sm:inline-flex",
           skill.available
             ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
             : "bg-muted text-muted-foreground",
@@ -2356,11 +2356,11 @@ function SkillDetailSheet({
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5">
           <div className="flex items-start gap-3 pr-8">
-            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-[15px] bg-muted/70 text-muted-foreground">
+            <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-lg bg-muted/70 text-muted-foreground">
               <Brain className="h-5 w-5" strokeWidth={1.8} aria-hidden />
             </div>
             <div className="min-w-0">
-              <SheetTitle className="truncate text-[20px] font-semibold">
+              <SheetTitle className="truncate text-xl font-semibold">
                 {activeSkill.name}
               </SheetTitle>
               <SheetDescription className="sr-only">
@@ -2369,7 +2369,7 @@ function SkillDetailSheet({
                   defaultValue: "Details for {{name}}.",
                 })}
               </SheetDescription>
-              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[12px] text-muted-foreground">
+              <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
                 <Pill>{sourceLabel}</Pill>
                 <Pill tone={activeSkill.available ? "success" : "muted"}>{statusLabel}</Pill>
               </div>
@@ -2382,13 +2382,13 @@ function SkillDetailSheet({
               {t("settings.skills.loadingDetail", { defaultValue: "Loading skill details..." })}
             </div>
           ) : loadFailed ? (
-            <div className="mt-8 rounded-[16px] bg-destructive/10 px-3 py-3 text-sm text-destructive">
+            <div className="mt-8 rounded-xl bg-destructive/10 px-3 py-3 text-sm text-destructive">
               {t("settings.skills.loadFailed", { defaultValue: "Could not load skill details." })}
             </div>
           ) : (
             <div className="mt-7 space-y-6">
               <DetailSection title={t("settings.skills.descriptionTitle", { defaultValue: "Description" })}>
-                <p className="text-[14px] leading-6 text-muted-foreground">{activeSkill.description}</p>
+                <p className="text-sm leading-6 text-muted-foreground">{activeSkill.description}</p>
               </DetailSection>
 
               <div className="grid grid-cols-2 gap-2">
@@ -2434,15 +2434,15 @@ function RawInstructionsBlock({ markdown }: { markdown: string }) {
     });
 
   return (
-    <details className="group rounded-[18px] border border-border/45 bg-muted/20 px-3 py-3">
+    <details className="group rounded-xl border border-border/45 bg-muted/20 px-3 py-3">
       <summary className="cursor-pointer select-none text-[13px] font-medium text-foreground/90 transition-colors hover:text-foreground">
         {t("settings.skills.rawInstructions", { defaultValue: "Raw SKILL.md" })}
       </summary>
-      <div className="mt-3 overflow-hidden rounded-[14px] border border-border/35 bg-background/70">
+      <div className="mt-3 overflow-hidden rounded-xl border border-border/35 bg-background/70">
         <pre
           className={cn(
             "max-h-[min(42vh,32rem)] overflow-auto overscroll-contain px-3.5 py-3 pr-4",
-            "whitespace-pre-wrap break-words font-mono text-[12px] leading-[1.7] text-foreground/62",
+            "whitespace-pre-wrap break-words font-mono text-xs leading-[1.7] text-foreground/62",
             "scrollbar-thin scrollbar-track-transparent",
             "[&::-webkit-scrollbar]:h-1.5 [&::-webkit-scrollbar]:w-1.5",
             "[&::-webkit-scrollbar-thumb]:bg-muted-foreground/25",
@@ -2457,7 +2457,7 @@ function RawInstructionsBlock({ markdown }: { markdown: string }) {
 
 function MetaItem({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-[16px] bg-muted/35 px-3 py-2.5">
+    <div className="rounded-xl bg-muted/35 px-3 py-2.5">
       <div className="text-[11px] text-muted-foreground">{label}</div>
       <div className="mt-0.5 truncate text-[13px] font-medium text-foreground">{value}</div>
     </div>
@@ -2516,7 +2516,7 @@ function RequirementsSection({ detail }: { detail: SkillDetail }) {
 function DetailSection({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section>
-      <h3 className="mb-2 text-[12px] font-medium text-muted-foreground">{title}</h3>
+      <h3 className="mb-2 text-xs font-medium text-muted-foreground">{title}</h3>
       {children}
     </section>
   );
@@ -2710,7 +2710,7 @@ function RequirementLine({
     <div className="space-y-1.5">
       <div
         className={cn(
-          "flex items-center gap-1.5 text-[12px]",
+          "flex items-center gap-1.5 text-xs",
           tone === "danger" ? "text-destructive" : "text-muted-foreground",
         )}
       >
