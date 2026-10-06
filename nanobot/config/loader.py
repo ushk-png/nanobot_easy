@@ -80,10 +80,19 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
 
     data = config.model_dump(mode="json", by_alias=True)
-    if config.providers.openai_codex.proxy is not None:
-        data.setdefault("providers", {})["openaiCodex"] = {
-            "proxy": config.providers.openai_codex.proxy,
-        }
+    # OAuth credentials live in dedicated token stores. Persist only the
+    # non-credential request settings consumed by these provider backends.
+    codex_proxy = config.providers.openai_codex.proxy
+    if codex_proxy is not None:
+        data.setdefault("providers", {})["openaiCodex"] = {"proxy": codex_proxy}
+    xai_settings = config.providers.xai_grok.model_dump(
+        mode="json",
+        by_alias=True,
+        include={"proxy", "extra_body"},
+        exclude_none=True,
+    )
+    if xai_settings:
+        data.setdefault("providers", {})["xaiGrok"] = xai_settings
 
     with open(path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)

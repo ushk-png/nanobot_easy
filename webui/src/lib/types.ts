@@ -723,6 +723,11 @@ export interface SettingsPayload {
     oauth_account?: string | null;
     oauth_expires_at?: number | null;
     oauth_login_supported?: boolean;
+    /** "authorization_url": login returns a URL to open, then is polled to completion. */
+    oauth_login_mode?: "authorization_url";
+    /** Model to select after sign-in when the provider cannot list its models. */
+    oauth_default_model?: string;
+    oauth_default_context_window_tokens?: number;
   }>;
   web_search: {
     provider: string;
@@ -1369,3 +1374,20 @@ export type Outbound =
        * generic websocket protocol for other clients. */
       webui?: true;
     };
+
+export interface ProviderOAuthAuthorizationRequired {
+  status: "authorization_required";
+  provider: string;
+  flow_id: string;
+  authorization_url: string;
+  expires_in: number;
+}
+
+export interface ProviderOAuthPending {
+  status: "pending";
+  provider: string;
+  flow_id: string;
+}
+
+export type ProviderOAuthLoginResult = SettingsPayload | ProviderOAuthAuthorizationRequired;
+export type ProviderOAuthCompletionResult = SettingsPayload | ProviderOAuthPending;

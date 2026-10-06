@@ -741,6 +741,97 @@ describe("SettingsView Apps catalog", () => {
     expect(await screen.findByRole("button", { name: "Sign in" })).toBeInTheDocument();
   });
 
+  it("completes the two-step xAI Grok sign-in from the settings dialog", async () => {
+    const provider = (configured: boolean) => ({
+      name: "xai_grok",
+      label: "xAI Grok",
+      configured,
+      auth_type: "oauth" as const,
+      api_key_required: false,
+      api_key_hint: null,
+      api_base: null,
+      default_api_base: null,
+      oauth_account: configured ? "me@example.com" : null,
+      oauth_expires_at: null,
+      oauth_login_supported: true,
+      oauth_login_mode: "authorization_url" as const,
+      oauth_default_model: "xai-grok/grok-4.5",
+    });
+    const payload = (configured: boolean): SettingsPayload => ({
+      ...settingsPayload(),
+      agent: {
+        ...settingsPayload().agent,
+        model: "xai-grok/grok-4.5",
+        provider: "xai_grok",
+        resolved_provider: "xai_grok",
+        has_api_key: false,
+      },
+      model_presets: [
+        {
+          ...settingsPayload().model_presets[0],
+          model: "xai-grok/grok-4.5",
+          provider: "xai_grok",
+        },
+      ],
+      providers: [provider(configured)],
+    });
+    const completions: Array<string | undefined> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "/api/settings") return jsonResponse(payload(false));
+        if (url === "/api/settings/cli-apps") {
+          return jsonResponse({ apps: [], installed_count: 0 });
+        }
+        if (url === "/api/settings/mcp-presets") {
+          return jsonResponse({ presets: [], installed_count: 0 });
+        }
+        if (url === "/api/settings/provider/oauth-login?provider=xai_grok") {
+          return jsonResponse({
+            status: "authorization_required",
+            provider: "xai_grok",
+            flow_id: "flow-1",
+            authorization_url: "https://auth.x.ai/oauth2/auth?state=abc",
+            expires_in: 600,
+          });
+        }
+        if (url === "/api/settings/provider/oauth-login/complete?provider=xai_grok&flow_id=flow-1") {
+          const code = (init?.headers as Record<string, string> | undefined)?.[
+            "X-Nanobot-OAuth-Code"
+          ];
+          completions.push(code);
+          return code
+            ? jsonResponse(payload(true))
+            : jsonResponse({ status: "pending", provider: "xai_grok", flow_id: "flow-1" });
+        }
+        return { ok: false, status: 404, json: async () => ({}) } as Response;
+      }),
+    );
+    const popup = { closed: false, close: vi.fn(), location: { href: "" } };
+    const open = vi.spyOn(window, "open").mockReturnValue(popup as unknown as Window);
+
+    renderSettingsView({ initialSection: "models" });
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in" }));
+
+    const link = await screen.findByRole("link", { name: /sign-in page/i });
+    expect(link).toHaveAttribute("href", "https://auth.x.ai/oauth2/auth?state=abc");
+    expect(open).toHaveBeenCalledWith("about:blank", "_blank");
+    expect(popup.location.href).toBe("https://auth.x.ai/oauth2/auth?state=abc");
+
+    fireEvent.change(screen.getByLabelText(/authorization code/i), {
+      target: { value: "pasted-code" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /finish sign-in/i }));
+
+    await waitFor(() => expect(completions).toContain("pasted-code"));
+    await waitFor(() =>
+      expect(screen.queryByTestId("provider-oauth-dialog")).not.toBeInTheDocument(),
+    );
+    open.mockRestore();
+  });
+
   it("keeps unsigned OAuth providers out of the active provider picker", async () => {
     const payload: SettingsPayload = {
       ...settingsPayload(),
