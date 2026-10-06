@@ -637,6 +637,15 @@
       "signInBeforeSaving": "Sign in before saving this OAuth provider as the active model provider.",
       "signInWaiting": "A sign-in window has opened. This will continue automatically once you finish signing in.",
       "signedIn": "Signed in",
+      "dialogTitle": "Sign in to {{provider}}",
+      "localCodeHelp": "Complete sign-in in your browser. Nanobot usually finishes automatically; if it does not, paste the authorization code below.",
+      "openSignInPage": "Open the sign-in page",
+      "waitingForSignIn": "Waiting for sign-in to finish...",
+      "authorizationCode": "Authorization code",
+      "authorizationCodePlaceholder": "Paste the code or the final callback URL",
+      "remoteCodeHelp": "Using nanobot from another device? After signing in, paste the authorization code shown by xAI here.",
+      "cancelSignIn": "Cancel",
+      "finishSignIn": "Finish sign-in",
       "notSignedIn": "Not signed in"
     },
     "easySetup": {

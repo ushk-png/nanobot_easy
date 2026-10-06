@@ -96,6 +96,8 @@ export const PROVIDER_BRAND_ALIASES: Record<string, string> = {
   minimaxAnthropic: "minimax",
   minimax_anthropic: "minimax",
   openai_codex: "openai",
+  "xai-grok": "xai",
+  xai_grok: "xai",
   xiaomi: "xiaomi_mimo",
   volcengine_coding_plan: "volcengine",
 };
@@ -107,6 +109,8 @@ export const PROVIDER_LABEL_ALIASES: Record<string, string> = {
   minimax_anthropic: "MiniMax",
   openai_codex: "OpenAI",
   volcengine_coding_plan: "Volcengine",
+  "xai-grok": "xAI",
+  xai_grok: "xAI",
 };
 
 const PROVIDER_BRANDS: Record<string, ProviderBrand> = {
@@ -155,6 +159,7 @@ const PROVIDER_BRANDS: Record<string, ProviderBrand> = {
   tavily: brand("tavily.com", "#111827", "T"),
   volcengine: brand("volcengine.com", "#1664FF", "VE"),
   vllm: brand("vllm.ai", "#2563EB", "VL"),
+  xai: brand("x.ai", "#111827", "xAI"),
   xiaomi_mimo: brand("mimo.xiaomi.com", "#FF6900", "MI", [
     "https://mimo.xiaomi.com/mimo-v2-pro/assets/logo.svg",
   ]),

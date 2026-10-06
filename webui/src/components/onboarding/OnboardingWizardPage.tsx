@@ -6,7 +6,7 @@ import {
   fetchSettings,
   updateProviderSettings,
   updateModelConfiguration,
-  loginProviderOAuth,
+  updateSettings,
   updateAgentToolsSettings,
   fetchNanobotFeatures,
   enableNanobotFeature,
@@ -14,6 +14,8 @@ import {
   fetchProviderModels,
 } from "@/lib/api";
 import type { SettingsPayload, NanobotFeatureInfo, NanobotFeaturesPayload } from "@/lib/types";
+import { ProviderOAuthLoginDialog } from "@/components/settings/ProviderOAuthLoginDialog";
+import { useProviderOAuthFlow } from "@/hooks/useProviderOAuthFlow";
 import "./onboarding-wizard.css";
 
 // The "로컬 모델" card is a category, not one real provider — each local
@@ -41,6 +43,7 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
   const tx = (key: string, fallback: string, values?: Record<string, unknown>) =>
     t(key, { defaultValue: fallback, ...(values ?? {}) });
   const { token } = useClient();
+  const providerOAuth = useProviderOAuthFlow(token);
 
   const [step, setStep] = useState(1);
   const [settings, setSettings] = useState<SettingsPayload | null>(null);
@@ -222,7 +225,11 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
     try {
       const needsKey = effectiveProvider.api_key_required ?? true;
       if (effectiveProvider.auth_type === "oauth") {
-        const payload = await loginProviderOAuth(token, effectiveProvider.name);
+        const payload = await providerOAuth.login(effectiveProvider.name, {
+          preopenWindow: effectiveProvider.oauth_login_mode === "authorization_url",
+        });
+        // null: the user closed the two-step sign-in dialog before finishing.
+        if (payload === null) return;
         setSettings(payload);
       } else {
         const payload = await updateProviderSettings(token, {
@@ -234,11 +241,31 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
       }
       if (settings) {
         const defaultPresetName = settings.model_presets?.find((p) => p.is_default)?.name ?? "default";
-        await updateModelConfiguration(token, {
-          name: defaultPresetName,
-          provider: effectiveProvider.name,
-          model: settings.agent.model,
-        }).catch(() => undefined);
+        // Providers that cannot list their models (xAI Grok) name the model to
+        // use; keeping the previous provider's model id would break the first chat.
+        const oauthDefaultModel = effectiveProvider.oauth_default_model;
+        if (oauthDefaultModel) {
+          const contextWindowTokens = effectiveProvider.oauth_default_context_window_tokens;
+          const selection = {
+            provider: effectiveProvider.name,
+            model: oauthDefaultModel,
+            ...(contextWindowTokens ? { contextWindowTokens } : {}),
+          };
+          // The built-in "default" configuration is edited through the agent
+          // settings endpoint; the model-configurations endpoint rejects it.
+          const updated =
+            defaultPresetName === "default"
+              ? await updateSettings(token, selection)
+              : await updateModelConfiguration(token, { name: defaultPresetName, ...selection });
+          setSettings(updated);
+          setSelectedModelId(oauthDefaultModel);
+        } else {
+          await updateModelConfiguration(token, {
+            name: defaultPresetName,
+            provider: effectiveProvider.name,
+            model: settings.agent.model,
+          }).catch(() => undefined);
+        }
       }
       // Real connections need a real model name (this is what the user
       // flagged as missing): after a successful connect, ask the provider
@@ -351,6 +378,7 @@ export function OnboardingWizardPage({ onDone }: { onDone: () => void }) {
 
   return (
     <div className="ne-wizard">
+      <ProviderOAuthLoginDialog oauth={providerOAuth} providerLabel={effectiveProvider?.label} />
       <div className="ne-shell">
         <header className="ne-header">
           <div className="ne-brand">

@@ -20,6 +20,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.config.loader import load_config
 from nanobot.optional_features import OptionalFeatureError
 from nanobot.webui.cli_apps_api import cli_apps_action, cli_apps_payload
+from nanobot.webui.http_utils import case_insensitive_header
 from nanobot.webui.http_utils import is_local_browser_request as _is_local_browser_request
 from nanobot.webui.http_utils import query_first as _query_first
 from nanobot.webui.mcp_presets_api import mcp_presets_settings_action
@@ -27,6 +28,7 @@ from nanobot.webui.nanobot_features_api import nanobot_features_action, nanobot_
 from nanobot.webui.settings_api import (
     WebUISettingsError,
     agent_profiles_payload,
+    complete_oauth_provider,
     create_model_configuration,
     decorate_settings_payload,
     delete_agent_profile,
@@ -53,6 +55,8 @@ QueryParams = dict[str, list[str]]
 
 _MCP_VALUES_HEADER = "X-Nanobot-MCP-Values"
 _MCP_VALUES_HEADER_MAX_BYTES = 64 * 1024
+_OAUTH_CODE_HEADER = "X-Nanobot-OAuth-Code"
+_OAUTH_CODE_HEADER_MAX_BYTES = 8 * 1024
 
 _MCP_PRESET_ACTIONS_BY_PATH = {
     "/api/settings/mcp-presets/enable": "enable",
@@ -107,6 +111,8 @@ class WebUISettingsRouter:
             return await self._handle_settings_provider_models(request)
         if path == "/api/settings/provider/oauth-login":
             return await self._handle_settings_provider_oauth(request, "login")
+        if path == "/api/settings/provider/oauth-login/complete":
+            return await self._handle_settings_provider_oauth(request, "complete")
         if path == "/api/settings/provider/oauth-logout":
             return await self._handle_settings_provider_oauth(request, "logout")
         if path == "/api/settings/web-search/update":
@@ -286,10 +292,22 @@ class WebUISettingsRouter:
         try:
             if action == "login":
                 payload = await asyncio.to_thread(login_oauth_provider, query)
+            elif action == "complete":
+                # The code travels in a header so it never lands in access logs.
+                authorization_code = case_insensitive_header(request.headers, _OAUTH_CODE_HEADER)
+                if len(authorization_code.encode("utf-8")) > _OAUTH_CODE_HEADER_MAX_BYTES:
+                    raise WebUISettingsError("OAuth authorization code is too large")
+                payload = await asyncio.to_thread(
+                    complete_oauth_provider,
+                    query,
+                    authorization_code or None,
+                )
             else:
                 payload = await asyncio.to_thread(logout_oauth_provider, query)
         except WebUISettingsError as e:
             return self._error_response(e.status, e.message)
+        if payload.get("status") in {"authorization_required", "pending"}:
+            return self._json_response(payload)
         return self._json_response(self._with_restart_state(payload))
 
     def _handle_settings_web_search_update(self, request: WsRequest) -> Response:

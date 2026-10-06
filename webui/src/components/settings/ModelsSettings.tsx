@@ -43,7 +43,7 @@ import {
 } from "@/components/settings/settings-provider-picker";
 import type { AgentSettingsDraft } from "@/components/settings/SettingsView";
 
-const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 200_000, 262_144] as const;
+const CONTEXT_WINDOW_TOKEN_OPTIONS = [65_536, 200_000, 262_144, 500_000] as const;
 
 function uniqueProviders(
   providers: SettingsPayload["providers"],
@@ -342,7 +342,13 @@ export function ModelsSettings({
               options={CONTEXT_WINDOW_TOKEN_OPTIONS.map((tokens) => ({
                 value: String(tokens),
                 label:
-                  tokens === 262_144 ? "256K" : tokens === 200_000 ? "200K" : "64K",
+                  tokens === 500_000
+                    ? "500K"
+                    : tokens === 262_144
+                      ? "256K"
+                      : tokens === 200_000
+                        ? "200K"
+                        : "64K",
               }))}
               onChange={(value) =>
                 setForm((prev) => ({

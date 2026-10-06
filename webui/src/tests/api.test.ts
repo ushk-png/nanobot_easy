@@ -27,6 +27,9 @@ import {
   importMcpConfig,
   listSessions,
   listSlashCommands,
+  completeProviderOAuth,
+  isProviderOAuthAuthorizationRequired,
+  isProviderOAuthPending,
   loginProviderOAuth,
   logoutProviderOAuth,
   disableNanobotFeature,
@@ -502,6 +505,42 @@ describe("webui API helpers", () => {
         headers: { Authorization: "Bearer tok" },
       }),
     );
+  });
+
+  it("polls and completes two-step OAuth logins with the code in a header", async () => {
+    await completeProviderOAuth("tok", "xai_grok", "flow-1");
+    expect(fetch).toHaveBeenLastCalledWith(
+      "/api/settings/provider/oauth-login/complete?provider=xai_grok&flow_id=flow-1",
+      expect.objectContaining({
+        cache: "no-store",
+        headers: { Authorization: "Bearer tok" },
+      }),
+    );
+
+    await completeProviderOAuth("tok", "xai_grok", "flow-1", "secret-code");
+    const [url, init] = vi.mocked(fetch).mock.calls.at(-1)!;
+    expect(String(url)).not.toContain("secret-code");
+    expect(init).toEqual(
+      expect.objectContaining({
+        headers: { "X-Nanobot-OAuth-Code": "secret-code", Authorization: "Bearer tok" },
+      }),
+    );
+  });
+
+  it("tells two-step OAuth results apart from settings payloads", () => {
+    const required = {
+      status: "authorization_required" as const,
+      provider: "xai_grok",
+      flow_id: "f",
+      authorization_url: "https://auth.x.ai/",
+      expires_in: 600,
+    };
+    const settings = { providers: [] } as never;
+
+    expect(isProviderOAuthAuthorizationRequired(required)).toBe(true);
+    expect(isProviderOAuthAuthorizationRequired(settings)).toBe(false);
+    expect(isProviderOAuthPending({ status: "pending", provider: "xai_grok", flow_id: "f" })).toBe(true);
+    expect(isProviderOAuthPending(settings)).toBe(false);
   });
 
   it("fetches provider model lists", async () => {

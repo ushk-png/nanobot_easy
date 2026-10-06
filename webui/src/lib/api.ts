@@ -23,6 +23,10 @@ import type {
   ModelConfigurationUpdate,
   NetworkSafetySettingsUpdate,
   ProviderModelsPayload,
+  ProviderOAuthAuthorizationRequired,
+  ProviderOAuthCompletionResult,
+  ProviderOAuthLoginResult,
+  ProviderOAuthPending,
   ProviderSettingsUpdate,
   SessionDeleteResult,
   SessionAutomationsPayload,
@@ -47,6 +51,7 @@ import type {
 import { fetchWithTimeout } from "./http";
 
 const API_READ_TIMEOUT_MS = 20_000;
+const OAUTH_CODE_HEADER = "X-Nanobot-OAuth-Code";
 const OAUTH_LOGIN_TIMEOUT_MS = 300_000; // interactive browser login can take a while
 const SLASH_COMMAND_LIFECYCLES = new Set<SlashCommandLifecycle>([
   "side_channel",
@@ -893,19 +898,59 @@ export async function updateProviderSettings(
   );
 }
 
+/**
+ * Start an OAuth login. Most providers block until sign-in finishes and return
+ * the refreshed settings. Two-step providers (xAI Grok) return an
+ * `authorization_required` result straight away; finish those with
+ * `completeProviderOAuth`.
+ */
 export async function loginProviderOAuth(
   token: string,
   provider: string,
   base: string = "",
-): Promise<SettingsPayload> {
+): Promise<ProviderOAuthLoginResult> {
   const query = new URLSearchParams();
   query.set("provider", provider);
-  return request<SettingsPayload>(
+  return request<ProviderOAuthLoginResult>(
     `${base}/api/settings/provider/oauth-login?${query}`,
     token,
-    undefined,
+    { cache: "no-store" },
     OAUTH_LOGIN_TIMEOUT_MS,
   );
+}
+
+/**
+ * Poll (no code) or finish (pasted code) a two-step OAuth login. The code is
+ * sent in a header so it never appears in a URL or an access log.
+ */
+export async function completeProviderOAuth(
+  token: string,
+  provider: string,
+  flowId: string,
+  authorizationCode?: string,
+  base: string = "",
+): Promise<ProviderOAuthCompletionResult> {
+  const query = new URLSearchParams();
+  query.set("provider", provider);
+  query.set("flow_id", flowId);
+  const headers = authorizationCode ? { [OAUTH_CODE_HEADER]: authorizationCode } : undefined;
+  return request<ProviderOAuthCompletionResult>(
+    `${base}/api/settings/provider/oauth-login/complete?${query}`,
+    token,
+    { cache: "no-store", ...(headers ? { headers } : {}) },
+  );
+}
+
+export function isProviderOAuthAuthorizationRequired(
+  payload: ProviderOAuthLoginResult,
+): payload is ProviderOAuthAuthorizationRequired {
+  return (payload as ProviderOAuthAuthorizationRequired).status === "authorization_required";
+}
+
+export function isProviderOAuthPending(
+  payload: ProviderOAuthCompletionResult,
+): payload is ProviderOAuthPending {
+  return (payload as ProviderOAuthPending).status === "pending";
 }
 
 export async function logoutProviderOAuth(

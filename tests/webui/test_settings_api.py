@@ -280,7 +280,7 @@ def test_update_context_window_rejects_unknown_values(
 
     with pytest.raises(
         WebUISettingsError,
-        match="context_window_tokens must be 65536, 200000, or 262144",
+        match="context_window_tokens must be 65536, 200000, 262144, or 500000",
     ):
         update_agent_settings({"context_window_tokens": ["128000"]})
 

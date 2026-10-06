@@ -637,6 +637,15 @@
       "signInBeforeSaving": "이 OAuth 제공자를 활성 모델 제공자로 저장하기 전에 로그인하세요.",
       "signInWaiting": "로그인 창이 열렸어요. 브라우저에서 로그인을 마치면 자동으로 이어집니다.",
       "signedIn": "로그인됨",
+      "dialogTitle": "{{provider}} 로그인",
+      "localCodeHelp": "브라우저에서 로그인을 마쳐 주세요. 보통은 자동으로 이어집니다. 넘어가지 않으면 아래에 인증 코드를 붙여 넣어 주세요.",
+      "openSignInPage": "로그인 페이지 열기",
+      "waitingForSignIn": "로그인이 끝나기를 기다리는 중...",
+      "authorizationCode": "인증 코드",
+      "authorizationCodePlaceholder": "코드 또는 마지막 콜백 주소를 붙여 넣기",
+      "remoteCodeHelp": "다른 기기에서 nanobot을 쓰고 있나요? 로그인한 뒤 xAI가 보여 주는 인증 코드를 여기에 붙여 넣어 주세요.",
+      "cancelSignIn": "취소",
+      "finishSignIn": "로그인 완료",
       "notSignedIn": "로그인 안 됨"
     },
     "easySetup": {

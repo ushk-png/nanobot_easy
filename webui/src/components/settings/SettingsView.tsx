@@ -21,7 +21,6 @@ import {
   fetchMcpPresets,
   fetchNanobotFeatures,
   importMcpConfig,
-  loginProviderOAuth,
   logoutProviderOAuth,
   runAutomationAction,
   runCliAppAction,
@@ -104,6 +103,8 @@ import { OverviewSettings } from "@/components/settings/OverviewSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { ModelsSettings, NewModelConfigurationDialog } from "@/components/settings/ModelsSettings";
 import { ProvidersSettings } from "@/components/settings/ProvidersSettings";
+import { ProviderOAuthLoginDialog } from "@/components/settings/ProviderOAuthLoginDialog";
+import { useProviderOAuthFlow } from "@/hooks/useProviderOAuthFlow";
 import { ImageGenerationSettings } from "@/components/settings/ImageGenerationSettings";
 import { TranscriptionSettings } from "@/components/settings/TranscriptionSettings";
 import { WebSettings } from "@/components/settings/WebSettings";
@@ -430,6 +431,7 @@ export function SettingsView({
 }: SettingsViewProps) {
   const { t } = useTranslation();
   const { token } = useClient();
+  const providerOAuth = useProviderOAuthFlow(token);
   const [settings, setSettings] = useState<SettingsPayload | null>(() => initialSettings);
   const [cliApps, setCliApps] = useState<CliAppsPayload | null>(null);
   const [nanobotFeatures, setNanobotFeatures] = useState<NanobotFeaturesPayload | null>(null);
@@ -1151,10 +1153,15 @@ export function SettingsView({
     if (providerSaving) return;
     setProviderSaving(providerName);
     try {
+      const providerRow = settings?.providers.find((item) => item.name === providerName);
       const payload =
         action === "login"
-          ? await loginProviderOAuth(token, providerName)
+          ? await providerOAuth.login(providerName, {
+              preopenWindow: providerRow?.oauth_login_mode === "authorization_url",
+            })
           : await logoutProviderOAuth(token, providerName);
+      // null: the user closed the two-step sign-in dialog.
+      if (payload === null) return;
       applyPayload(payload);
       setExpandedProvider(providerName);
       setError(null);
@@ -1839,6 +1846,12 @@ export function SettingsView({
         />
       ) : null}
 
+      <ProviderOAuthLoginDialog
+        oauth={providerOAuth}
+        providerLabel={
+          settings?.providers.find((item) => item.name === providerOAuth.flow?.provider)?.label
+        }
+      />
       <NewModelConfigurationDialog
         open={modelConfigurationOpen}
         draft={modelConfigurationForm}
