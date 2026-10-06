@@ -35,7 +35,11 @@ from nanobot.utils.helpers import _write_text_atomic
 
 XAI_OAUTH_ISSUER = "https://auth.x.ai"
 XAI_CLIENT_ID = "b1a00492-073a-47ea-816f-4c329264a828"
-XAI_CLIENT_VERSION = "0.2.109"
+# xAI rejects clients older than its current minimum with HTTP 426 ("Your Grok
+# CLI version ... is outdated"). The floor was raised to 1.0.13 on 2026-09-30.
+# NANOBOT_XAI_CLIENT_VERSION overrides this without a code change the next time
+# xAI raises it.
+XAI_CLIENT_VERSION = os.environ.get("NANOBOT_XAI_CLIENT_VERSION", "").strip() or "1.0.42"
 XAI_ALLOWED_CALLBACK_ORIGIN = "https://accounts.x.ai"
 XAI_OAUTH_SCOPES = (
     "openid",
