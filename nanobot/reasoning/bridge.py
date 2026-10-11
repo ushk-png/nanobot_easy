@@ -13,7 +13,7 @@ from uuid import uuid4
 
 from loguru import logger
 
-from nanobot.providers.base import LLMProvider
+from nanobot.providers.base import LLMProvider, hosted_tools_disabled
 from nanobot.reasoning.contract import parse_procedure_payload
 from nanobot.reasoning.dynamic import (
     MAX_DYNAMIC_RECOVERY,
@@ -85,6 +85,8 @@ class ProviderStageLLM:
                 parsed = {"parse_defects": [item.message() for item in defects], "raw": content}
         else:
             parsed = _parse_object(content)
+        # Adapter metadata is owned by code; a model-written value must not steer the flow.
+        parsed.pop("revision", None)
         usage = response.usage if isinstance(response.usage, dict) else {}
         input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
         output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
@@ -125,15 +127,17 @@ class ProviderStageLLM:
     ):
         prompt = prompt if prompt is not None else _stage_prompt(stage)
         body = body if body is not None else json.dumps(payload, ensure_ascii=False)
-        return await self.provider.chat_with_retry(
-            messages=[
-                {"role": "system", "content": prompt},
-                {"role": "user", "content": body},
-            ],
-            tools=None,
-            model=self.model,
-            reasoning_effort=self.reasoning_effort,
-        )
+        # Stage calls have no tools; hosted (server-side) tools are not attached either.
+        with hosted_tools_disabled():
+            return await self.provider.chat_with_retry(
+                messages=[
+                    {"role": "system", "content": prompt},
+                    {"role": "user", "content": body},
+                ],
+                tools=None,
+                model=self.model,
+                reasoning_effort=self.reasoning_effort,
+            )
 
 
 def _stage_prompt(stage: str) -> str:

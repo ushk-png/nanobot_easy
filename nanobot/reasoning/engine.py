@@ -98,7 +98,7 @@ class ReasoningEngine:
             case.step_states[stage] = "running"
             step_calls[stage] = step_calls.get(stage, 0) + 1
             payload = self.llm.complete(stage, self._payload(case, stage, repair.pop(stage, None)))
-            if int(payload.get("revision") or procedure.revision) != case.execution_revision:
+            if _result_revision(payload, procedure.revision) != case.execution_revision:
                 case.history.append({"event": "stale_result_ignored", "stage": stage})
                 stale_count = sum(
                     1
@@ -413,6 +413,17 @@ _ROLE_FIELDS: dict[str, tuple[str, ...]] = {
     "check": ("facts", "criteria", "judgments", "conclusion"),
     "answer": ("judgments", "conclusion"),
 }
+
+
+def _result_revision(payload: dict[str, Any], default: int) -> int | None:
+    """Revision tag set by the adapter; malformed tags count as stale, not as a crash."""
+    raw = payload.get("revision")
+    if raw is None or raw == "":
+        return default
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
 
 
 def _as_list(value: Any) -> list[Any]:

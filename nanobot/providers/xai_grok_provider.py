@@ -24,6 +24,7 @@ from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
+    hosted_tools_enabled,
     resolve_stream_idle_timeout_s,
 )
 from nanobot.providers.openai_responses import (
@@ -125,7 +126,7 @@ class XAIGrokProvider(LLMProvider):
         try:
             token = await asyncio.to_thread(get_xai_oauth_token, proxy=self.proxy)
             supports_backend_search = False
-            if self._hosted_search:
+            if self._hosted_search and hosted_tools_enabled():
                 stage = "model_capabilities"
                 supports_backend_search = await self._supports_backend_search(token, wire_model)
             converted_tools = convert_tools(tools or [])
@@ -141,13 +142,19 @@ class XAIGrokProvider(LLMProvider):
                 "stream": True,
                 "instructions": system_prompt,
                 "input": input_items,
-                "tools": converted_tools,
-                "tool_choice": tool_choice or "auto",
-                "parallel_tool_calls": True,
-                "stream_tool_calls": True,
                 "max_output_tokens": max_tokens,
                 "temperature": temperature,
             }
+            if converted_tools:
+                body.update(
+                    {
+                        "tools": converted_tools,
+                        "tool_choice": tool_choice or "auto",
+                        "parallel_tool_calls": True,
+                        "stream_tool_calls": True,
+                    }
+                )
+            # Without tools, xAI rejects tool_choice ("no tools were specified", HTTP 400).
             reasoning = _build_reasoning_options(reasoning_effort)
             if reasoning:
                 body["reasoning"] = reasoning

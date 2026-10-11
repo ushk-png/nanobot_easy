@@ -6,7 +6,8 @@ import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -144,6 +145,26 @@ def tool_arguments_object_for_replay(arguments: Any) -> dict[str, Any]:
 def tool_arguments_json_for_replay(arguments: Any) -> str:
     """Return JSON object string arguments for provider history replay only."""
     return json.dumps(tool_arguments_object_for_replay(arguments), ensure_ascii=False)
+
+
+_HOSTED_TOOLS_ENABLED: ContextVar[bool] = ContextVar("nanobot_hosted_tools_enabled", default=True)
+
+
+@contextmanager
+def hosted_tools_disabled():
+    """Within this block, providers must not attach server-side (hosted) tools.
+
+    Used by calls whose tool scope is fixed by code, e.g. stepwise reasoning stages.
+    """
+    token = _HOSTED_TOOLS_ENABLED.set(False)
+    try:
+        yield
+    finally:
+        _HOSTED_TOOLS_ENABLED.reset(token)
+
+
+def hosted_tools_enabled() -> bool:
+    return _HOSTED_TOOLS_ENABLED.get()
 
 
 @dataclass
