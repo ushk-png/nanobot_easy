@@ -83,8 +83,13 @@ class Procedure(Base):
     steps: list[ProcedureStep]
     dynamic: bool = False
     reusable: bool = False
-    # "fine": one call per logical step; "compact": merged calls for reasoning models.
+    # "fine": one call per logical step; "compact": merged calls for reasoning models;
+    # "two_call": extraction call + judgment/answer call, code in between (design 10).
     granularity: str = "fine"
+    # S6 model review: "conditional" (on concrete risks) or "required" (always).
+    review_policy: str = "conditional"
+    # Code rule that derives the conclusion status from judgments, if the procedure has one.
+    conclusion_rule: str | None = None
 
     def step(self, step_id: str) -> ProcedureStep:
         for step in self.steps:
@@ -126,6 +131,8 @@ class Conclusion(Base):
     statement: str
     conditions: list[str] = Field(default_factory=list)
     judgment_ids: list[str] = Field(default_factory=list)
+    # A business rule the conclusion invokes to depart from the code rule; reviewed, not trusted.
+    exception_rule: str = ""
     version: int = 1
 
 
@@ -173,6 +180,8 @@ class ReasoningCase(Base):
     history: list[dict[str, Any]] = Field(default_factory=list)
     path: str = ""
     open_issues: list[str] = Field(default_factory=list)
+    # Judgments kept across a fact update; only the other criteria are re-judged.
+    kept_judgments: list[str] = Field(default_factory=list)
     conversation: list[dict[str, str]] = Field(default_factory=list)
     step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     call_records: list[dict[str, Any]] = Field(default_factory=list)

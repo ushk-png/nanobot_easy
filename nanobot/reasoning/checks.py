@@ -27,6 +27,7 @@ def check_stage(
     *,
     declared_outputs: list[str] | None = None,
     result: dict[str, Any] | None = None,
+    structured: bool = False,
 ) -> list[str]:
     """Run the checks that gate a stage. Returns defect messages.
 
@@ -74,7 +75,7 @@ def check_stage(
     elif stage == "S5" and case.conclusion is not None:
         defects.extend(conclusion_conflicts(case))
     elif stage == "S7":
-        defects.extend(answer_omissions(case))
+        defects.extend(answer_omissions(case, structured=structured))
 
     record = _record(
         case,
@@ -102,6 +103,9 @@ def conclusion_conflicts(case: ReasoningCase) -> list[str]:
         if judgments.get(criterion_id) and judgments[criterion_id].result == "unknown"
     ]
     defects: list[str] = []
+    if case.conclusion.exception_rule.strip():
+        # Design 5: an offset is allowed only by an explicit rule; S6 reviews that rule.
+        unmet = unknown = []
     if unmet and case.conclusion.status in {"suitable", "conditionally_suitable"}:
         defects.append("required failure cannot be offset")
     if unknown and case.conclusion.status == "suitable":
@@ -111,7 +115,7 @@ def conclusion_conflicts(case: ReasoningCase) -> list[str]:
     return defects
 
 
-def answer_omissions(case: ReasoningCase) -> list[str]:
+def answer_omissions(case: ReasoningCase, structured: bool = False) -> list[str]:
     # A blank answer never passes, with or without a conclusion step (design 11).
     if not case.answer.strip():
         return [ANSWER_MISSING]
@@ -123,6 +127,9 @@ def answer_omissions(case: ReasoningCase) -> list[str]:
             return ["answer has no conclusion"]
         return []
     defects: list[str] = []
+    if structured:
+        # Conditions are checked through answer_claims, not through the text.
+        return defects
     for condition in case.conclusion.conditions:
         if not condition_covered(condition, case.answer):
             defects.append(f"answer omits condition: {condition}")
@@ -189,6 +196,25 @@ def _uses_only_unknown(case: ReasoningCase, evidence_ids: list[str]) -> bool:
 def _check_step(case: ReasoningCase, result: dict[str, Any]) -> list[str]:
     """S6: code checks over the whole chain, then the model's semantic findings."""
 
+    code = code_chain_defects(case)
+    semantic: list[str] = []
+    found = result.get("defects")
+    if not isinstance(found, list):
+        semantic.append("semantic check result missing")
+    else:
+        for item in found:
+            issue = str(item.get("issue") or "") if isinstance(item, dict) else str(item)
+            if issue.strip():
+                semantic.append(f"semantic: {issue.strip()}")
+    case.checks.append(
+        _record(case, "llm:S6", semantic, "same-model review; may share errors, not a proof")
+    )
+    return code + semantic
+
+
+def code_chain_defects(case: ReasoningCase) -> list[str]:
+    """S6 code part: chain structure and fixed rules. Runs whether or not the model reviews."""
+
     code: list[str] = []
     if case.criteria:
         covered = {item.criterion_id for item in case.judgments}
@@ -204,16 +230,94 @@ def _check_step(case: ReasoningCase, result: dict[str, Any]) -> list[str]:
     case.checks.append(
         _record(case, "code:S6", code, "chain structure and fixed rules only; not factual truth")
     )
-    semantic: list[str] = []
-    found = result.get("defects")
-    if not isinstance(found, list):
-        semantic.append("semantic check result missing")
+    return code
+
+
+CONCLUSION_RULE_PREFIX = "conclusion_rule"
+ANSWER_CLAIMS_PREFIX = "answer_claims"
+
+
+def rule_conclusion_statuses(case: ReasoningCase) -> set[str]:
+    """Conclusion statuses the 'required_criteria' rule allows (approval item 4).
+
+    Any required criterion unmet -> unsuitable. Otherwise any required criterion
+    unknown or unjudged -> conditionally suitable or deferred. All met -> suitable.
+    """
+
+    results = {item.criterion_id: item.result for item in case.judgments}
+    required = [item.id for item in case.criteria if item.kind == "required"]
+    if any(results.get(item) == "unmet" for item in required):
+        return {"unsuitable"}
+    if any(results.get(item) != "met" for item in required):
+        return {"conditionally_suitable", "deferred"}
+    return {"suitable"}
+
+
+def conclusion_rule_defects(case: ReasoningCase) -> list[str]:
+    if case.conclusion is None:
+        return []
+    allowed = rule_conclusion_statuses(case)
+    if case.conclusion.status in allowed or case.conclusion.exception_rule.strip():
+        # A claimed exception is a rule code cannot check; it goes to review instead.
+        defects: list[str] = []
     else:
-        for item in found:
-            issue = str(item.get("issue") or "") if isinstance(item, dict) else str(item)
-            if issue.strip():
-                semantic.append(f"semantic: {issue.strip()}")
+        defects = [
+            f"{CONCLUSION_RULE_PREFIX}: expected {' or '.join(sorted(allowed))}; "
+            f"observed {case.conclusion.status}"
+        ]
     case.checks.append(
-        _record(case, "llm:S6", semantic, "same-model review; may share errors, not a proof")
+        _record(case, "code:conclusion_rule", defects, "status derived from judgments by fixed rule")
     )
-    return code + semantic
+    return defects
+
+
+def answer_claim_check(case: ReasoningCase, claims: Any) -> tuple[list[str], list[str]]:
+    """Structured agreement between answer and verdict. Returns (defects, template additions).
+
+    Checks the answer's declared status and coverage against code-held judgments,
+    by criterion id, never by matching text fragments. A declared reference does not
+    prove the text says it well (approval item 4).
+    """
+
+    if not isinstance(claims, dict):
+        defects = [f"{ANSWER_CLAIMS_PREFIX} output has an invalid shape"]
+        case.checks.append(_record(case, "code:answer_claims", defects, _CLAIMS_LIMIT))
+        return defects, []
+    defects: list[str] = []
+    additions: list[str] = []
+    if case.conclusion is not None and claims.get("status") != case.conclusion.status:
+        defects.append(
+            f"{ANSWER_CLAIMS_PREFIX}: answer states {claims.get('status')}; "
+            f"conclusion is {case.conclusion.status}"
+        )
+    covers = {str(item) for item in claims.get("covers") or []}
+    disclosed = {str(item) for item in claims.get("unknown_disclosed") or []}
+    criteria = {item.id: item for item in case.criteria}
+    for judgment in case.judgments:
+        criterion = criteria.get(judgment.criterion_id)
+        if criterion is None or criterion.kind != "required" or judgment.result == "met":
+            continue
+        if judgment.result == "unmet" and criterion.id not in covers:
+            defects.append(f"{ANSWER_CLAIMS_PREFIX}: unmet required criterion {criterion.id} not explained")
+    missing_unknown = [
+        criteria[item.criterion_id]
+        for item in case.judgments
+        if item.result == "unknown"
+        and item.criterion_id in criteria
+        and criteria[item.criterion_id].kind == "required"
+        and item.criterion_id not in disclosed
+    ]
+    if missing_unknown:
+        # Template-fixable: code states the unconfirmed conditions itself.
+        names = ", ".join(item.statement for item in missing_unknown)
+        additions.append(f"다음 필수 조건은 아직 확인되지 않았습니다: {names}.")
+    included = {int(item) for item in claims.get("conditions_included") or [] if str(item).isdigit()}
+    conditions = case.conclusion.conditions if case.conclusion else []
+    missing_conditions = [text for index, text in enumerate(conditions) if index not in included]
+    if missing_conditions:
+        additions.append(f"적용 조건: {'; '.join(missing_conditions)}.")
+    case.checks.append(_record(case, "code:answer_claims", defects, _CLAIMS_LIMIT))
+    return defects, additions
+
+
+_CLAIMS_LIMIT = "model-declared status and criterion references; the wording itself is not verified"

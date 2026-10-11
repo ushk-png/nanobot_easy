@@ -8,7 +8,13 @@ from uuid import uuid4
 
 from pydantic import ValidationError
 
-from nanobot.reasoning.checks import ANSWER_MISSING, check_stage
+from nanobot.reasoning.checks import (
+    ANSWER_MISSING,
+    answer_claim_check,
+    check_stage,
+    code_chain_defects,
+    conclusion_rule_defects,
+)
 from nanobot.reasoning.llm import BudgetExceededError, StageLLM
 from nanobot.reasoning.models import (
     CheckRecord,
@@ -58,6 +64,8 @@ class ReasoningEngine:
         self.on_stage = on_stage
         # Off until rules are actually formalized; a disabled check is recorded, never passed.
         self.z3_check = z3_check
+        # First-step results produced by the routing call (design 10), consumed once.
+        self._prefill: dict[str, dict[str, Any]] = {}
         self._procedure: Procedure | None = None
 
     def run(
@@ -68,9 +76,11 @@ class ReasoningEngine:
         procedure: Procedure | None = None,
         case_id: str | None = None,
         conversation: list[dict[str, str]] | None = None,
+        prefill: dict[str, dict[str, Any]] | None = None,
     ) -> ReasoningCase:
         procedure = procedure or load_procedure(procedure_id)
         self._procedure = procedure
+        self._prefill = dict(prefill or {})
         case = ReasoningCase(
             id=case_id or f"reason-{uuid4().hex[:12]}",
             request=request,
@@ -119,7 +129,7 @@ class ReasoningEngine:
         index = 0
         stage_calls = 0
         step_calls: dict[str, int] = {}
-        repair: dict[str, list[str]] = {}
+        repair: dict[str, dict[str, Any]] = {}
         while index < len(order):
             stage = order[index]
             if case.step_states.get(stage) in {"passed", "conditionally_passed"}:
@@ -136,21 +146,39 @@ class ReasoningEngine:
             if not self._inputs_ready(procedure, stage, case):
                 self._stop(case, stage, f"{stage} inputs are not ready")
                 break
+            step = self._step(procedure, stage)
             case.current_step = stage
             case.step_states[stage] = "running"
             step_calls[stage] = step_calls.get(stage, 0) + 1
+            fix = repair.pop(stage, None)
             op_defects: list[str] = []
-            if self._step(procedure, stage).op != "llm":
-                # Code operations compute; no model call (design 8).
-                payload, op_defects = self._run_code_op(case, procedure, stage)
-            else:
-                try:
-                    payload = self.llm.complete(
-                        stage, self._payload(case, stage, repair.pop(stage, None))
-                    )
-                except BudgetExceededError as exc:
-                    self._incomplete(case, stage, exc)
-                    break
+            called_model = False
+            review_skipped: dict[str, Any] | None = None
+            try:
+                if step.op == "review":
+                    decision = self._review_decision(case, procedure)
+                    case.history.append({"event": "review_decision", "stage": stage, **decision})
+                    if decision["run"]:
+                        payload = self.llm.complete(stage, self._review_payload(case, stage, decision, fix))
+                        called_model = True
+                    else:
+                        payload, review_skipped = {}, decision
+                elif step.op != "llm":
+                    # Code operations compute; no model call (design 8).
+                    payload, op_defects = self._run_code_op(case, procedure, stage)
+                elif stage in self._prefill and fix is None:
+                    # Produced by the routing call; checked below like any step result.
+                    payload = self._prefill.pop(stage)
+                    case.history.append({"event": "prefilled", "stage": stage})
+                else:
+                    payload = self.llm.complete(stage, self._payload(case, stage, fix))
+                    called_model = True
+            except BudgetExceededError as exc:
+                self._incomplete(case, stage, exc)
+                break
+            if called_model and fix is not None:
+                # Beyond the default path: record why the extra call was made.
+                case.history.append({"event": "extra_call", "stage": stage, "reason": fix["reason"]})
             if _result_revision(payload, procedure.revision) != case.execution_revision:
                 case.history.append({"event": "stale_result_ignored", "stage": stage})
                 stale_count = sum(
@@ -162,38 +190,47 @@ class ReasoningEngine:
                     self._stop(case, stage, "stale revision result repeated")
                     break
                 continue
-            if self._step(procedure, stage).op == "llm":
+            if called_model:
                 self._record_usage(case, payload)
-            shape_defects = op_defects + self._apply(case, stage, payload)
-            if "check" in self._step(procedure, stage).roles and case.procedure_id == "rule-judgment":
+            shape_defects = op_defects + self._apply(case, stage, payload, fix.get("only") if fix else None)
+            if "check" in step.roles and case.procedure_id == "rule-judgment":
                 if self.z3_check:
                     self._check_rule_entailment(case)
                 else:
                     self._record_z3_disabled(case)
-            defects = shape_defects + [
-                defect
-                for key in self._check_keys(procedure, stage)
-                for defect in check_stage(
-                    case,
-                    key,
-                    declared_outputs=self._step(procedure, stage).outputs,
-                    result=payload,
-                )
-            ]
+            if review_skipped is not None:
+                defects = code_chain_defects(case)
+                self._record_review_skipped(case, review_skipped)
+            else:
+                defects = shape_defects + [
+                    defect
+                    for key in self._check_keys(procedure, stage)
+                    for defect in check_stage(
+                        case,
+                        key,
+                        declared_outputs=step.outputs,
+                        result=payload,
+                        structured=procedure.granularity == "two_call",
+                    )
+                ]
+                defects += self._structured_answer_defects(case, procedure, stage, payload)
             if defects and self._accept_open_issues(case, stage, defects):
                 # A check that already sent the run back once: remaining model findings
-                # go to the answer as open issues instead of another loop (design 6.2, 9).
+                # are not passed as clean; see _accept_open_issues (design 6.2, 9).
                 case.step_states[stage] = "conditionally_passed"
                 self._notify_stage(stage, "passed")
                 index += 1
                 continue
             if defects:
                 case.step_states[stage] = "needs_revision"
-                step = self._step(procedure, stage)
                 if self._retry_same_step(step, defects, step_calls.get(stage, 0), case):
-                    # Re-ask only this step with the defects (design 4.5).
+                    # Re-ask only this step, and only the outputs that are wrong (design 4.5).
                     case.revision_count += 1
-                    repair[stage] = defects
+                    repair[stage] = {
+                        "defects": defects,
+                        "only": self._partial_roles(procedure, step, defects),
+                        "reason": "defects in this step's own output",
+                    }
                     case.history.append({"event": "retry", "stage": stage, "defects": defects})
                     continue
                 if ANSWER_MISSING in defects and _is_answer_step(step):
@@ -204,11 +241,17 @@ class ReasoningEngine:
                 if not self._return_to(case, stage, target):
                     self._stop(case, stage, "; ".join(defects))
                     break
+                # The step that fixes the defects gets them (design 9).
+                repair[case.current_step] = {
+                    "defects": defects,
+                    "only": None,
+                    "reason": f"returned from {stage}",
+                }
                 index = order.index(case.current_step)
                 continue
             case.step_states[stage] = "passed"
             self._notify_stage(stage, "passed")
-            if "goal" in self._step(procedure, stage).roles and case.questions:
+            if "goal" in step.roles and case.questions:
                 case.status = "waiting_info"
                 case.step_states[stage] = "waiting_info"
                 case.stop_reason = "\n".join(case.questions)
@@ -224,6 +267,200 @@ class ReasoningEngine:
                 case.stop_reason = ANSWER_MISSING
         return case
 
+    def _partial_roles(self, procedure: Procedure, step, defects: list[str]) -> list[str] | None:
+        """Two-call answer step: re-request only conclusion and answer if judgments are sound."""
+
+        if procedure.granularity != "two_call" or not {"judgments", "conclusion", "answer"} <= set(step.roles):
+            return None
+        if any(_is_judgment_defect(item) for item in defects):
+            return None
+        return ["conclusion", "answer"]
+
+    def _structured_answer_defects(
+        self,
+        case: ReasoningCase,
+        procedure: Procedure,
+        stage: str,
+        payload: dict[str, Any],
+    ) -> list[str]:
+        """Two-call answer step: code-derived conclusion and structured answer agreement."""
+
+        step = self._step(procedure, stage)
+        if procedure.granularity != "two_call" or not _is_answer_step(step):
+            return []
+        defects: list[str] = []
+        if procedure.conclusion_rule == "required_criteria" and "conclusion" in step.roles:
+            defects += conclusion_rule_defects(case)
+        claims = case.step_outputs.get(stage, {}).get("answer_claims")
+        claim_defects, additions = answer_claim_check(case, claims)
+        defects += claim_defects
+        if not defects and additions and case.answer.strip():
+            # Template-fixable gaps are fixed in code, without another model call.
+            case.answer = f"{case.answer.rstrip()} {' '.join(additions)}"
+            case.history.append({"event": "template_fix", "stage": stage, "added": additions})
+        return defects
+
+    def _review_decision(self, case: ReasoningCase, procedure: Procedure) -> dict[str, Any]:
+        """Conditional S6 (approval item 3): concrete risks only, never the verdict itself.
+
+        Triggers: code-found evidence/judgment conflicts, model-flagged interpretation
+        risks on required criteria, and conclusion rules code cannot check. An
+        unsuitable/conditional/unknown verdict or a fact update alone does not trigger.
+        """
+
+        criteria = {item.id: item for item in case.criteria}
+        facts = {item.id: item for item in case.facts}
+        judgments = {item.id: item for item in case.judgments}
+        items: list[dict[str, Any]] = []
+        reasons: list[str] = []
+        results_by_criterion: dict[str, set[str]] = {}
+        for judgment in case.judgments:
+            results_by_criterion.setdefault(judgment.criterion_id, set()).add(judgment.result)
+            if judgment.result not in {"met", "unmet"}:
+                continue
+            cited = [facts[item] for item in judgment.evidence_ids if item in facts]
+            if cited and all(item.status == "estimated" for item in cited):
+                items.append(
+                    {
+                        "judgment_id": judgment.id,
+                        "issue": "추정 사실만으로 충족·불충족을 판정했다",
+                        "question": "확인된 근거로도 이 판정이 유지되는가?",
+                    }
+                )
+                reasons.append("evidence_conflict")
+            if judgment.assumptions:
+                items.append(
+                    {
+                        "judgment_id": judgment.id,
+                        "issue": f"가정에 기대어 판정했다: {'; '.join(judgment.assumptions)}",
+                        "question": "가정 없이도 이 판정이 유지되는가?",
+                    }
+                )
+                reasons.append("evidence_conflict")
+        for criterion_id, results in results_by_criterion.items():
+            if len(results) > 1:
+                items.append(
+                    {
+                        "criterion_id": criterion_id,
+                        "issue": "같은 기준에 서로 다른 판정이 있다",
+                        "question": "어느 판정이 근거에 맞는가?",
+                    }
+                )
+                reasons.append("evidence_conflict")
+        ignored = 0
+        for output in case.step_outputs.values():
+            for risk in output.get("risks") or []:
+                if not isinstance(risk, dict):
+                    continue
+                judgment = judgments.get(str(risk.get("judgment_id") or ""))
+                criterion = criteria.get(judgment.criterion_id) if judgment else None
+                if criterion is None or criterion.kind != "required":
+                    ignored += 1  # cannot change the conclusion
+                    continue
+                items.append(
+                    {
+                        "judgment_id": judgment.id,
+                        "issue": str(risk.get("issue") or "해석에 따라 판정이 달라질 수 있다"),
+                        "question": str(risk.get("question") or "원문의 예외·부정·적용 범위를 어떻게 읽어야 하는가?"),
+                    }
+                )
+                reasons.append("interpretation_risk")
+
+        if case.conclusion is not None and case.conclusion.exception_rule.strip():
+            items.append(
+                {
+                    "claim": "conclusion",
+                    "issue": f"코드 결론 규칙과 다른 규칙을 적용했다: {case.conclusion.exception_rule}",
+                    "question": "이 예외 규칙이 요청이나 규정에 근거하는가?",
+                }
+            )
+            reasons.append("new_rule")
+        policy = procedure.review_policy
+        if policy == "required":
+            reasons.insert(0, "policy_required")
+            if not items:
+                items = [
+                    {"judgment_id": item.id, "issue": "필수 검토 절차", "question": "근거가 판정을 뒷받침하는가?"}
+                    for item in case.judgments
+                    if item.criterion_id in criteria and criteria[item.criterion_id].kind == "required"
+                ]
+        return {
+            "run": policy == "required" or bool(items),
+            "policy": policy,
+            "reasons": sorted(set(reasons), key=reasons.index),
+            "items": items,
+            "ignored_risks": ignored,
+        }
+
+    def _review_payload(
+        self,
+        case: ReasoningCase,
+        stage: str,
+        decision: dict[str, Any],
+        fix: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """Only the questioned claims, their evidence and the question (approval item 3)."""
+
+        judgments = {item.id: item for item in case.judgments}
+        criteria = {item.id: item for item in case.criteria}
+        facts = {item.id: item for item in case.facts}
+        items: list[dict[str, Any]] = []
+        for item in decision["items"]:
+            entry: dict[str, Any] = {"issue": item["issue"], "question": item.get("question", "")}
+            judgment = judgments.get(str(item.get("judgment_id") or ""))
+            if judgment is not None:
+                entry["judgment"] = judgment.model_dump()
+                if judgment.criterion_id in criteria:
+                    entry["criterion"] = criteria[judgment.criterion_id].model_dump()
+                entry["evidence"] = [
+                    facts[ref].model_dump() for ref in judgment.evidence_ids if ref in facts
+                ]
+            if item.get("criterion_id") in criteria:
+                entry["criterion"] = criteria[item["criterion_id"]].model_dump()
+                entry["judgments"] = [
+                    value.model_dump() for value in case.judgments if value.criterion_id == item["criterion_id"]
+                ]
+            if item.get("claim") == "conclusion" and case.conclusion is not None:
+                entry["conclusion"] = case.conclusion.model_dump()
+            items.append(entry)
+        procedure = self._require_procedure()
+        order = self._execution_order(procedure)
+        payload: dict[str, Any] = {
+            "stage": stage,
+            "question": "review_items의 주장만 함께 준 근거와 대조해 검토한다. 문제가 없으면 defects는 빈 배열이다.",
+            "review_items": items,
+            "expected_outputs": ["defects"],
+            "output_shape": {
+                "defects": [
+                    {
+                        "step": "고칠 앞 단계 id(fixable_steps 중)",
+                        "judgment_id": "문제가 있는 판정 id(있으면)",
+                        "issue": "결론을 바꾸는 문제만 한 문장으로",
+                    }
+                ]
+            },
+            "fixable_steps": [
+                {"id": item, "roles": procedure.step(item).roles} for item in order[: order.index(stage)]
+            ],
+        }
+        if fix:
+            payload["repair_defects"] = list(fix["defects"])
+        return payload
+
+    def _record_review_skipped(self, case: ReasoningCase, decision: dict[str, Any]) -> None:
+        reason = f"not triggered under policy '{decision['policy']}'"
+        if decision.get("ignored_risks"):
+            reason += f"; {decision['ignored_risks']} flagged risk(s) on non-required criteria ignored"
+        case.checks.append(
+            CheckRecord(
+                id=f"check-{len(case.checks) + 1}",
+                target_version=f"{case.procedure_id}:{case.procedure_version}",
+                kind="llm:S6",
+                result="SKIPPED",
+                limit=f"{reason}; code chain checks still ran",
+            )
+        )
+
     def _accept_open_issues(self, case: ReasoningCase, stage: str, defects: list[str]) -> bool:
         step = self._step(self._require_procedure(), stage)
         if "check" not in step.roles or not all(item.startswith("semantic: ") for item in defects):
@@ -235,10 +472,25 @@ class ReasoningEngine:
             return False
         case.open_issues = [item.removeprefix("semantic: ") for item in defects]
         case.history.append({"event": "open_issues", "stage": stage, "issues": case.open_issues})
+        procedure = self._require_procedure()
+        order = self._execution_order(procedure)
+        answered_before = any(
+            _is_answer_step(procedure.step(item)) for item in order[: order.index(stage)]
+        )
+        if answered_before and case.answer.strip():
+            # The answer was written before this review, so it cannot carry the issues.
+            # Review items are conclusion-affecting, so the verdict is not final.
+            if case.conclusion is not None:
+                case.conclusion.status = "deferred"
+            case.answer = (
+                "점검에서 해결되지 않은 문제가 있어 결론을 확정하지 않았습니다(미확정): "
+                f"{'; '.join(case.open_issues)}\n\n점검 전 판단: {case.answer.strip()}"
+            )
+            case.history.append({"event": "verdict_unconfirmed", "stage": stage})
         return True
 
     def _retry_same_step(self, step, defects: list[str], calls: int, case: ReasoningCase) -> bool:
-        if step.op != "llm":
+        if step.op not in {"llm", "review"}:
             return False  # deterministic: the same inputs give the same result
         if calls >= step.budget.max_calls or case.revision_count >= self.max_revisions:
             return False
@@ -275,6 +527,8 @@ class ReasoningEngine:
             case.judgments = [
                 item for item in case.judgments if not set(item.evidence_ids) & changed
             ]
+            # Unaffected judgments are reused; only the others are judged again.
+            case.kept_judgments = [item.id for item in case.judgments]
             case.conclusion = None
             case.answer = ""
             self._invalidate_from(case, self._first_role("judgments"))
@@ -283,20 +537,33 @@ class ReasoningEngine:
             case.history.append({"event": "facts_updated", "fact_ids": sorted(changed)})
         return case
 
-    def _apply(self, case: ReasoningCase, stage: str, payload: dict[str, Any]) -> list[str]:
-        """Store a stage result. Malformed typed output is a step defect, not a crash."""
+    def _apply(
+        self,
+        case: ReasoningCase,
+        stage: str,
+        payload: dict[str, Any],
+        only: list[str] | None = None,
+    ) -> list[str]:
+        """Store a stage result. Malformed typed output is a step defect, not a crash.
+
+        ``only`` limits a partial re-request to some roles; the others keep their values.
+        """
 
         step = self._step(self._require_procedure(), stage)
         role = step.role
         defects: list[str] = []
         for item_role in step.roles:
+            if only is not None and item_role not in only:
+                continue
             try:
                 self._apply_role(case, item_role, payload)
             except ValidationError:
                 defects.append(f"{item_role} output has an invalid shape")
-        case.step_outputs[stage] = {
-            key: payload[key] for key in step.outputs if key in payload and key != "usage"
-        }
+        outputs = {key: payload[key] for key in step.outputs if key in payload and key != "usage"}
+        if only is not None:
+            case.step_outputs[stage] = {**case.step_outputs.get(stage, {}), **outputs}
+        else:
+            case.step_outputs[stage] = outputs
         if _is_answer_step(step):
             answer = payload.get("answer")
             case.answer = answer if isinstance(answer, str) else ""
@@ -343,9 +610,15 @@ class ReasoningEngine:
                 Criterion.model_validate(item) for item in _as_list(payload.get("criteria"))
             ]
         elif role == "judgments":
-            case.judgments = [
-                Judgment.model_validate(item) for item in _as_list(payload.get("judgments"))
-            ]
+            judged = [Judgment.model_validate(item) for item in _as_list(payload.get("judgments"))]
+            if case.kept_judgments:
+                # Fact update: keep judgments that did not depend on changed facts and take
+                # new ones only for the criteria that lost theirs (approval item 5).
+                kept = [item for item in case.judgments if item.id in case.kept_judgments]
+                covered = {item.criterion_id for item in kept}
+                judged = kept + [item for item in judged if item.criterion_id not in covered]
+                case.kept_judgments = []
+            case.judgments = judged
         elif role == "conclusion":
             raw = payload.get("conclusion")
             case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
@@ -526,9 +799,10 @@ class ReasoningEngine:
         self,
         case: ReasoningCase,
         stage: str,
-        repair_defects: list[str] | None = None,
+        fix: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        step = self._step(self._require_procedure(), stage)
+        procedure = self._require_procedure()
+        step = self._step(procedure, stage)
         payload = self._case_fields(case, stage)
         # The step contract: what this call must do and which keys it must return.
         payload["question"] = step.question
@@ -542,16 +816,29 @@ class ReasoningEngine:
                 {"id": item, "roles": procedure.step(item).roles}
                 for item in order[: order.index(stage)]
             ]
+        only = fix.get("only") if fix else None
+        roles = [role for role in step.roles if only is None or role in only]
         shape: dict[str, Any] = {}
-        for role in step.roles:
+        for role in roles:
             # Typed roles are parsed into case objects; the model needs their shape.
             shape.update(_OUTPUT_SHAPES.get(role, {}))
+        two_call_answer = procedure.granularity == "two_call" and _is_answer_step(step)
+        if two_call_answer and "answer" in roles:
+            shape.update(_TWO_CALL_ANSWER_EXTRAS)
+            if "conclusion" in shape:
+                shape["conclusion"] = {**shape["conclusion"], **_EXCEPTION_RULE_SHAPE}
+        if two_call_answer and procedure.conclusion_rule == "required_criteria":
+            payload["conclusion_rule"] = _CONCLUSION_RULE_TEXT
         if shape:
             payload["output_shape"] = shape
+        if only is not None:
+            # Partial re-request: earlier outputs of this step are fixed inputs now.
+            payload["expected_outputs"] = [key for key in step.outputs if key in shape]
+            payload["fixed"] = {"judgments": [item.model_dump() for item in case.judgments]}
         if _is_answer_step(step) and case.open_issues:
             payload["open_issues"] = list(case.open_issues)
-        if repair_defects:
-            payload["repair_defects"] = list(repair_defects)
+        if fix:
+            payload["repair_defects"] = list(fix["defects"])
         return payload
 
     def _case_fields(self, case: ReasoningCase, stage: str) -> dict[str, Any]:
@@ -599,6 +886,11 @@ class ReasoningEngine:
                     inputs[ref] = matches[0]
         if inputs:
             fields["inputs"] = inputs
+        if "judgments" in step.roles and case.kept_judgments:
+            kept = [item for item in case.judgments if item.id in case.kept_judgments]
+            covered = {item.criterion_id for item in kept}
+            fields["kept_judgments"] = [item.model_dump() for item in kept]
+            fields["rejudge_criteria"] = [item.id for item in case.criteria if item.id not in covered]
         return fields
 
 
@@ -684,6 +976,42 @@ _OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
         }
     },
 }
+
+
+_TWO_CALL_ANSWER_EXTRAS: dict[str, Any] = {
+    "answer_claims": {
+        "status": "answer가 전달하는 결론 상태(conclusion.status와 같게)",
+        "covers": ["answer가 이유를 설명한 기준 id(불충족 필수 기준은 모두)"],
+        "unknown_disclosed": ["answer가 미확인이라고 밝힌 기준 id"],
+        "conditions_included": ["answer에 담은 conclusion.conditions의 순번(0부터)"],
+    },
+    "risks": [
+        {
+            "judgment_id": "원문의 예외·부정·적용 범위 해석에 따라 결론이 바뀔 수 있는 판정 id",
+            "issue": "어떤 해석 차이인지 한 문장",
+            "question": "확인할 질문",
+        }
+    ],
+}
+_EXCEPTION_RULE_SHAPE = {
+    "exception_rule": "요청·규정이 conclusion_rule과 다른 결론을 명시적으로 허용할 때만 그 근거, 아니면 생략",
+}
+_CONCLUSION_RULE_TEXT = (
+    "필수 기준 중 하나라도 unmet이면 unsuitable. unmet 없이 unknown(또는 판정 없음)이 남으면 "
+    "conditionally_suitable 또는 deferred. 필수 기준이 모두 met이면 suitable. "
+    "선호 기준은 결론 상태를 바꾸지 않는다."
+)
+_JUDGMENT_DEFECT_MARKERS = (
+    "criteria without judgment",
+    "has no evidence",
+    "references unknown facts",
+    "promotes unknown evidence",
+    "judgments output has an invalid shape",
+)
+
+
+def _is_judgment_defect(defect: str) -> bool:
+    return any(marker in defect for marker in _JUDGMENT_DEFECT_MARKERS)
 
 
 def _is_format_defect(defect: str) -> bool:

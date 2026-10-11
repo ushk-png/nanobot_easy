@@ -140,6 +140,8 @@ def procedure(procedure_id: str, granularity: str = "fine") -> Procedure:
         raise KeyError(f"unapproved procedure: {procedure_id}") from exc
     if granularity == "compact":
         return _compact(procedure_id, title, questions)
+    if granularity == "two_call":
+        return _two_call(procedure_id, title, questions)
     roles = ("goal", "facts", "criteria", "judgments", "conclusion", "check", "answer")
     outputs = ("goal", "facts", "criteria", "judgments", "conclusion", "checks", "answer")
     returns = (None, "S1", "S1", "S2", "S4", "S5", "S5")
@@ -160,6 +162,60 @@ def procedure(procedure_id: str, granularity: str = "fine") -> Procedure:
                 version=PROCEDURE_VERSION,
             )
             for index, question in enumerate(questions, start=1)
+        ],
+    )
+
+
+# Procedures whose conclusion status follows from required-criterion judgments.
+_CONCLUSION_RULES = {"method-evaluation": "required_criteria", "rule-judgment": "required_criteria"}
+
+
+def _two_call(procedure_id: str, title: str, questions: tuple[str, ...]) -> Procedure:
+    """A: goal+facts+criteria. B: judgments+conclusion+answer. S6: conditional review.
+
+    S1-S7 stay as roles and check records; they are not separate calls (design 10).
+    """
+
+    q = questions
+    return Procedure(
+        id=procedure_id,
+        version=PROCEDURE_VERSION,
+        title=title,
+        purpose=title,
+        granularity="two_call",
+        conclusion_rule=_CONCLUSION_RULES.get(procedure_id),
+        steps=[
+            ProcedureStep(
+                id="A",
+                role="goal",
+                merged_roles=["facts", "criteria"],
+                question=f"{q[0]} {q[1]} {q[2]}",
+                inputs=["request"],
+                outputs=["goal", "facts", "criteria"],
+                checks=["structure"],
+                version=PROCEDURE_VERSION,
+            ),
+            ProcedureStep(
+                id="B",
+                role="judgments",
+                merged_roles=["conclusion", "answer"],
+                question=f"{q[3]} {q[4]} {q[6]}",
+                inputs=["A"],
+                outputs=["judgments", "conclusion", "answer", "answer_claims", "risks"],
+                checks=["structure", "faithfulness"],
+                version=PROCEDURE_VERSION,
+            ),
+            ProcedureStep(
+                id="S6",
+                role="check",
+                op="review",
+                question=q[5],
+                inputs=["B"],
+                outputs=["checks"],
+                checks=["semantic"],
+                failure_returns_to="B",
+                version=PROCEDURE_VERSION,
+            ),
         ],
     )
 
