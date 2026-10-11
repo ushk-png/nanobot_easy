@@ -94,6 +94,7 @@ from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
 from nanobot.reasoning.bridge import (
+    ReasoningSessions,
     reasoning_mode_notice,
     recent_conversation,
     run_reasoning_procedure,
@@ -2021,6 +2022,13 @@ class AgentLoop:
     def _stepwise_enabled(self) -> bool:
         return bool(self.reasoning_effort and self.reasoning_effort.lower() == "none")
 
+    def _stepwise_sessions(self) -> ReasoningSessions:
+        sessions = getattr(self, "_reasoning_sessions", None)
+        if sessions is None:
+            sessions = ReasoningSessions()
+            self._reasoning_sessions = sessions
+        return sessions
+
     async def _run_stepwise(self, ctx: TurnContext) -> bool:
         """Run the code-controlled stepwise procedure. False hands the turn to the normal loop."""
 
@@ -2052,6 +2060,8 @@ class AgentLoop:
             workspace=self.workspace,
             on_progress=ctx.on_progress,
             conversation=recent_conversation(ctx.initial_messages),
+            sessions=self._stepwise_sessions(),
+            session_key=ctx.session_key,
         )
         if case.status == "direct":
             return False

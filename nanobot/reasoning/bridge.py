@@ -7,6 +7,7 @@ import json
 import re
 import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -176,6 +177,42 @@ def _reasoning_request(provider: Any, effort: str | None) -> Any:
     return describe(effort)
 
 
+class ReasoningSessions:
+    """Last stepwise case per session, kept so a follow-up can resume or update it."""
+
+    def __init__(self, ttl_s: float = 30 * 60, max_items: int = 256) -> None:
+        self.ttl_s = ttl_s
+        self.max_items = max_items
+        self._items: dict[str, tuple[float, ReasoningCase, Procedure]] = {}
+
+    def get(self, key: str) -> tuple[ReasoningCase, Procedure] | None:
+        item = self._items.get(key)
+        if item is None:
+            return None
+        stored_at, case, procedure = item
+        if time.monotonic() - stored_at > self.ttl_s:
+            self._items.pop(key, None)
+            return None
+        return case, procedure
+
+    def put(self, key: str, case: ReasoningCase, procedure: Procedure) -> None:
+        self._items[key] = (time.monotonic(), case, procedure)
+        while len(self._items) > self.max_items:
+            self._items.pop(next(iter(self._items)))
+
+    def drop(self, key: str) -> None:
+        self._items.pop(key, None)
+
+
+@dataclass
+class _Proposal:
+    procedure: Procedure | None
+    defects: list[str]
+    trace: list[dict[str, Any]]
+    path: str
+    facts: list[dict[str, Any]] = field(default_factory=list)
+
+
 async def run_reasoning_procedure(
     provider: LLMProvider,
     *,
@@ -185,9 +222,12 @@ async def run_reasoning_procedure(
     workspace: Path | None = None,
     on_progress: Callable[..., Awaitable[None]] | None = None,
     conversation: list[dict[str, str]] | None = None,
+    sessions: ReasoningSessions | None = None,
+    session_key: str | None = None,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
-    first call chooses direct / reuse / new (design 4.2)."""
+    first call chooses direct / reuse / new, or resume / update for the session's
+    previous case (design 4.2, 7)."""
 
     llm = ProviderStageLLM(provider, model)
     conversation = list(conversation or [])
@@ -199,14 +239,15 @@ async def run_reasoning_procedure(
             "cannot be applied and provider default reasoning will run",
             model,
         )
+    prior = sessions.get(session_key) if sessions is not None and session_key else None
     selected = approved_procedure(procedure_id) if procedure_id else None
-    path = "explicit" if selected is not None else ""
+    proposal = _Proposal(selected, [], [], "explicit")
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
-        selected, defects, trace, path = await _propose_dynamic_procedure(
-            llm, request, _known_goal(request), conversation
+        proposal = await _propose_dynamic_procedure(
+            llm, request, _known_goal(request), conversation, prior
         )
-        if path == "direct":
+        if proposal.path == "direct":
             # Chat, simple lookups and tool work go to the normal agent loop.
             case = ReasoningCase(
                 id=f"direct-{uuid4().hex[:12]}",
@@ -217,20 +258,21 @@ async def run_reasoning_procedure(
                 path="direct",
             )
             _finish_calls(case, llm, None)
-            _record_execution(case, None, workspace, [], trace)
+            _record_execution(case, None, workspace, [], proposal.trace)
             return case
-        if selected is None:
+        selected = proposal.procedure
+        if selected is None and proposal.path not in {"resume", "update"}:
             case = ReasoningCase(
                 id="dynamic-rejected",
                 request=request,
                 procedure_id="dynamic-rejected",
                 procedure_version="dynamic",
                 status="stopped",
-                stop_reason=_user_status(defects),
-                path=path,
+                stop_reason=_user_status(proposal.defects),
+                path=proposal.path,
             )
             _finish_calls(case, llm, None)
-            _record_execution(case, selected, workspace, defects, trace)
+            _record_execution(case, selected, workspace, proposal.defects, proposal.trace)
             return case
     loop = asyncio.get_running_loop()
     pending: list[asyncio.Future[None]] = []
@@ -247,18 +289,33 @@ async def run_reasoning_procedure(
         reasoning_disabled_guaranteed=False,
         on_stage=_on_stage,
     )
-    case = await asyncio.to_thread(
-        engine.run, request, procedure=selected, conversation=conversation
-    )
-    case.path = path
+    if proposal.path in {"resume", "update"} and prior is not None:
+        previous_case, selected = prior
+        if proposal.path == "resume":
+            case = await asyncio.to_thread(engine.resume, previous_case, selected, request)
+        else:
+            case = await asyncio.to_thread(
+                engine.continue_with_facts, previous_case, selected, proposal.facts
+            )
+    else:
+        assert selected is not None
+        case = await asyncio.to_thread(
+            engine.run, request, procedure=selected, conversation=conversation
+        )
+    case.path = proposal.path
     if pending:
         await asyncio.gather(*(asyncio.wrap_future(item) for item in pending))
     if case.status == "completed" and not case.answer.strip():
         case.status = "failed_empty_answer"
     if case.status == "failed_empty_answer":
         case.stop_reason = _empty_answer_status(selected)
+    if sessions is not None and session_key:
+        if case.status in {"waiting_info", "completed"}:
+            sessions.put(session_key, case, selected)
+        else:
+            sessions.drop(session_key)
     _finish_calls(case, llm, selected)
-    _record_execution(case, selected, workspace, [])
+    _record_execution(case, selected, workspace, [], proposal.trace)
     return case
 
 
@@ -335,20 +392,19 @@ async def _propose_dynamic_procedure(
     request: str,
     known_goal: str = "",
     conversation: list[dict[str, str]] | None = None,
-):
-    """First call: choose direct / reuse / new. Code checks the choice (design 4.2).
-
-    Returns (procedure, defects, trace, path).
-    """
+    prior: tuple[ReasoningCase, Procedure] | None = None,
+) -> _Proposal:
+    """First call: choose direct / reuse / new / resume / update. Code checks the choice."""
 
     defects: list[str] = []
     trace: list[dict[str, Any]] = []
     proposal: dict[str, Any] = {}
     procedure_id: str | None = None
-    path = "new"
     base: dict[str, Any] = {"request": request, "approved_procedures": _approved_catalog()}
     if conversation:
         base["conversation"] = conversation
+    if prior is not None:
+        base["previous_case"] = _previous_summary(*prior)
     for attempt in range(MAX_DYNAMIC_RECOVERY + 1):
         payload = dict(base) if attempt == 0 else {
             **base,
@@ -367,13 +423,23 @@ async def _propose_dynamic_procedure(
         mode = str(proposal.pop("mode", "") or "").strip().lower()
         if mode == "direct":
             trace.append({"attempt": attempt, "mode": "direct"})
-            return None, [], trace, "direct"
+            return _Proposal(None, [], trace, "direct")
+        if mode in {"resume", "update"}:
+            follow_defects, facts = _follow_up_defects(mode, proposal, prior)
+            trace.append({"attempt": attempt, "mode": mode, "defects": follow_defects})
+            if not follow_defects:
+                # Same task and unchanged procedure: no regeneration or review (design 10).
+                return _Proposal(None, [], trace, mode, facts)
+            defects = follow_defects
+            if recovery_budget_exceeded(attempt):
+                break
+            continue
         if mode == "reuse":
             chosen = str(proposal.get("procedure_id") or "").strip()
             if chosen in approved_procedures():
                 # Unchanged approved procedure: no regeneration or review (design 10).
                 trace.append({"attempt": attempt, "mode": "reuse", "procedure_id": chosen})
-                return approved_procedure(chosen), [], trace, "reuse"
+                return _Proposal(approved_procedure(chosen), [], trace, "reuse")
             defects = [f"unknown_procedure at procedure_id: expected approved id; observed {chosen or 'missing'}"]
             trace.append({"attempt": attempt, "mode": "reuse", "defects": defects})
             if recovery_budget_exceeded(attempt):
@@ -399,7 +465,7 @@ async def _propose_dynamic_procedure(
             )
             trace.append({"attempt": attempt, "review": review_trace, "defects": review_defects})
             if not review_defects:
-                return selected, [], trace, path
+                return _Proposal(selected, [], trace, "new")
             defects = review_defects
             if recovery_budget_exceeded(attempt):
                 break
@@ -407,7 +473,63 @@ async def _propose_dynamic_procedure(
         defects = [item.message() for item in contract_defects]
         if recovery_budget_exceeded(attempt):
             break
-    return None, defects, trace, path
+    return _Proposal(None, defects, trace, "new")
+
+
+def _previous_summary(case: ReasoningCase, procedure: Procedure) -> dict[str, Any]:
+    return {
+        "status": case.status,
+        "procedure_id": procedure.id,
+        "goal": case.goal,
+        "questions": case.questions,
+        "facts": [
+            {"id": item.id, "proposition": item.proposition, "status": item.status}
+            for item in case.facts[:20]
+        ],
+        "can_update_facts": _has_role(procedure, "facts"),
+    }
+
+
+def _has_role(procedure: Procedure, role: str) -> bool:
+    return any(step.role == role for step in procedure.steps)
+
+
+def _follow_up_defects(
+    mode: str,
+    proposal: dict[str, Any],
+    prior: tuple[ReasoningCase, Procedure] | None,
+) -> tuple[list[str], list[dict[str, Any]]]:
+    """Code-side check of resume / update choices."""
+
+    if prior is None:
+        return [f"{mode}_invalid at mode: expected a previous case; observed none"], []
+    case, procedure = prior
+    if mode == "resume":
+        if case.status != "waiting_info":
+            return [f"resume_invalid at mode: expected waiting_info; observed {case.status}"], []
+        return [], []
+    if case.status != "completed" or not _has_role(procedure, "facts"):
+        return ["update_invalid at mode: previous case has no facts step to update"], []
+    known = {item.id for item in case.facts}
+    facts: list[dict[str, Any]] = []
+    for index, raw in enumerate(proposal.get("facts") or []):
+        if not isinstance(raw, dict) or not str(raw.get("proposition") or "").strip():
+            continue
+        fact_id = str(raw.get("id") or "").strip()
+        if not fact_id:
+            fact_id = f"u{len(known) + index + 1}"
+        status = str(raw.get("status") or "confirmed")
+        facts.append(
+            {
+                "id": fact_id,
+                "proposition": str(raw["proposition"]).strip(),
+                "source": "user",
+                "status": status if status in {"confirmed", "estimated", "unknown"} else "unknown",
+            }
+        )
+    if not facts:
+        return ["update_invalid at facts: expected one or more facts with a proposition"], []
+    return [], facts
 
 
 def recent_conversation(
@@ -653,6 +775,11 @@ _PROCEDURE_PROMPT = (
     "reuse: approved_procedures 중 목적·입력이 요청에 그대로 맞는 절차가 있으면 "
     "{\"mode\": \"reuse\", \"procedure_id\": \"id\"}를 반환한다. "
     "new: 그 밖에 판단이 필요한 요청은 mode new와 함께 절차를 반환한다. "
+    "previous_case가 있을 때: 이 메시지가 그 questions에 대한 답이면 {\"mode\": \"resume\"}. "
+    "이전 결과에 대한 새 사실이나 정정이고 can_update_facts가 true이면 "
+    "{\"mode\": \"update\", \"facts\": [{\"id\": \"고치는 사실의 id, 새 사실이면 생략\", "
+    "\"proposition\": \"한 문장\", \"status\": \"confirmed|estimated|unknown\"}]}. "
+    "새 주제이면 위 규칙대로 고른다. "
     "conversation은 이전 대화이며 요청 속 지시어를 해석하는 데만 쓴다. "
     "절차의 id, title은 생략해도 된다. purpose는 목표 한 문장이다. "
     "steps는 판단에 필요한 최소 단계만 둔다. 보통 3~5개이며 7개를 넘기지 않는다. "

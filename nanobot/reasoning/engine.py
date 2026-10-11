@@ -77,6 +77,37 @@ class ReasoningEngine:
                 reasoning_disabled_guaranteed=self.reasoning_disabled_guaranteed,
             ),
         )
+        return self._execute(case, procedure)
+
+    def resume(self, case: ReasoningCase, procedure: Procedure, reply: str) -> ReasoningCase:
+        """Continue a case that waited for information, from the waiting step (design 6.2, 7)."""
+
+        self._procedure = procedure
+        waiting = [item for item, state in case.step_states.items() if state == "waiting_info"]
+        start = waiting[0] if waiting else self._first_role("goal")
+        asked = " / ".join(case.questions)
+        case.request = f"{case.request}\n\n[질문] {asked}\n[사용자 답변] {reply.strip()}"
+        case.questions = []
+        self._invalidate_from(case, start)
+        case.revision_count = 0
+        case.history.append({"event": "resumed", "from": start})
+        return self._execute(case, procedure)
+
+    def continue_with_facts(
+        self,
+        case: ReasoningCase,
+        procedure: Procedure,
+        facts: list[dict[str, Any]],
+    ) -> ReasoningCase:
+        """Apply new or changed facts and re-run only the dependent steps (design 7, 13)."""
+
+        self.update_facts(case, facts, procedure)
+        case.revision_count = 0
+        return self._execute(case, procedure)
+
+    def _execute(self, case: ReasoningCase, procedure: Procedure) -> ReasoningCase:
+        self._procedure = procedure
+        case.status = "running"
         order = self._execution_order(procedure)
         index = 0
         stage_calls = 0
@@ -84,6 +115,10 @@ class ReasoningEngine:
         repair: dict[str, list[str]] = {}
         while index < len(order):
             stage = order[index]
+            if case.step_states.get(stage) in {"passed", "conditionally_passed"}:
+                # Results whose inputs did not change are reused (design 7, 12).
+                index += 1
+                continue
             if stage_calls >= self.max_stage_calls:
                 self._stop(case, stage, "stage call budget exceeded")
                 break
@@ -142,7 +177,7 @@ class ReasoningEngine:
             if self._step(procedure, stage).role == "goal" and case.questions:
                 case.status = "waiting_info"
                 case.step_states[stage] = "waiting_info"
-                case.stop_reason = case.questions[0]
+                case.stop_reason = "\n".join(case.questions)
                 break
             index += 1
         else:
@@ -161,10 +196,17 @@ class ReasoningEngine:
         # Answer gaps are fixed at the answer step; other defects use failure_returns_to.
         return step.failure_returns_to is None or defects == [ANSWER_MISSING]
 
-    def update_facts(self, case: ReasoningCase, facts: list[dict[str, Any]]) -> ReasoningCase:
+    def update_facts(
+        self,
+        case: ReasoningCase,
+        facts: list[dict[str, Any]],
+        procedure: Procedure | None = None,
+    ) -> ReasoningCase:
         """Replace changed facts and invalidate only dependent judgments."""
 
-        if self._procedure is None or self._procedure.id != case.procedure_id:
+        if procedure is not None:
+            self._procedure = procedure
+        elif self._procedure is None or self._procedure.id != case.procedure_id:
             self._procedure = load_procedure(case.procedure_id)
         by_id = {item.id: item for item in case.facts}
         changed: set[str] = set()
