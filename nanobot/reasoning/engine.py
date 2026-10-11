@@ -193,8 +193,13 @@ class ReasoningEngine:
     def _retry_same_step(self, step, defects: list[str], calls: int, case: ReasoningCase) -> bool:
         if calls >= step.budget.max_calls or case.revision_count >= self.max_revisions:
             return False
-        # Answer gaps are fixed at the answer step; other defects use failure_returns_to.
-        return step.failure_returns_to is None or defects == [ANSWER_MISSING]
+        # A step's own malformed or missing output is fixed at that step; judgment
+        # defects use failure_returns_to.
+        return (
+            step.failure_returns_to is None
+            or defects == [ANSWER_MISSING]
+            or any(_is_format_defect(item) for item in defects)
+        )
 
     def update_facts(
         self,
@@ -398,6 +403,9 @@ class ReasoningEngine:
         if step.role == "check" and "defects" not in payload["expected_outputs"]:
             # The check step reports findings; an absent list is not a pass.
             payload["expected_outputs"].append("defects")
+        if step.role in _OUTPUT_SHAPES:
+            # Typed roles are parsed into case objects; the model needs their shape.
+            payload["output_shape"] = _OUTPUT_SHAPES[step.role]
         if repair_defects:
             payload["repair_defects"] = list(repair_defects)
         return payload
@@ -455,6 +463,67 @@ _ROLE_FIELDS: dict[str, tuple[str, ...]] = {
     "check": ("facts", "criteria", "judgments", "conclusion"),
     "answer": ("judgments", "conclusion"),
 }
+
+
+_OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
+    "goal": {
+        "goal": "달성 목표 한 문장",
+        "constraints": ["필수 제약"],
+        "questions": ["핵심 정보가 없어 진행할 수 없을 때만 묻는 질문"],
+        "assumptions": ["작은 가정"],
+    },
+    "facts": {
+        "facts": [
+            {
+                "id": "f1",
+                "proposition": "사실 한 문장",
+                "source": "request 또는 출처",
+                "status": "confirmed | estimated | unknown",
+            }
+        ]
+    },
+    "criteria": {
+        "criteria": [
+            {
+                "id": "c1",
+                "statement": "판정 가능한 기준",
+                "kind": "required | preferred",
+                "method": "판정 방법",
+                "linked_goal": "입력의 goal을 그대로",
+            }
+        ]
+    },
+    "judgments": {
+        "judgments": [
+            {
+                "id": "j1",
+                "criterion_id": "c1",
+                "result": "met | unmet | unknown",
+                "evidence_ids": ["f1"],
+                "assumptions": [],
+            }
+        ]
+    },
+    "conclusion": {
+        "conclusion": {
+            "id": "k1",
+            "status": "suitable | conditionally_suitable | unsuitable | deferred",
+            "statement": "결론 한 문장",
+            "conditions": ["적용 조건"],
+            "judgment_ids": ["j1"],
+        }
+    },
+    "check": {"defects": ["발견한 결함, 없으면 빈 배열"]},
+    "answer": {"answer": "사용자에게 보일 최종 답 2~4문장"},
+}
+
+
+def _is_format_defect(defect: str) -> bool:
+    return (
+        "invalid shape" in defect
+        or defect.startswith("declared output missing")
+        or defect == "semantic check result missing"
+    )
 
 
 def _result_revision(payload: dict[str, Any], default: int) -> int | None:

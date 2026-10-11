@@ -96,3 +96,36 @@ def test_every_passed_step_has_a_real_check_record() -> None:
     kinds = {item.kind for item in case.checks}
     assert "code:outputs" in kinds
     assert "code:unmapped" not in kinds
+
+
+def test_typed_steps_receive_their_output_shape() -> None:
+    seen: dict[str, Any] = {}
+
+    class Spy(ScriptedStageLLM):
+        def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+            seen[stage] = payload
+            return super().complete(stage, payload)
+
+    ReasoningEngine(Spy(_scripts())).run("평가")
+
+    fact_shape = seen["S2"]["output_shape"]["facts"][0]
+    assert set(fact_shape) == {"id", "proposition", "source", "status"}
+    assert "linked_goal" in seen["S3"]["output_shape"]["criteria"][0]
+    assert "defects" in seen["S6"]["output_shape"]
+
+
+def test_malformed_typed_output_is_retried_at_the_same_step() -> None:
+    """Observed live: S2 returned facts as plain strings and the run looped S1<->S2."""
+
+    class StringFactsOnce(ScriptedStageLLM):
+        def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+            result = super().complete(stage, payload)
+            if stage == "S2" and self.calls.count("S2") == 1:
+                result["facts"] = ["두 일정이 겹침"]
+            return result
+
+    llm = StringFactsOnce(_scripts())
+    case = ReasoningEngine(llm).run("평가")
+
+    assert case.status == "completed"
+    assert llm.calls == ["S1", "S2", "S2", "S3", "S4", "S5", "S6", "S7"]

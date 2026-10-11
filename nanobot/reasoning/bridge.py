@@ -149,6 +149,7 @@ def _stage_prompt(stage: str) -> str:
     return (
         f"단계 {stage}의 JSON 객체만 반환한다. "
         "question에 답하고 expected_outputs에 적힌 키를 모두 채운다. "
+        "output_shape가 있으면 그 키와 형태를 그대로 따른다. "
         "이 단계는 검증용 짧은 판단이다. 설명, 배경, 장문 근거는 쓰지 않는다. "
         "각 문장은 40자 안팎의 한 문장으로 하고, 항목은 필요한 최소 개수만 둔다. "
         "expected_outputs에 answer가 있는 단계에서만 사용자에게 보일 최종 답을 "
