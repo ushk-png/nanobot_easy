@@ -166,3 +166,21 @@ def test_bridge_reuses_the_compact_layout_with_low_effort(tmp_path) -> None:
     assert provider.compose_body["step_budget"] == {"granularity": "compact", "max_steps": 4}
     record = json.loads((tmp_path / "memory" / "dynamic-reasoning.jsonl").read_text().splitlines()[-1])
     assert record["granularity"] == "compact"
+
+
+def test_compact_case_can_take_fact_updates() -> None:
+    """Observed live: the follow-up re-ran everything because facts sit in merged S1-2."""
+
+    from nanobot.reasoning.bridge import _follow_up_defects, _previous_summary
+    from nanobot.reasoning.models import ReasoningCase
+
+    compact = procedure("method-evaluation", "compact")
+    case = ReasoningCase(
+        id="c", request="r", procedure_id=compact.id, procedure_version="3.1", status="completed"
+    )
+
+    assert _previous_summary(case, compact)["can_update_facts"] is True
+    defects, facts = _follow_up_defects(
+        "update", {"facts": [{"proposition": "로컬 모델 지원"}]}, (case, compact)
+    )
+    assert defects == [] and facts[0]["source"] == "user"

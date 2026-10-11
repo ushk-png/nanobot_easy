@@ -539,7 +539,7 @@ def _previous_summary(case: ReasoningCase, procedure: Procedure) -> dict[str, An
 
 
 def _has_role(procedure: Procedure, role: str) -> bool:
-    return any(step.role == role for step in procedure.steps)
+    return any(role in step.roles for step in procedure.steps)
 
 
 def _follow_up_defects(
