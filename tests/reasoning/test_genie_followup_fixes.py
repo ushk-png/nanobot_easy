@@ -60,3 +60,54 @@ def test_answer_that_failed_its_last_check_is_labelled() -> None:
     assert user_reply(stopped).startswith("C를 선정합니다.")
     assert "마지막 점검을 통과하지 못했습니다" in user_reply(stopped)
     assert user_reply(waiting) == "어느 제품?"
+
+
+def test_stepwise_reply_is_sent_on_streaming_channels(monkeypatch) -> None:
+    """Observed live: Telegram (streaming on) never received stepwise final answers.
+
+    The reply was marked StreamedResponseEvent although nothing had been streamed,
+    and the channel manager skips such messages as already delivered.
+    """
+
+    import asyncio
+    from types import SimpleNamespace
+
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.events import InboundMessage
+
+    async def _fake_run(*_args, **_kwargs):
+        return ReasoningCase(
+            id="c", request="r", procedure_id="constraint-selection", procedure_version="3.1",
+            status="completed", answer="C를 선정합니다.",
+        )
+
+    class _Runtime:
+        async def run_status_changed(self, *_args, **_kwargs) -> None:
+            return None
+
+    async def _stream(_delta: str) -> None:
+        return None
+
+    monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.reasoning_effort = "none"
+    loop.workspace = None
+    loop.provider = object()
+    loop.model = "m"
+    loop.tools = {}
+    loop._runtime_events = lambda: _Runtime()
+    msg = InboundMessage(channel="telegram", sender_id="u", chat_id="1", content="선정해 주세요 A B C D")
+    ctx = SimpleNamespace(
+        msg=msg, session_key="telegram:1", visible_run_started_at=None, initial_messages=[],
+        final_content=None, tools_used=None, all_messages=None, stop_reason=None,
+        had_injections=None, on_progress=None, on_stream=_stream,
+    )
+
+    asyncio.run(loop._state_run(ctx))
+    outbound = loop._assemble_outbound(
+        msg, ctx.final_content, ctx.all_messages, ctx.stop_reason, ctx.had_injections, ctx.on_stream
+    )
+
+    assert outbound is not None
+    assert outbound.content.endswith("C를 선정합니다.")
+    assert outbound.event is None

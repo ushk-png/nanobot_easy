@@ -2071,6 +2071,10 @@ class AgentLoop:
         if case.status == "direct":
             return False
         ctx.final_content = prefix + user_reply(case)
+        # Nothing was streamed on this path. With on_stream set the reply would be
+        # marked StreamedResponseEvent, which channels treat as already delivered,
+        # and the final answer would never be sent.
+        ctx.on_stream = None
         ctx.tools_used = []
         ctx.all_messages = list(ctx.initial_messages) + [
             {"role": "assistant", "content": ctx.final_content}
