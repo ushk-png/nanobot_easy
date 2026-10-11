@@ -213,3 +213,17 @@ def test_template_reports_no_selection_when_nothing_qualifies() -> None:
     text = selection_template_answer(case)
     assert text.startswith("필수 조건을 확인된 값으로 모두 충족하는 후보가 없어 선정하지 않습니다.")
     assert "C: 일처리량 >= 1000 미충족(값: 950)" in text
+
+
+def test_answer_starts_with_the_computed_result() -> None:
+    llm = ScriptedStageLLM(_scripts(_table(), "확인된 조건을 모두 충족하는 제품은 C뿐입니다. A, B, D는 제외됩니다."))
+    case = ReasoningEngine(llm).run("선정해 주세요", procedure_id="constraint-selection")
+
+    assert case.answer.startswith("선정: C\n")
+
+    none_claims = {"selected": None, "excluded": ["A", "B", "C", "D"]}
+    llm = ScriptedStageLLM(
+        {"X1": {"table": _table(c_volume=950)}, "X3": {"answer": "모두 조건 미달입니다. A B C D", "answer_claims": none_claims}}
+    )
+    case = ReasoningEngine(llm).run("선정해 주세요", procedure_id="constraint-selection")
+    assert case.answer.startswith("선정 결과: 필수 조건을 확인된 값으로 모두 충족하는 후보가 없어 선정하지 않습니다.")

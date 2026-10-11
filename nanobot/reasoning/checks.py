@@ -358,6 +358,39 @@ def _computed_selection(case: ReasoningCase) -> dict[str, Any] | None:
     )
 
 
+def selection_header(case: ReasoningCase) -> str | None:
+    """Explicit first line stating the computed result; the user asked for one choice."""
+
+    selection = _computed_selection(case)
+    if selection is None:
+        return None
+    selected = selection.get("selected")
+    if not selected:
+        return "선정 결과: 필수 조건을 확인된 값으로 모두 충족하는 후보가 없어 선정하지 않습니다."
+    ties = selection.get("ties") or []
+    return f"선정: {selected}" + (f" (동률 후보: {', '.join(ties)})" if ties else "")
+
+
+def judgment_affects_conclusion(case: ReasoningCase, judgment_id: str) -> bool:
+    """Would a different result for this judgment change the rule-derived verdict?"""
+
+    target = next((item for item in case.judgments if item.id == judgment_id), None)
+    if target is None:
+        return False
+    current = rule_conclusion_statuses(case)
+    original = target.result
+    try:
+        for alternative in ("met", "unmet", "unknown"):
+            if alternative == original:
+                continue
+            target.result = alternative
+            if rule_conclusion_statuses(case) != current:
+                return True
+        return False
+    finally:
+        target.result = original
+
+
 def selection_template_answer(case: ReasoningCase) -> str | None:
     """Answer written by code from the computed selection (fallback; always consistent)."""
 

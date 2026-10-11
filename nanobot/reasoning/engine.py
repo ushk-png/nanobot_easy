@@ -14,7 +14,9 @@ from nanobot.reasoning.checks import (
     check_stage,
     code_chain_defects,
     conclusion_rule_defects,
+    judgment_affects_conclusion,
     selection_claim_defects,
+    selection_header,
     selection_template_answer,
 )
 from nanobot.reasoning.llm import BudgetExceededError, StageLLM
@@ -306,7 +308,13 @@ class ReasoningEngine:
             return []
         if procedure.answer_claims == "selection":
             claims = case.step_outputs.get(stage, {}).get("answer_claims")
-            return selection_claim_defects(case, claims)
+            defects = selection_claim_defects(case, claims)
+            header = selection_header(case)
+            if not defects and header and case.answer.strip() and not case.answer.startswith(header):
+                # State the computed result explicitly in code (template, no model call).
+                case.answer = f"{header}\n{case.answer.strip()}"
+                case.history.append({"event": "template_fix", "stage": stage, "added": [header]})
+            return defects
         if procedure.answer_claims != "verdict":
             return []
         defects: list[str] = []
@@ -377,6 +385,13 @@ class ReasoningEngine:
                 criterion = criteria.get(judgment.criterion_id) if judgment else None
                 if criterion is None or criterion.kind != "required":
                     ignored += 1  # cannot change the conclusion
+                    continue
+                if procedure.conclusion_rule == "required_criteria" and not judgment_affects_conclusion(
+                    case, judgment.id
+                ):
+                    # The model's flag is not the only basis: code confirms the verdict
+                    # would change if this judgment were read differently.
+                    ignored += 1
                     continue
                 items.append(
                     {

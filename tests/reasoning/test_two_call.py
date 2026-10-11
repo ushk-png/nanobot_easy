@@ -301,3 +301,24 @@ def test_routing_call_prefills_step_a_so_the_default_path_is_two_calls(tmp_path)
 
     assert bad.kinds == ["compose", "A", "B"]
     assert case.status == "completed"
+
+
+def test_risk_that_cannot_change_the_verdict_is_ignored_by_code() -> None:
+    """B's flag is not the only basis: code checks the verdict would actually change."""
+
+    a_out = copy.deepcopy(A_OUT)
+    a_out["criteria"].append(
+        {"id": "c4", "statement": "감사 로그", "kind": "required", "method": "기능 확인", "linked_goal": GOAL}
+    )
+    b_out = _b(
+        judgments=[*B_OUT["judgments"], {"id": "j4", "criterion_id": "c4", "result": "unmet", "evidence_ids": ["f1"]}],
+        conclusion={**B_OUT["conclusion"], "judgment_ids": ["j1", "j2", "j4"]},
+        answer_claims={**B_OUT["answer_claims"], "covers": ["c1", "c4"]},
+        risks=[{"judgment_id": "j1", "issue": "'외부 API' 해석"}],
+    )
+    llm = Script({"A": [a_out], "B": [b_out]})
+    case = _run(llm)
+
+    assert llm.calls == ["A", "B"]  # c4 stays unmet, so j1 cannot change 'unsuitable'
+    decision = next(item for item in case.history if item.get("event") == "review_decision")
+    assert decision["run"] is False and decision["ignored_risks"] == 1
