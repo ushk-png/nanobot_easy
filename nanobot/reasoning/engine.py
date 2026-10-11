@@ -808,7 +808,7 @@ class ReasoningEngine:
                 result="DISABLED",
                 limit=(
                     "not run: rules are not formalized yet; "
-                    "enable with agents.defaults.stepwiseZ3Check"
+                    "enable with agents.defaults.stepwise.z3Check"
                 ),
             )
         )

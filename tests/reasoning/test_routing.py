@@ -181,6 +181,7 @@ def test_agent_loop_hands_direct_requests_to_the_normal_loop(monkeypatch) -> Non
     monkeypatch.setattr(AgentLoop, "_run_agent_loop", _normal)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = object()
     loop.model = "m"

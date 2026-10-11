@@ -280,7 +280,7 @@ LLM이 제출하는 것은 기존 실행 엔진이 읽는 절차 정의다. 구�
 |정책|실행 조건|
 |---|---|
 |`conditional`(기본)|구체적인 오류 위험이 있을 때만 실행. 아래 표 참고|
-|`required`|설정(`agents.defaults.stepwiseReviewRequired`)으로 지정한 절차에서 항상 실행|
+|`required`|설정(`agents.defaults.stepwise.reviewRequired`)으로 지정한 절차에서 항상 실행|
 
 `conditional`의 실행 조건은 다음과 같다.
 
@@ -466,7 +466,7 @@ Z3는 형식화할 가치가 있는 부분에만 사용한다. 논리식을 만�
 
 - 현재 규칙 판단 절차의 Z3 검사는 두 가지만 변수로 쓴다. 하나는 사실이 ‘확인됨’인지 여부이고, 다른 하나는 결론 문장 자체다. 규칙을 형식화하지 않으므로 결과가 사실상 늘 미확정이다.
 - 꺼져 있을 때는 Z3를 실행하지 않고 `z3:entailment` 검사를 `DISABLED`로 기록한다. 통과로 채우지 않는다.
-- 설정 `agents.defaults.stepwiseZ3Check: true`로 다시 켤 수 있다.
+- 설정 `agents.defaults.stepwise.z3Check: true`로 다시 켤 수 있다.
 - 규칙 형식화가 구현되면 기본값을 다시 검토한다.
 
 ### 8.1 결론의 논리적 귀결 검사
@@ -578,9 +578,24 @@ unsat core는 모순을 이루는 조건들의 일부이며 잘못된 조건의 
 |resume|경로 판정 1회 + 대기 단계부터 남은 단계|
 |update|경로 판정 1회 + 판단 단계부터 남은 단계(방법 평가는 S4~S7, 4회)|
 
+### 10.0 에이전트별 적용 (v3.3)
+
+이 단계별 추론 방식(“지니 방식”)은 에이전트별로 명시적으로 적용할 때만 동작한다. 다른 설정값(예: `reasoningEffort: none`)에 숨겨 켜지 않는다.
+
+|명령|동작|
+|---|---|
+|`nanobot stepwise apply --config <에이전트 설정> [--layout auto]`|그 설정에 `agents.defaults.stepwise` 블록(`enabled: true`, `method: genie`, `appliedAt`, `layout`)을 쓴다. 쓰기 전 설정이 정상적으로 읽히는지 검사하고 백업(`*.bak-stepwise-<시각>`)을 남긴다|
+|`nanobot stepwise remove --config <에이전트 설정>`|`enabled: false`와 `removedAt`을 기록한다. 적용 이력은 남긴다|
+|`nanobot stepwise status [--dir <설정 폴더>]`|폴더의 모든 에이전트 설정을 보여 준다. 적용 여부, 적용 시각, 배치, 모델을 표시한다. `reasoningEffort: none`만 남은 예전 방식의 흔적도 따로 표시한다|
+
+- 적용된 에이전트는 기동할 때 “지니 방식 적용됨(적용 시각, 배치)”을 로그에 남긴다.
+- `reasoningEffort: none`만 있고 적용되지 않은 에이전트는 경고를 남긴다.
+- 적용·해제는 실행 중인 에이전트(gateway)를 재시작해야 반영된다.
+- 새로 설치한 시스템의 에이전트에는 기본으로 적용되지 않는다.
+
 ### 10.1 기본 실행 경로 (v3.3)
 
-배치(`agents.defaults.stepwiseLayout`)는 모델의 추론 수준에 맞춘다. `auto`는 추론이 켜진 모델(최저 강도 포함)에 `two_call`을, 추론을 끈 모델에 `fine`을 쓴다.
+배치(`agents.defaults.stepwise.layout`)는 모델의 추론 수준에 맞춘다. `auto`는 추론이 켜진 모델(최저 강도 포함)에 `two_call`을, 추론을 끈 모델에 `fine`을 쓴다.
 
 |배치|방법 평가 호출|용도|
 |---|---|---|

@@ -140,12 +140,12 @@ def test_z3_check_is_disabled_by_default_and_recorded_as_such() -> None:
     assert case.status == "completed"
     assert len(z3_checks) == 1
     assert z3_checks[0].result == "DISABLED"
-    assert "stepwiseZ3Check" in z3_checks[0].limit
+    assert "stepwise.z3Check" in z3_checks[0].limit
 
 
 def test_z3_setting_reaches_the_engine_from_config() -> None:
     from nanobot.config.schema import Config
 
-    assert Config().agents.defaults.stepwise_z3_check is False
-    enabled = Config.model_validate({"agents": {"defaults": {"stepwiseZ3Check": True}}})
-    assert enabled.agents.defaults.stepwise_z3_check is True
+    assert Config().agents.defaults.stepwise.z3_check is False
+    enabled = Config.model_validate({"agents": {"defaults": {"stepwise": {"z3Check": True}}}})
+    assert enabled.agents.defaults.stepwise.z3_check is True

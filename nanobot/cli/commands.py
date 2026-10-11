@@ -2267,6 +2267,69 @@ def channels_login(
 plugins_app = typer.Typer(help="Manage optional nanobot features")
 app.add_typer(plugins_app, name="plugins")
 
+stepwise_app = typer.Typer(help="Apply stepwise reasoning (Genie method) to an agent explicitly")
+app.add_typer(stepwise_app, name="stepwise")
+
+
+@stepwise_app.command("apply")
+def stepwise_apply(
+    config_path: str = typer.Option(..., "--config", "-c", help="Agent config to apply it to"),
+    layout: str = typer.Option("auto", "--layout", help="auto | two_call | compact | fine"),
+):
+    """Apply the Genie method to one agent (writes a dated block, keeps a backup)."""
+    from nanobot.cli.stepwise import apply_stepwise
+
+    result = apply_stepwise(Path(config_path), layout=layout)
+    console.print(f"[green]지니 방식 적용[/green]: {result['agent']} ({result['config']})")
+    console.print(f"  적용 시각 {result['appliedAt']} · 배치 {result['layout']}")
+    console.print(f"  백업 {result['backup']}")
+    console.print("  실행 중인 에이전트(gateway)를 재시작해야 반영됩니다.")
+
+
+@stepwise_app.command("remove")
+def stepwise_remove(
+    config_path: str = typer.Option(..., "--config", "-c", help="Agent config to remove it from"),
+):
+    """Turn the Genie method off for one agent (the record of when stays)."""
+    from nanobot.cli.stepwise import remove_stepwise
+
+    result = remove_stepwise(Path(config_path))
+    console.print(f"[yellow]지니 방식 해제[/yellow]: {result['agent']} ({result['config']})")
+    console.print(f"  해제 시각 {result['removedAt']} · 백업 {result['backup']}")
+    console.print("  실행 중인 에이전트(gateway)를 재시작해야 반영됩니다.")
+
+
+@stepwise_app.command("status")
+def stepwise_status_command(
+    configs: list[str] = typer.Argument(None, help="Agent configs (default: every config*.json in --dir)"),
+    directory: str | None = typer.Option(None, "--dir", help="Directory of agent configs (default ./.local or ~/.nanobot)"),
+):
+    """List which agents have the Genie method applied, since when."""
+    from nanobot.cli.stepwise import find_agent_configs, stepwise_status
+
+    if configs:
+        paths = [Path(item).expanduser().resolve() for item in configs]
+    else:
+        base = Path(directory).expanduser() if directory else (
+            Path(".local") if Path(".local").is_dir() else Path.home() / ".nanobot"
+        )
+        paths = find_agent_configs(base.resolve())
+    if not paths:
+        console.print("에이전트 설정을 찾지 못했습니다.")
+        raise typer.Exit(1)
+    for row in stepwise_status(paths):
+        if row.get("error"):
+            console.print(f"{row['agent']:<28} 읽기 실패({row['error']})  {row['config']}")
+            continue
+        if row["enabled"]:
+            state = f"[green]적용됨[/green] {row['applied_at'] or '-'} · {row['layout']}"
+        elif row.get("removed_at"):
+            state = f"해제됨 {row['removed_at']}"
+        else:
+            state = "미적용"
+        legacy = "  (reasoningEffort=none: 예전 방식 흔적, 적용 아님)" if row["legacy_none"] else ""
+        console.print(f"{row['agent']:<28} {state}  {row['model']}{legacy}")
+
 
 @plugins_app.command("list")
 def plugins_list(

@@ -149,6 +149,7 @@ def test_blank_answer_run_is_not_reported_completed_by_the_agent_loop(monkeypatc
     monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = object()
     loop.model = "xai-grok/grok-4.7"

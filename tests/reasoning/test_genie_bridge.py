@@ -67,6 +67,7 @@ def test_disabled_reasoning_routes_method_evaluation(monkeypatch) -> None:
     monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = object()
     loop.model = "xai-grok/grok-4.7"

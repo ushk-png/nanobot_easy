@@ -207,6 +207,7 @@ def test_agent_loop_tells_the_user_before_falling_back(monkeypatch) -> None:
     monkeypatch.setattr(AgentLoop, "_run_agent_loop", _normal)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = object()
     loop.model = "m"

@@ -91,6 +91,7 @@ def test_stepwise_reply_is_sent_on_streaming_channels(monkeypatch) -> None:
     monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = object()
     loop.model = "m"

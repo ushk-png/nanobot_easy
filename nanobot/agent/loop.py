@@ -234,6 +234,8 @@ class AgentLoop:
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
         reasoning_effort: str | None = None,
+        stepwise_enabled: bool = False,
+        stepwise_applied_at: str | None = None,
         stepwise_z3_check: bool = False,
         stepwise_layout: str = "auto",
         stepwise_review_required: list[str] | None = None,
@@ -298,9 +300,24 @@ class AgentLoop:
         )
         self.context_block_limit = context_block_limit
         self.reasoning_effort = reasoning_effort
+        # Stepwise reasoning ("Genie method") is on only when applied explicitly.
+        self.stepwise_enabled = stepwise_enabled
+        self.stepwise_applied_at = stepwise_applied_at
         self.stepwise_z3_check = stepwise_z3_check
         self.stepwise_layout = stepwise_layout
         self.stepwise_review_required = list(stepwise_review_required or [])
+        if stepwise_enabled:
+            logger.info(
+                "Stepwise reasoning (Genie method) is applied to this agent "
+                "(applied {}, layout {}); check with `nanobot stepwise status`",
+                stepwise_applied_at or "unknown",
+                stepwise_layout,
+            )
+        elif reasoning_effort and reasoning_effort.lower() == "none":
+            logger.warning(
+                "reasoningEffort is 'none' but stepwise reasoning is not applied; it no longer "
+                "turns on by itself. Apply it with `nanobot stepwise apply --config <config>`"
+            )
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -497,9 +514,11 @@ class AgentLoop:
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
             reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
-            stepwise_z3_check=defaults.stepwise_z3_check,
-            stepwise_layout=defaults.stepwise_layout,
-            stepwise_review_required=defaults.stepwise_review_required,
+            stepwise_enabled=defaults.stepwise.enabled,
+            stepwise_applied_at=defaults.stepwise.applied_at,
+            stepwise_z3_check=defaults.stepwise.z3_check,
+            stepwise_layout=defaults.stepwise.layout,
+            stepwise_review_required=defaults.stepwise.review_required,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -2030,7 +2049,8 @@ class AgentLoop:
         return len(text) <= 40 and any(marker in text for marker in markers)
 
     def _stepwise_enabled(self) -> bool:
-        return bool(self.reasoning_effort and self.reasoning_effort.lower() == "none")
+        # Explicit only (`nanobot stepwise apply`); reasoningEffort no longer implies it.
+        return bool(getattr(self, "stepwise_enabled", False))
 
     def _stepwise_sessions(self) -> ReasoningSessions:
         sessions = getattr(self, "_reasoning_sessions", None)

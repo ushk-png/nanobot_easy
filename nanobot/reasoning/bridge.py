@@ -481,9 +481,9 @@ def reasoning_mode_notice(provider: Any, model: str | None) -> str | None:
     if _reasoning_mode(provider, model)["disable_supported"] is not False:
         return None
     return (
-        f"안내: {model} 모델은 추론을 끌 수 없어, 설정의 '추론 끄기'가 적용되지 않습니다. "
-        f"단계별 절차는 이 모델의 추론을 가장 낮은 강도({STAGE_REASONING_EFFORT})로 켠 채 "
-        "실행되며 응답이 느릴 수 있습니다."
+        "안내: 이 에이전트에는 단계별 추론(지니 방식)이 적용돼 있습니다. "
+        f"{model} 모델은 추론을 끌 수 없어, 단계별 절차를 가장 낮은 추론 강도"
+        f"({STAGE_REASONING_EFFORT})로 실행하며 응답이 느릴 수 있습니다."
     )
 
 

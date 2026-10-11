@@ -93,6 +93,7 @@ def _loop_with(monkeypatch, events: list[str]):
     monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
     loop = AgentLoop.__new__(AgentLoop)
     loop.reasoning_effort = "none"
+    loop.stepwise_enabled = True
     loop.workspace = None
     loop.provider = _AlwaysOn()
     loop.model = "xai-grok/grok-4.7"
@@ -219,13 +220,15 @@ def test_layout_and_review_settings_reach_the_run(monkeypatch) -> None:
     from nanobot.config.schema import Config
 
     defaults = Config().agents.defaults
-    assert defaults.stepwise_layout == "auto"
-    assert defaults.stepwise_review_required == []
+    assert defaults.stepwise.enabled is False
+    assert defaults.stepwise.layout == "auto"
+    assert defaults.stepwise.review_required == []
     custom = Config.model_validate(
-        {"agents": {"defaults": {"stepwiseLayout": "compact", "stepwiseReviewRequired": ["rule-judgment"]}}}
+        {"agents": {"defaults": {"stepwise": {"enabled": True, "layout": "compact", "reviewRequired": ["rule-judgment"]}}}}
     ).agents.defaults
-    assert custom.stepwise_layout == "compact"
-    assert custom.stepwise_review_required == ["rule-judgment"]
+    assert custom.stepwise.enabled is True
+    assert custom.stepwise.layout == "compact"
+    assert custom.stepwise.review_required == ["rule-judgment"]
 
     seen: dict[str, Any] = {}
     loop = _loop_with(monkeypatch, [])
