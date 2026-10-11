@@ -137,10 +137,12 @@ def _stage_prompt(stage: str) -> str:
         return _PROCEDURE_PROMPT
     return (
         f"단계 {stage}의 JSON 객체만 반환한다. "
+        "question에 답하고 expected_outputs에 적힌 키를 모두 채운다. "
         "이 단계는 검증용 짧은 판단이다. 설명, 배경, 장문 근거는 쓰지 않는다. "
         "각 문장은 40자 안팎의 한 문장으로 하고, 항목은 필요한 최소 개수만 둔다. "
-        "answer가 있는 단계에서만 사용자에게 보일 최종 답을 2~4문장으로 쓴다. "
-        "그 외 단계의 answer는 비운다. 검증 상태나 다음 단계 지시는 포함하지 않는다."
+        "expected_outputs에 answer가 있는 단계에서만 사용자에게 보일 최종 답을 "
+        "2~4문장으로 answer에 쓴다. 그 외 단계의 answer는 비운다. "
+        "repair_defects가 있으면 그 결함만 고친다. 검증 상태나 다음 단계 지시는 포함하지 않는다."
     )
 
 
@@ -208,9 +210,10 @@ async def run_reasoning_procedure(
     case = await asyncio.to_thread(engine.run, request, procedure=selected)
     if pending:
         await asyncio.gather(*(asyncio.wrap_future(item) for item in pending))
-    if not case.answer.strip():
-        case.status = "stopped"
-        case.stop_reason = "판단은 끝났지만 답변을 만들지 못했습니다. 요청을 조금 더 구체적으로 다시 보내 주세요."
+    if case.status == "completed" and not case.answer.strip():
+        case.status = "failed_empty_answer"
+    if case.status == "failed_empty_answer":
+        case.stop_reason = _empty_answer_status(selected)
     _finish_calls(case, llm, selected)
     _record_execution(case, selected, workspace, [])
     return case
@@ -302,6 +305,17 @@ def _repair_kind(defects: list[str]) -> str:
     return "procedure_content"
 
 
+def _empty_answer_status(selected: Procedure) -> str:
+    answer_steps = [
+        step.id for step in selected.steps if step.role == "answer" or "answer" in step.outputs
+    ]
+    where = f"최종 답변 단계({', '.join(answer_steps)})" if answer_steps else "최종 답변 단계"
+    return (
+        f"판단 단계는 진행했지만 {where}가 답변을 채우지 않아 완료로 처리하지 않았습니다. "
+        "같은 요청을 다시 보내 주세요."
+    )
+
+
 def _user_status(defects: list[str]) -> str:
     if any(item.startswith("parse_failed") for item in defects):
         return "절차를 구성하지 못해 요청을 진행하지 못했습니다."
@@ -346,6 +360,7 @@ def _record_execution(
         "procedure_id": selected.id if selected else case.procedure_id,
         "purpose": selected.purpose if selected else "",
         "dynamic": selected.dynamic if selected else True,
+        "procedure": _procedure_outline(selected),
         "reusable": False,
         "status": case.status,
         "answer": case.answer,
@@ -361,6 +376,28 @@ def _record_execution(
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+
+def _procedure_outline(selected: Procedure | None) -> dict[str, Any] | None:
+    """Keep the executed step graph so a run can be diagnosed later."""
+
+    if selected is None:
+        return None
+    return {
+        "id": selected.id,
+        "revision": selected.revision,
+        "steps": [
+            {
+                "id": step.id,
+                "role": step.role,
+                "question": step.question,
+                "inputs": step.inputs,
+                "outputs": step.outputs,
+                "failure_returns_to": step.failure_returns_to,
+            }
+            for step in selected.steps
+        ],
+    }
 
 
 async def run_method_evaluation(

@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
-from nanobot.reasoning.checks import check_stage
+from nanobot.reasoning.checks import ANSWER_MISSING, check_stage
 from nanobot.reasoning.llm import StageLLM
 from nanobot.reasoning.models import (
     CheckRecord,
@@ -76,6 +76,8 @@ class ReasoningEngine:
         order = self._execution_order(procedure)
         index = 0
         stage_calls = 0
+        step_calls: dict[str, int] = {}
+        repair: dict[str, list[str]] = {}
         while index < len(order):
             stage = order[index]
             if stage_calls >= self.max_stage_calls:
@@ -90,7 +92,8 @@ class ReasoningEngine:
                 break
             case.current_step = stage
             case.step_states[stage] = "running"
-            payload = self.llm.complete(stage, self._payload(case, stage))
+            step_calls[stage] = step_calls.get(stage, 0) + 1
+            payload = self.llm.complete(stage, self._payload(case, stage, repair.pop(stage, None)))
             if int(payload.get("revision") or procedure.revision) != case.execution_revision:
                 case.history.append({"event": "stale_result_ignored", "stage": stage})
                 stale_count = sum(
@@ -109,6 +112,17 @@ class ReasoningEngine:
             defects = check_stage(case, self._check_stage(procedure, stage))
             if defects:
                 case.step_states[stage] = "needs_revision"
+                step = self._step(procedure, stage)
+                if self._retry_same_step(step, defects, step_calls.get(stage, 0), case):
+                    # Re-ask only this step with the defects (design 4.5).
+                    case.revision_count += 1
+                    repair[stage] = defects
+                    case.history.append({"event": "retry", "stage": stage, "defects": defects})
+                    continue
+                if ANSWER_MISSING in defects and _is_answer_step(step):
+                    self._stop(case, stage, ANSWER_MISSING)
+                    case.status = "failed_empty_answer"
+                    break
                 if not self._return_to(case, stage):
                     self._stop(case, stage, "; ".join(defects))
                     break
@@ -123,9 +137,20 @@ class ReasoningEngine:
                 break
             index += 1
         else:
-            case.status = "completed"
-            case.stop_reason = "procedure completed"
+            if case.answer.strip():
+                case.status = "completed"
+                case.stop_reason = "procedure completed"
+            else:
+                # Every step passed but nothing filled the answer field (design 11).
+                case.status = "failed_empty_answer"
+                case.stop_reason = ANSWER_MISSING
         return case
+
+    def _retry_same_step(self, step, defects: list[str], calls: int, case: ReasoningCase) -> bool:
+        if calls >= step.budget.max_calls or case.revision_count >= self.max_revisions:
+            return False
+        # Answer gaps are fixed at the answer step; other defects use failure_returns_to.
+        return step.failure_returns_to is None or defects == [ANSWER_MISSING]
 
     def update_facts(self, case: ReasoningCase, facts: list[dict[str, Any]]) -> ReasoningCase:
         """Replace changed facts and invalidate only dependent judgments."""
@@ -169,8 +194,13 @@ class ReasoningEngine:
         elif role == "conclusion":
             raw = payload.get("conclusion")
             case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
-        elif role == "answer":
-            case.answer = str(payload.get("answer") or "")
+        step = self._step(self._require_procedure(), stage)
+        case.step_outputs[stage] = {
+            key: payload[key] for key in step.outputs if key in payload and key != "usage"
+        }
+        if _is_answer_step(step):
+            answer = payload.get("answer")
+            case.answer = answer if isinstance(answer, str) else ""
         case.history.append({"event": "stage_result", "stage": stage, "role": role})
 
     def _return_to(self, case: ReasoningCase, stage: str) -> bool:
@@ -229,8 +259,10 @@ class ReasoningEngine:
         return True
 
     def _check_stage(self, procedure: Procedure, stage: str) -> str:
-        role = self._step(procedure, stage).role
-        return _ROLE_CHECKS.get(role, "")
+        step = self._step(procedure, stage)
+        if _is_answer_step(step):
+            return _ROLE_CHECKS["answer"]
+        return _ROLE_CHECKS.get(step.role, "")
 
     def _first_role(self, role: str) -> str:
         procedure = self._require_procedure()
@@ -290,7 +322,22 @@ class ReasoningEngine:
             )
         )
 
-    def _payload(self, case: ReasoningCase, stage: str) -> dict[str, Any]:
+    def _payload(
+        self,
+        case: ReasoningCase,
+        stage: str,
+        repair_defects: list[str] | None = None,
+    ) -> dict[str, Any]:
+        step = self._step(self._require_procedure(), stage)
+        payload = self._case_fields(case, stage)
+        # The step contract: what this call must do and which keys it must return.
+        payload["question"] = step.question
+        payload["expected_outputs"] = list(step.outputs)
+        if repair_defects:
+            payload["repair_defects"] = list(repair_defects)
+        return payload
+
+    def _case_fields(self, case: ReasoningCase, stage: str) -> dict[str, Any]:
         return {
             "request": case.request,
             "goal": case.goal,
@@ -301,3 +348,7 @@ class ReasoningEngine:
             "conclusion": case.conclusion.model_dump() if case.conclusion else None,
             "stage": stage,
         }
+
+
+def _is_answer_step(step) -> bool:
+    return step.role == "answer" or "answer" in step.outputs

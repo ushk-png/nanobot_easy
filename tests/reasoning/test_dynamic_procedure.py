@@ -389,9 +389,10 @@ def test_empty_completed_answer_is_not_reported_as_internal_status(monkeypatch, 
         )
     )
 
-    assert case.status == "stopped"
+    assert case.status == "failed_empty_answer"
     assert case.answer.strip() == ""
     assert "procedure completed" not in case.stop_reason
-    assert "답변을 만들지 못했습니다" in case.stop_reason
+    assert "최종 답변 단계(S7)" in case.stop_reason
+    assert "완료로 처리하지 않았습니다" in case.stop_reason
     assert notes[0] == "절차를 구성하고 있습니다."
     assert any(item.endswith("단계를 마쳤습니다.") for item in notes)

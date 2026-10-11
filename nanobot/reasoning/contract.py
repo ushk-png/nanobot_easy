@@ -432,8 +432,12 @@ def _link_defects(steps: list[ProcedureStep], requirement_ids: set[str] | None =
     if _has_unbounded_cycle(graph):
         defects.append(ContractDefect("dependency_cycle", "steps", "acyclic dependencies", "cycle", True))
     produced = [item for step in steps for item in step.outputs]
-    if "answer" not in produced and not any(step.role == "answer" for step in steps):
-        defects.append(ContractDefect("answer_step_missing", "steps", "answer output", "missing", True))
+    if "answer" not in produced:
+        # A role label alone does not fill the answer field (design 4.4, 11).
+        observed = "answer role without answer output" if any(
+            step.role == "answer" for step in steps
+        ) else "missing"
+        defects.append(ContractDefect("answer_step_missing", "steps", "answer output", observed, True))
     return defects
 
 

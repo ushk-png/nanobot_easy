@@ -34,6 +34,7 @@ StepState = Literal[
     "needs_revision",
     "invalidated",
     "stopped",
+    "failed_empty_answer",
 ]
 CaseStatus = Literal[
     "running",
@@ -41,6 +42,7 @@ CaseStatus = Literal[
     "waiting_info",
     "deferred",
     "stopped",
+    "failed_empty_answer",
 ]
 
 
@@ -158,6 +160,7 @@ class ReasoningCase(Base):
     revision_count: int = 0
     stop_reason: str = ""
     history: list[dict[str, Any]] = Field(default_factory=list)
+    step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     call_records: list[dict[str, Any]] = Field(default_factory=list)
 
 

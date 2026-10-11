@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from nanobot.reasoning.models import CheckRecord, ReasoningCase
 
+ANSWER_MISSING = "answer missing"
+
 
 def _record(case: ReasoningCase, kind: str, defects: list[str], limit: str) -> CheckRecord:
     return CheckRecord(
@@ -95,13 +97,14 @@ def conclusion_conflicts(case: ReasoningCase) -> list[str]:
 
 
 def answer_omissions(case: ReasoningCase) -> list[str]:
+    # A blank answer never passes, with or without a conclusion step (design 11).
+    if not case.answer.strip():
+        return [ANSWER_MISSING]
     if case.conclusion is None:
         if "conclusion" in case.step_states:
             return ["answer has no conclusion"]
         return []
     defects: list[str] = []
-    if not case.answer.strip():
-        defects.append("answer missing")
     for condition in case.conclusion.conditions:
         if condition not in case.answer:
             defects.append(f"answer omits condition: {condition}")
