@@ -463,7 +463,11 @@ class ReasoningEngine:
         order = self._execution_order(procedure)
         payload: dict[str, Any] = {
             "stage": stage,
-            "question": "review_items의 주장만 함께 준 근거와 대조해 검토한다. 문제가 없으면 defects는 빈 배열이다.",
+            "question": (
+                "review_items의 주장만 함께 준 근거와 대조해 검토한다. 원문 표현이 뒷받침하는 문제만 적는다. "
+                "새 근거 없이 확인된 사실을 미확인으로 낮추거나 추정을 확인으로 올리라고 지적하지 않는다. "
+                "문제가 없으면 defects는 빈 배열이다."
+            ),
             "review_items": items,
             "expected_outputs": ["defects"],
             "output_shape": {
@@ -1025,8 +1029,11 @@ _TWO_CALL_ANSWER_EXTRAS: dict[str, Any] = {
     },
     "risks": [
         {
-            "judgment_id": "원문의 예외·부정·적용 범위 해석에 따라 결론이 바뀔 수 있는 판정 id",
-            "issue": "어떤 해석 차이인지 한 문장",
+            "judgment_id": (
+                "요청 원문 자체의 예외·부정·적용 범위 표현이 모호해 판정이 뒤집힐 수 있는 판정 id. "
+                "확인된 사실에서 바로 따라오는 판정은 적지 않음"
+            ),
+            "issue": "원문의 어느 표현이 어떻게 달리 읽히는지 한 문장",
             "question": "확인할 질문",
         }
     ],
