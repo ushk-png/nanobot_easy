@@ -60,6 +60,7 @@ class ReasoningEngine:
         procedure_id: str = "method-evaluation",
         procedure: Procedure | None = None,
         case_id: str | None = None,
+        conversation: list[dict[str, str]] | None = None,
     ) -> ReasoningCase:
         procedure = procedure or load_procedure(procedure_id)
         self._procedure = procedure
@@ -69,6 +70,7 @@ class ReasoningEngine:
             procedure_id=procedure.id,
             procedure_version=procedure.version,
             step_states={step.id: "pending" for step in procedure.steps},
+            conversation=list(conversation or []),
             execution_revision=procedure.revision,
             usage=Usage(
                 reasoning_effort=self.reasoning_effort,
@@ -356,6 +358,9 @@ class ReasoningEngine:
         procedure = self._require_procedure()
         step = self._step(procedure, stage)
         fields: dict[str, Any] = {"request": case.request, "stage": stage}
+        if case.conversation and "request" in step.inputs:
+            # Earlier turns resolve references in the request ("그럼 B는?").
+            fields["conversation"] = case.conversation
         if case.goal:
             fields["goal"] = case.goal
         if case.constraints:

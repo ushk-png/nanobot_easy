@@ -8,7 +8,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
-from nanobot.reasoning.bridge import _REVIEW_PROMPT, run_reasoning_procedure
+from nanobot.reasoning.bridge import _PROCEDURE_PROMPT, _REVIEW_PROMPT, run_reasoning_procedure
 
 REQUEST = "후보 보고서 세 개 중 하나를 근거와 함께 골라 주세요. 조건: 외부 통신 없음."
 
@@ -61,7 +61,7 @@ class ReviewingProvider:
             self.kinds.append("review")
             self.review_inputs.append(body)
             content = _review_for(self.last_proposal)
-        elif "procedure" in system[:20] or system.startswith("요청을 처리할 절차"):
+        elif system == _PROCEDURE_PROMPT:
             self.kinds.append("compose")
             self.last_proposal = self.proposals.pop(0) if len(self.proposals) > 1 else self.proposals[0]
             content = self.last_proposal

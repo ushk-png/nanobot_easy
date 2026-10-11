@@ -35,6 +35,7 @@ StepState = Literal[
     "invalidated",
     "stopped",
     "failed_empty_answer",
+    "direct",
 ]
 CaseStatus = Literal[
     "running",
@@ -43,6 +44,7 @@ CaseStatus = Literal[
     "deferred",
     "stopped",
     "failed_empty_answer",
+    "direct",
 ]
 
 
@@ -160,6 +162,8 @@ class ReasoningCase(Base):
     revision_count: int = 0
     stop_reason: str = ""
     history: list[dict[str, Any]] = Field(default_factory=list)
+    path: str = ""
+    conversation: list[dict[str, str]] = Field(default_factory=list)
     step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     call_records: list[dict[str, Any]] = Field(default_factory=list)
 

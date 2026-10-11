@@ -95,8 +95,8 @@ from nanobot.utils.runtime import (
 )
 from nanobot.reasoning.bridge import (
     reasoning_mode_notice,
+    recent_conversation,
     run_reasoning_procedure,
-    select_procedure,
 )
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.service import WorkflowService
@@ -2049,10 +2049,12 @@ class AgentLoop:
             self.provider,
             model=self.model,
             request=ctx.msg.content,
-            procedure_id=select_procedure(ctx.msg.content),
             workspace=self.workspace,
             on_progress=ctx.on_progress,
+            conversation=recent_conversation(ctx.initial_messages),
         )
+        if case.status == "direct":
+            return False
         answer = case.answer.strip() or case.stop_reason.strip() or "판단을 완료하지 못했습니다."
         ctx.final_content = prefix + answer
         ctx.tools_used = []

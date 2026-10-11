@@ -9,6 +9,7 @@ import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from loguru import logger
 
@@ -179,8 +180,13 @@ async def run_reasoning_procedure(
     procedure_id: str | None = None,
     workspace: Path | None = None,
     on_progress: Callable[..., Awaitable[None]] | None = None,
+    conversation: list[dict[str, str]] | None = None,
 ) -> ReasoningCase:
+    """Run one request. ``procedure_id`` is an explicit selection; otherwise the
+    first call chooses direct / reuse / new (design 4.2)."""
+
     llm = ProviderStageLLM(provider, model)
+    conversation = list(conversation or [])
     mode = _reasoning_mode(provider, model)
     if mode["disable_supported"] is False:
         # Checked before any call (design 1); the user is told via reasoning_mode_notice.
@@ -190,9 +196,25 @@ async def run_reasoning_procedure(
             model,
         )
     selected = approved_procedure(procedure_id) if procedure_id else None
+    path = "explicit" if selected is not None else ""
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
-        selected, defects, trace = await _propose_dynamic_procedure(llm, request, _known_goal(request))
+        selected, defects, trace, path = await _propose_dynamic_procedure(
+            llm, request, _known_goal(request), conversation
+        )
+        if path == "direct":
+            # Chat, simple lookups and tool work go to the normal agent loop.
+            case = ReasoningCase(
+                id=f"direct-{uuid4().hex[:12]}",
+                request=request,
+                procedure_id="direct",
+                procedure_version="-",
+                status="direct",
+                path="direct",
+            )
+            _finish_calls(case, llm, None)
+            _record_execution(case, None, workspace, [], trace)
+            return case
         if selected is None:
             case = ReasoningCase(
                 id="dynamic-rejected",
@@ -201,6 +223,7 @@ async def run_reasoning_procedure(
                 procedure_version="dynamic",
                 status="stopped",
                 stop_reason=_user_status(defects),
+                path=path,
             )
             _finish_calls(case, llm, None)
             _record_execution(case, selected, workspace, defects, trace)
@@ -220,7 +243,10 @@ async def run_reasoning_procedure(
         reasoning_disabled_guaranteed=False,
         on_stage=_on_stage,
     )
-    case = await asyncio.to_thread(engine.run, request, procedure=selected)
+    case = await asyncio.to_thread(
+        engine.run, request, procedure=selected, conversation=conversation
+    )
+    case.path = path
     if pending:
         await asyncio.gather(*(asyncio.wrap_future(item) for item in pending))
     if case.status == "completed" and not case.answer.strip():
@@ -297,14 +323,28 @@ def _call_totals(records: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_goal: str = ""):
+async def _propose_dynamic_procedure(
+    llm: ProviderStageLLM,
+    request: str,
+    known_goal: str = "",
+    conversation: list[dict[str, str]] | None = None,
+):
+    """First call: choose direct / reuse / new. Code checks the choice (design 4.2).
+
+    Returns (procedure, defects, trace, path).
+    """
+
     defects: list[str] = []
     trace: list[dict[str, Any]] = []
     proposal: dict[str, Any] = {}
     procedure_id: str | None = None
+    path = "new"
+    base: dict[str, Any] = {"request": request, "approved_procedures": _approved_catalog()}
+    if conversation:
+        base["conversation"] = conversation
     for attempt in range(MAX_DYNAMIC_RECOVERY + 1):
-        payload = {"request": request} if attempt == 0 else {
-            "request": request,
+        payload = dict(base) if attempt == 0 else {
+            **base,
             "repair_defects": defects,
             "repair_kind": _repair_kind(defects),
             "previous_procedure": proposal,
@@ -314,6 +354,21 @@ async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_
         if proposal.get("parse_defects"):
             defects = [str(item) for item in proposal["parse_defects"]]
             trace.append({"attempt": attempt, "defects": defects})
+            if recovery_budget_exceeded(attempt):
+                break
+            continue
+        mode = str(proposal.pop("mode", "") or "").strip().lower()
+        if mode == "direct":
+            trace.append({"attempt": attempt, "mode": "direct"})
+            return None, [], trace, "direct"
+        if mode == "reuse":
+            chosen = str(proposal.get("procedure_id") or "").strip()
+            if chosen in approved_procedures():
+                # Unchanged approved procedure: no regeneration or review (design 10).
+                trace.append({"attempt": attempt, "mode": "reuse", "procedure_id": chosen})
+                return approved_procedure(chosen), [], trace, "reuse"
+            defects = [f"unknown_procedure at procedure_id: expected approved id; observed {chosen or 'missing'}"]
+            trace.append({"attempt": attempt, "mode": "reuse", "defects": defects})
             if recovery_budget_exceeded(attempt):
                 break
             continue
@@ -332,10 +387,12 @@ async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_
         trace.append({"attempt": attempt, **public_trace, "defects": [item.message() for item in contract_defects]})
         if selected is not None:
             # Fitness review is a separate call; the generator's output is not its evidence.
-            review_defects, review_trace = await _review_procedure(llm, request, known_goal, selected)
+            review_defects, review_trace = await _review_procedure(
+                llm, request, known_goal, selected, conversation
+            )
             trace.append({"attempt": attempt, "review": review_trace, "defects": review_defects})
             if not review_defects:
-                return selected, [], trace
+                return selected, [], trace, path
             defects = review_defects
             if recovery_budget_exceeded(attempt):
                 break
@@ -343,7 +400,55 @@ async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_
         defects = [item.message() for item in contract_defects]
         if recovery_budget_exceeded(attempt):
             break
-    return None, defects, trace
+    return None, defects, trace, path
+
+
+def recent_conversation(
+    messages: list[dict[str, Any]] | None,
+    *,
+    max_turns: int = 6,
+    max_chars: int = 500,
+) -> list[dict[str, str]]:
+    """Earlier user/assistant turns, without the current message, system or tool text."""
+
+    turns: list[dict[str, str]] = []
+    for message in messages or []:
+        role = message.get("role")
+        if role not in {"user", "assistant"}:
+            continue
+        text = _message_text(message.get("content"))
+        if text:
+            turns.append({"role": str(role), "content": text[:max_chars]})
+    if turns and turns[-1]["role"] == "user":
+        turns.pop()  # the current request is sent separately
+    return turns[-max_turns:]
+
+
+def _message_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = [
+            str(item.get("text") or "")
+            for item in content
+            if isinstance(item, dict) and item.get("type") in {"text", "input_text", None}
+        ]
+        return " ".join(part for part in parts if part).strip()
+    return ""
+
+
+def _approved_catalog() -> list[dict[str, str]]:
+    catalog = []
+    for item in approved_procedures():
+        procedure = approved_procedure(item)
+        catalog.append(
+            {
+                "id": procedure.id,
+                "title": procedure.title,
+                "steps": " → ".join(step.question for step in procedure.steps),
+            }
+        )
+    return catalog
 
 
 async def _review_procedure(
@@ -351,6 +456,7 @@ async def _review_procedure(
     request: str,
     known_goal: str,
     selected: Procedure,
+    conversation: list[dict[str, str]] | None = None,
 ) -> tuple[list[str], dict[str, Any]]:
     """Ask a separate call where each request item is handled; code decides pass/fail."""
 
@@ -360,6 +466,8 @@ async def _review_procedure(
         "known_goal": known_goal,
         "procedure": {"purpose": selected.purpose, "steps": outline.get("steps", [])},
     }
+    if conversation:
+        payload["conversation"] = conversation
     result = await asyncio.to_thread(llm.complete, "review", payload)
     result.pop("usage", None)
     defects = review_defects(result, selected)
@@ -468,6 +576,7 @@ def _record_execution(
         "procedure_id": selected.id if selected else case.procedure_id,
         "purpose": selected.purpose if selected else "",
         "dynamic": selected.dynamic if selected else True,
+        "path": case.path,
         "procedure": _procedure_outline(selected),
         "reusable": False,
         "status": case.status,
@@ -531,8 +640,14 @@ async def run_method_evaluation(
 
 
 _PROCEDURE_PROMPT = (
-    "요청을 처리할 절차 JSON 객체 하나만 반환한다. "
-    "id, title은 생략해도 된다. purpose는 목표 한 문장이다. "
+    "요청을 처리할 방법을 정해 JSON 객체 하나만 반환한다. mode는 direct, reuse, new 중 하나다. "
+    "direct: 인사·잡담, 단순 사실 확인·번역·요약처럼 단계별 판단이 필요 없는 요청, "
+    "또는 웹 조회·파일·명령 실행 같은 도구가 필요한 요청. {\"mode\": \"direct\"}만 반환한다. "
+    "reuse: approved_procedures 중 목적·입력이 요청에 그대로 맞는 절차가 있으면 "
+    "{\"mode\": \"reuse\", \"procedure_id\": \"id\"}를 반환한다. "
+    "new: 그 밖에 판단이 필요한 요청은 mode new와 함께 절차를 반환한다. "
+    "conversation은 이전 대화이며 요청 속 지시어를 해석하는 데만 쓴다. "
+    "절차의 id, title은 생략해도 된다. purpose는 목표 한 문장이다. "
     "steps는 판단에 필요한 최소 단계만 둔다. 보통 3~5개이며 7개를 넘기지 않는다. "
     "각 question은 20자 안팎의 짧은 판단 질문이다. "
     "단, 마지막 답변 단계 question에는 사용자가 답에 넣어 달라고 한 항목"
