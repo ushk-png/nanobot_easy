@@ -119,6 +119,29 @@ nanobot-easy에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한
 
 지난주에 말한 프로젝트 이름, 팀원 호칭, 내가 쓰는 약어를 매번 다시 설명하지 않아도 됩니다. 대화를 사건 단위로 저장하고 필요할 때 꺼내 씁니다. 민감한 내용은 저장 단계에서 걸러지고, 기록은 전부 내 컴퓨터에 남습니다.
 
+### 판단이 필요한 질문은 단계별로 따져 답합니다 (에이전트별로 켜는 기능)
+
+"이 방법이 적합한가", "조건에 맞는 것을 골라 달라", "서로 다른 기록으로 상태를 확정해 달라" 같은 질문은 한 번에 답하면 필수 조건을 빠뜨리거나, 확인되지 않은 정보를 사실처럼 쓰기 쉽습니다. **단계별 추론(지니 방식)**을 켠 에이전트는 이런 질문을 정해진 순서로 처리합니다.
+
+1. 목적·사실·조건을 정리합니다.
+2. 각 조건을 판단해 결론과 답변을 냅니다.
+3. 그 사이와 끝에서 코드가 확인합니다.
+   - 조건 비교·필터·선정은 코드가 직접 계산합니다.
+   - 결론이 필수 조건 규칙(필수 조건 미충족이면 부적합)과 맞는지 코드가 검사합니다.
+   - 미확인 정보는 충족으로 치지 않습니다.
+
+모델 호출은 보통 2회로 끝나고, 한 번 실행에 시간·호출 상한(120초, 8회)이 있습니다. 잡담이나 도구가 필요한 요청은 평소처럼 답합니다.
+
+이 기능은 **기본으로 꺼져 있고, 에이전트마다 명시적으로 적용**합니다. 적용하면 설정에 적용 날짜가 남고, 에이전트를 시작할 때 로그에도 표시됩니다.
+
+```bash
+nanobot stepwise apply --config .local/config.<에이전트>.json   # 적용 (백업을 남김)
+nanobot stepwise remove --config .local/config.<에이전트>.json  # 해제
+nanobot stepwise status --dir .local                          # 어떤 에이전트에 언제 적용됐는지
+```
+
+적용하거나 해제한 뒤에는 그 에이전트를 재시작해야 반영됩니다. 동작 방식과 실험 결과는 [단계별 추론 설계서](./docs/design/stepwise-llm-reasoning.md)에 있습니다.
+
 ### 개발자가 아니어도 켜서 씁니다
 
 파일 하나(macOS `bootstrap.command`, Windows `bootstrap.bat`, Linux `bootstrap.sh`)를 받아서 실행하면 설치부터 브라우저 온보딩까지 한 번에 끝납니다. 첫 화면에서 모델을 연결하고, 메신저와 도구를 고르면 바로 대화를 시작할 수 있습니다. 홈 화면의 예시 문장을 누르면 입력창에 채워지기만 하니, 내용을 고친 뒤 보내면 됩니다.
@@ -141,7 +164,7 @@ nanobot-easy에서는 스킬마다 "이런 요청은 이 스킬이 잡아야 한
 
 원본 nanobot에서 2026년 7월 분기한 뒤 독립적으로 운영합니다. 기능을 그대로 따라가지 않습니다. 넓은 채널 연동이나 최신 기능이 필요하다면 [원본](https://github.com/HKUDS/nanobot)이 더 나은 선택입니다.
 
-처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-easy-usage-ko.md)부터 보시길 권합니다. 브라우저 화면은 [WebUI 안내](./docs/webui.md), 설정은 [configuration.md](./docs/configuration.md), 모델 연결은 [providers.md](./docs/providers.md)를 참고하세요. Grok 구독 계정으로 연결하려면 [xAI Grok 로그인 안내](./docs/xai-grok-oauth.md)를 보세요.
+처음 쓰신다면 [한국어 스킬 사용 가이드](./docs/nanobot-easy-usage-ko.md)부터 보시길 권합니다. 브라우저 화면은 [WebUI 안내](./docs/webui.md), 설정은 [configuration.md](./docs/configuration.md), 모델 연결은 [providers.md](./docs/providers.md)를 참고하세요. Grok 구독 계정으로 연결하려면 [xAI Grok 로그인 안내](./docs/xai-grok-oauth.md)를 보세요. 단계별 추론(지니 방식)은 [단계별 추론 설계서](./docs/design/stepwise-llm-reasoning.md)를 보세요.
 
 ## 기여
 
