@@ -254,8 +254,9 @@ async def run_reasoning_procedure(
         # Checked before any call (design 1); the user is told via reasoning_mode_notice.
         logger.warning(
             "stepwise reasoning: {} has no non-reasoning mode; reasoning_effort=none "
-            "cannot be applied and provider default reasoning will run",
+            "cannot be applied; stage calls run at effort {}",
             model,
+            STAGE_REASONING_EFFORT,
         )
     prior = sessions.get(session_key) if sessions is not None and session_key else None
     selected = approved_procedure(procedure_id) if procedure_id else None
