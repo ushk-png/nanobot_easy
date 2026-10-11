@@ -181,6 +181,14 @@ async def run_reasoning_procedure(
     on_progress: Callable[..., Awaitable[None]] | None = None,
 ) -> ReasoningCase:
     llm = ProviderStageLLM(provider, model)
+    mode = _reasoning_mode(provider, model)
+    if mode["disable_supported"] is False:
+        # Checked before any call (design 1); the user is told via reasoning_mode_notice.
+        logger.warning(
+            "stepwise reasoning: {} has no non-reasoning mode; reasoning_effort=none "
+            "cannot be applied and provider default reasoning will run",
+            model,
+        )
     selected = approved_procedure(procedure_id) if procedure_id else None
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
@@ -239,13 +247,17 @@ def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> 
     logger.info("reasoning run {}", json.dumps({"run_id": case.id, **totals}, sort_keys=True))
     mode = _reasoning_mode(getattr(llm, "provider", None), getattr(llm, "model", None))
     case.history.append({"event": "reasoning_mode", **mode})
-    if mode["disable_supported"] is False:
-        logger.warning(
-            "reasoning run {}: {} does not support non-reasoning mode; "
-            "reasoning_effort=none is not applied (provider default reasoning runs)",
-            case.id,
-            mode["model"],
-        )
+
+
+def reasoning_mode_notice(provider: Any, model: str | None) -> str | None:
+    """User-facing notice when 'reasoning off' cannot be honoured (design 1)."""
+
+    if _reasoning_mode(provider, model)["disable_supported"] is not False:
+        return None
+    return (
+        f"안내: {model} 모델은 추론을 끌 수 없어, 설정의 '추론 끄기'가 적용되지 않습니다. "
+        "단계별 절차는 이 모델의 기본 추론을 켠 상태로 실행되며 응답이 느릴 수 있습니다."
+    )
 
 
 def _reasoning_mode(provider: Any, model: str | None) -> dict[str, Any]:

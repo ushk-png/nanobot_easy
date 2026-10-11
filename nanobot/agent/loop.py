@@ -93,7 +93,11 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
-from nanobot.reasoning.bridge import run_reasoning_procedure, select_procedure
+from nanobot.reasoning.bridge import (
+    reasoning_mode_notice,
+    run_reasoning_procedure,
+    select_procedure,
+)
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.service import WorkflowService
 
@@ -2014,35 +2018,57 @@ class AgentLoop:
         markers = ("날씨", "몇 시", "번역", "hello", "안녕")
         return len(text) <= 40 and any(marker in text for marker in markers)
 
+    def _stepwise_enabled(self) -> bool:
+        return bool(self.reasoning_effort and self.reasoning_effort.lower() == "none")
+
+    async def _run_stepwise(self, ctx: TurnContext) -> bool:
+        """Run the code-controlled stepwise procedure. False hands the turn to the normal loop."""
+
+        if ctx.visible_run_started_at is None:
+            ctx.visible_run_started_at = time.time()
+        await self._runtime_events().run_status_changed(
+            ctx.msg,
+            ctx.session_key,
+            "running",
+            started_at=ctx.visible_run_started_at,
+        )
+        # Design 1: check reasoning-off support before running and say so when unsupported.
+        notice = reasoning_mode_notice(self.provider, self.model)
+        notified: set[str] | None = getattr(self, "_reasoning_notice_sessions", None)
+        if notified is None:
+            notified = set()
+            self._reasoning_notice_sessions = notified
+        prefix = ""
+        if notice and ctx.session_key not in notified:
+            notified.add(ctx.session_key)
+            if ctx.on_progress is not None:
+                await ctx.on_progress(notice, tool_hint=False)
+            else:
+                prefix = notice + "\n\n"
+        case = await run_reasoning_procedure(
+            self.provider,
+            model=self.model,
+            request=ctx.msg.content,
+            procedure_id=select_procedure(ctx.msg.content),
+            workspace=self.workspace,
+            on_progress=ctx.on_progress,
+        )
+        answer = case.answer.strip() or case.stop_reason.strip() or "판단을 완료하지 못했습니다."
+        ctx.final_content = prefix + answer
+        ctx.tools_used = []
+        ctx.all_messages = list(ctx.initial_messages) + [
+            {"role": "assistant", "content": ctx.final_content}
+        ]
+        ctx.stop_reason = "completed" if case.status == "completed" else case.status
+        ctx.had_injections = False
+        return True
+
     async def _state_run(self, ctx: TurnContext) -> str:
         if (
-            self.reasoning_effort
-            and self.reasoning_effort.lower() == "none"
+            self._stepwise_enabled()
             and not self._is_direct_request(ctx.msg.content)
+            and await self._run_stepwise(ctx)
         ):
-            if ctx.visible_run_started_at is None:
-                ctx.visible_run_started_at = time.time()
-            await self._runtime_events().run_status_changed(
-                ctx.msg,
-                ctx.session_key,
-                "running",
-                started_at=ctx.visible_run_started_at,
-            )
-            case = await run_reasoning_procedure(
-                self.provider,
-                model=self.model,
-                request=ctx.msg.content,
-                procedure_id=select_procedure(ctx.msg.content),
-                workspace=self.workspace,
-                on_progress=ctx.on_progress,
-            )
-            ctx.final_content = case.answer.strip() or case.stop_reason.strip() or "판단을 완료하지 못했습니다."
-            ctx.tools_used = []
-            ctx.all_messages = list(ctx.initial_messages) + [
-                {"role": "assistant", "content": ctx.final_content}
-            ]
-            ctx.stop_reason = "completed" if case.status == "completed" else case.status
-            ctx.had_injections = False
             return "ok"
         if ctx.visible_run_started_at is None:
             ctx.visible_run_started_at = time.time()
