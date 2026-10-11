@@ -129,3 +129,55 @@ def test_malformed_typed_output_is_retried_at_the_same_step() -> None:
 
     assert case.status == "completed"
     assert llm.calls == ["S1", "S2", "S2", "S3", "S4", "S5", "S6", "S7"]
+
+
+class _S6Defect(ScriptedStageLLM):
+    def __init__(self, scripts, defect: dict[str, Any], times: int = 1) -> None:
+        super().__init__(scripts)
+        self.defect = defect
+        self.times = times
+
+    def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+        result = super().complete(stage, payload)
+        if stage == "S6" and self.calls.count("S6") <= self.times:
+            result["defects"] = [dict(self.defect)]
+        return result
+
+
+def test_s6_defect_returns_to_the_step_it_names() -> None:
+    """Observed live: S4 evidence defects were sent back to S5, which could not fix them."""
+
+    llm = _S6Defect(_scripts(), {"step": "S4", "issue": "j1 근거가 기준과 무관"})
+    case = ReasoningEngine(llm).run("평가")
+
+    assert case.status == "completed"
+    assert llm.calls == ["S1", "S2", "S3", "S4", "S5", "S6", "S4", "S5", "S6", "S7"]
+
+
+def test_s6_defect_with_an_invalid_target_uses_the_default_return() -> None:
+    llm = _S6Defect(_scripts(), {"step": "S7", "issue": "x"})
+    case = ReasoningEngine(llm).run("평가")
+
+    assert llm.calls == ["S1", "S2", "S3", "S4", "S5", "S6", "S5", "S6", "S7"]
+    assert case.status == "completed"
+
+
+def test_stopped_case_does_not_keep_an_invalidated_answer() -> None:
+    """Observed live: a stopped case still carried an answer from an invalidated pass."""
+
+    conclusion = dict(STAGE_OUTPUTS["S5"]["conclusion"], status="conditionally_suitable", conditions=["조건A"])
+
+    class LateFlag(ScriptedStageLLM):
+        def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+            result = super().complete(stage, payload)
+            if stage == "S7" and self.calls.count("S7") == 1:
+                result["answer"] = "조건 없이 답합니다."  # omits 조건A -> back to S5
+            if stage == "S6" and self.calls.count("S7") >= 1:
+                result["defects"] = [{"step": "S5", "issue": "결론과 판단 불일치"}]
+            return result
+
+    llm = LateFlag(_scripts(S5={"conclusion": conclusion}, S7={"answer": "조건A가 충족되면 조정합니다."}))
+    case = ReasoningEngine(llm).run("평가")
+
+    assert case.status == "stopped"
+    assert case.answer == ""

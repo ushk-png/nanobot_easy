@@ -167,7 +167,8 @@ class ReasoningEngine:
                     self._stop(case, stage, ANSWER_MISSING)
                     case.status = "failed_empty_answer"
                     break
-                if not self._return_to(case, stage):
+                target = self._defect_target(procedure, order, stage, payload)
+                if not self._return_to(case, stage, target):
                     self._stop(case, stage, "; ".join(defects))
                     break
                 index = order.index(case.current_step)
@@ -270,10 +271,30 @@ class ReasoningEngine:
         case.history.append({"event": "stage_result", "stage": stage, "role": role})
         return defects
 
-    def _return_to(self, case: ReasoningCase, stage: str) -> bool:
+    def _defect_target(
+        self,
+        procedure: Procedure,
+        order: list[str],
+        stage: str,
+        payload: dict[str, Any],
+    ) -> str | None:
+        """Check steps name where each defect is fixed; code keeps only earlier steps (design 5, 9)."""
+
+        if self._step(procedure, stage).role != "check":
+            return None
+        position = order.index(stage)
+        targets = [
+            str(item.get("step") or "").strip()
+            for item in payload.get("defects") or []
+            if isinstance(item, dict)
+        ]
+        valid = [item for item in targets if item in order[:position]]
+        return min(valid, key=order.index) if valid else None
+
+    def _return_to(self, case: ReasoningCase, stage: str, target: str | None = None) -> bool:
         if self._procedure is None:
             raise RuntimeError("procedure is not loaded")
-        target = self._procedure.step(stage).failure_returns_to
+        target = target or self._procedure.step(stage).failure_returns_to
         if target is None or case.revision_count >= self.max_revisions:
             return False
         case.revision_count += 1
@@ -283,10 +304,15 @@ class ReasoningEngine:
         return True
 
     def _invalidate_from(self, case: ReasoningCase, stage: str) -> None:
-        for item in self._downstream(stage):
+        procedure = self._require_procedure()
+        affected = self._downstream(stage)
+        for item in affected:
             case.step_states[item] = "invalidated"
-        if self._step(self._require_procedure(), stage).role in {"goal", "facts", "criteria"}:
+        # An invalidated step's result must not survive as the current result.
+        steps = [procedure.step(item) for item in affected]
+        if any(step.role == "conclusion" for step in steps):
             case.conclusion = None
+        if any(_is_answer_step(step) for step in steps):
             case.answer = ""
 
     def _execution_order(self, procedure: Procedure) -> list[str]:
@@ -513,7 +539,14 @@ _OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
             "judgment_ids": ["j1"],
         }
     },
-    "check": {"defects": ["발견한 결함, 없으면 빈 배열"]},
+    "check": {
+        "defects": [
+            {
+                "step": "결함을 고칠 앞 단계 id(사실 S2, 기준 S3, 판단 S4, 결론 S5 등)",
+                "issue": "결론을 바꾸거나 규칙을 어기는 결함만 한 문장으로, 없으면 빈 배열",
+            }
+        ]
+    },
     "answer": {"answer": "사용자에게 보일 최종 답 2~4문장"},
 }
 

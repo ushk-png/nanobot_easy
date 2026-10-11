@@ -154,7 +154,10 @@ def _check_step(case: ReasoningCase, result: dict[str, Any]) -> list[str]:
     if not isinstance(found, list):
         semantic.append("semantic check result missing")
     else:
-        semantic.extend(f"semantic: {str(item).strip()}" for item in found if str(item).strip())
+        for item in found:
+            issue = str(item.get("issue") or "") if isinstance(item, dict) else str(item)
+            if issue.strip():
+                semantic.append(f"semantic: {issue.strip()}")
     case.checks.append(
         _record(case, "llm:S6", semantic, "same-model review; may share errors, not a proof")
     )
