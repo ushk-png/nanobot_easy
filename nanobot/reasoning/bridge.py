@@ -155,7 +155,10 @@ def _call_kind(stage: str) -> str:
 def _reasoning_request(provider: Any, effort: str | None) -> Any:
     """Report the reasoning field actually placed in the request body."""
 
-    describe = getattr(provider, "reasoning_request_options", None)
+    inner = getattr(provider, "_primary", None)  # FallbackProvider wraps the real provider.
+    describe = getattr(provider, "reasoning_request_options", None) or getattr(
+        inner, "reasoning_request_options", None
+    )
     if not callable(describe):
         return "unknown"
     return describe(effort)
