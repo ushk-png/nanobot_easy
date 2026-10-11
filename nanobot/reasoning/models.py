@@ -90,6 +90,8 @@ class Procedure(Base):
     review_policy: str = "conditional"
     # Code rule that derives the conclusion status from judgments, if the procedure has one.
     conclusion_rule: str | None = None
+    # Structured answer declaration the answer step returns: "verdict" or "selection".
+    answer_claims: str | None = None
 
     def step(self, step_id: str) -> ProcedureStep:
         for step in self.steps:

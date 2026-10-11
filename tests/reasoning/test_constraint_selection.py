@@ -104,8 +104,11 @@ def test_malformed_tables_are_sent_back(mutate, expected) -> None:
     assert any(expected in item for item in defects)
 
 
+CLAIMS = {"selected": "C", "excluded": ["A", "B", "D"]}
+
+
 def _scripts(table: dict[str, Any], answer: str) -> dict[str, dict[str, Any]]:
-    return {"X1": {"table": table}, "X3": {"answer": answer}}
+    return {"X1": {"table": table}, "X3": {"answer": answer, "answer_claims": CLAIMS}}
 
 
 ANSWER = "C를 선정합니다. A는 감사 로그가 없고, B는 도입비가 5,000만 원을 넘으며, D는 감사 로그가 확인되지 않았습니다."
@@ -172,7 +175,9 @@ def test_bridge_reuse_takes_three_calls_in_total(tmp_path) -> None:
                 content = {"mode": "reuse", "procedure_id": "constraint-selection"}
             else:
                 self.kinds.append(body["stage"])
-                content = {"table": _table()} if body["stage"] == "X1" else {"answer": ANSWER}
+                content = (
+                    {"table": _table()} if body["stage"] == "X1" else {"answer": ANSWER, "answer_claims": CLAIMS}
+                )
             return SimpleNamespace(content=json.dumps(content, ensure_ascii=False), usage={}, finish_reason="stop")
 
     provider = Provider()
@@ -182,3 +187,29 @@ def test_bridge_reuse_takes_three_calls_in_total(tmp_path) -> None:
     assert provider.kinds == ["compose", "X1", "X3"]
     catalog = {item["id"]: item for item in provider.compose_body["approved_procedures"]}
     assert "코드로 계산" in catalog["constraint-selection"]["purpose"]
+
+
+def test_answer_claiming_another_selection_falls_back_to_the_code_template() -> None:
+    wrong = {"answer": "D를 선정합니다. A, B, C는 제외합니다.", "answer_claims": {"selected": "D", "excluded": ["A", "B", "C"]}}
+    llm = ScriptedStageLLM({"X1": {"table": _table()}, "X3": wrong})
+    case = ReasoningEngine(llm).run("선정해 주세요", procedure_id="constraint-selection")
+
+    assert llm.calls == ["X1", "X3", "X3"]
+    assert case.status == "completed"
+    assert case.answer.startswith("C를 선정합니다.")
+    assert "A: 감사로그 == True 미충족(값: False)" in case.answer
+    assert "D: 감사로그 미확인" in case.answer
+    assert any(item.get("event") == "template_answer" for item in case.history)
+
+
+def test_template_reports_no_selection_when_nothing_qualifies() -> None:
+    from nanobot.reasoning.checks import selection_template_answer
+    from nanobot.reasoning.models import ReasoningCase
+
+    selection, _ = constraint_select(_table(c_volume=950, d_audit=None))
+    case = ReasoningCase(id="c", request="r", procedure_id="constraint-selection", procedure_version="3.1")
+    case.step_outputs["X2"] = {"selection": selection}
+
+    text = selection_template_answer(case)
+    assert text.startswith("필수 조건을 확인된 값으로 모두 충족하는 후보가 없어 선정하지 않습니다.")
+    assert "C: 일처리량 >= 1000 미충족(값: 950)" in text

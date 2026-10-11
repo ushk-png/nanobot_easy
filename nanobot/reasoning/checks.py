@@ -321,3 +321,70 @@ def answer_claim_check(case: ReasoningCase, claims: Any) -> tuple[list[str], lis
 
 
 _CLAIMS_LIMIT = "model-declared status and criterion references; the wording itself is not verified"
+
+
+def selection_claim_defects(case: ReasoningCase, claims: Any) -> list[str]:
+    """The answer must declare the computed selection and account for every other candidate."""
+
+    selection = _computed_selection(case)
+    if selection is None:
+        return []
+    if not isinstance(claims, dict):
+        defects = [f"{ANSWER_CLAIMS_PREFIX} output has an invalid shape"]
+    else:
+        defects = []
+        selected = selection.get("selected")
+        if (claims.get("selected") or None) != selected:
+            defects.append(
+                f"{ANSWER_CLAIMS_PREFIX}: answer selects {claims.get('selected')}; computed {selected}"
+            )
+        others = {item for item in selection["candidates"] if item != selected}
+        excluded = {str(item) for item in claims.get("excluded") or []}
+        missing = sorted(others - excluded)
+        if missing:
+            defects.append(f"{ANSWER_CLAIMS_PREFIX}: no exclusion reason for {', '.join(missing)}")
+    case.checks.append(_record(case, "code:answer_claims", defects, _CLAIMS_LIMIT))
+    return defects
+
+
+def _computed_selection(case: ReasoningCase) -> dict[str, Any] | None:
+    return next(
+        (
+            output["selection"]
+            for output in case.step_outputs.values()
+            if isinstance(output.get("selection"), dict) and output["selection"].get("candidates")
+        ),
+        None,
+    )
+
+
+def selection_template_answer(case: ReasoningCase) -> str | None:
+    """Answer written by code from the computed selection (fallback; always consistent)."""
+
+    selection = _computed_selection(case)
+    if selection is None:
+        return None
+    selected = selection.get("selected")
+    lines: list[str] = []
+    if selected:
+        objective = selection.get("objective") or {}
+        basis = (
+            f" 필수 조건을 충족한 후보 중 {objective['attr']} 기준으로 "
+            f"{'가장 큰' if objective.get('direction', 'max') == 'max' else '가장 작은'} 후보입니다."
+            if objective.get("attr")
+            else " 필수 조건을 모두 충족한 후보입니다."
+        )
+        lines.append(f"{selected}를 선정합니다.{basis}")
+        if selection.get("ties"):
+            lines.append(f"동률 후보: {', '.join(selection['ties'])}.")
+    else:
+        lines.append("필수 조건을 확인된 값으로 모두 충족하는 후보가 없어 선정하지 않습니다.")
+    for candidate_id, result in selection["candidates"].items():
+        if candidate_id == selected:
+            continue
+        reasons = [f"{item['condition']} 미충족(값: {item['value']})" for item in result["failed"]]
+        reasons += [f"{item['condition'].split(' ')[0]} 미확인" for item in result["unknown"]]
+        if not reasons and result.get("status") == "eligible":
+            reasons.append("필수 조건은 충족하지만 선택 기준에서 앞서지 않음")
+        lines.append(f"{candidate_id}: {', '.join(reasons)}.")
+    return "\n".join(lines)

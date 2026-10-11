@@ -14,6 +14,8 @@ from nanobot.reasoning.checks import (
     check_stage,
     code_chain_defects,
     conclusion_rule_defects,
+    selection_claim_defects,
+    selection_template_answer,
 )
 from nanobot.reasoning.llm import BudgetExceededError, StageLLM
 from nanobot.reasoning.models import (
@@ -233,6 +235,20 @@ class ReasoningEngine:
                     }
                     case.history.append({"event": "retry", "stage": stage, "defects": defects})
                     continue
+                template = (
+                    selection_template_answer(case)
+                    if _is_answer_step(step) and procedure.answer_claims == "selection"
+                    else None
+                )
+                if template:
+                    # The explanation could not be made consistent: code writes it from
+                    # the computed selection instead of stopping (approval item 4).
+                    case.answer = template
+                    case.history.append({"event": "template_answer", "stage": stage, "defects": defects})
+                    case.step_states[stage] = "passed"
+                    self._notify_stage(stage, "passed")
+                    index += 1
+                    continue
                 if ANSWER_MISSING in defects and _is_answer_step(step):
                     self._stop(case, stage, ANSWER_MISSING)
                     case.status = "failed_empty_answer"
@@ -286,7 +302,12 @@ class ReasoningEngine:
         """Two-call answer step: code-derived conclusion and structured answer agreement."""
 
         step = self._step(procedure, stage)
-        if procedure.granularity != "two_call" or not _is_answer_step(step):
+        if not _is_answer_step(step):
+            return []
+        if procedure.answer_claims == "selection":
+            claims = case.step_outputs.get(stage, {}).get("answer_claims")
+            return selection_claim_defects(case, claims)
+        if procedure.answer_claims != "verdict":
             return []
         defects: list[str] = []
         if procedure.conclusion_rule == "required_criteria" and "conclusion" in step.roles:
@@ -822,7 +843,9 @@ class ReasoningEngine:
         for role in roles:
             # Typed roles are parsed into case objects; the model needs their shape.
             shape.update(_OUTPUT_SHAPES.get(role, {}))
-        two_call_answer = procedure.granularity == "two_call" and _is_answer_step(step)
+        two_call_answer = procedure.answer_claims == "verdict" and _is_answer_step(step)
+        if procedure.answer_claims == "selection" and _is_answer_step(step):
+            shape.update(_SELECTION_ANSWER_EXTRAS)
         if two_call_answer and "answer" in roles:
             shape.update(_TWO_CALL_ANSWER_EXTRAS)
             if "conclusion" in shape:
@@ -992,6 +1015,12 @@ _TWO_CALL_ANSWER_EXTRAS: dict[str, Any] = {
             "question": "확인할 질문",
         }
     ],
+}
+_SELECTION_ANSWER_EXTRAS: dict[str, Any] = {
+    "answer_claims": {
+        "selected": "answer가 선정한 후보 id(입력 selection.selected와 같게, 없으면 null)",
+        "excluded": ["answer가 선정하지 않은 이유를 밝힌 후보 id(나머지 모두)"],
+    }
 }
 _EXCEPTION_RULE_SHAPE = {
     "exception_rule": "요청·규정이 conclusion_rule과 다른 결론을 명시적으로 허용할 때만 그 근거, 아니면 생략",

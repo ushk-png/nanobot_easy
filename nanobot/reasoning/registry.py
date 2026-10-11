@@ -105,7 +105,7 @@ def _constraint_selection() -> Procedure:
             role="answer",
             question="계산된 선정 결과와, 다른 후보마다 선정하지 않은 이유(미충족·미확인 조건)를 답한다.",
             inputs=["X2"],
-            outputs=["answer"],
+            outputs=["answer", "answer_claims"],
             checks=["faithfulness"],
             version=PROCEDURE_VERSION,
         ),
@@ -114,6 +114,7 @@ def _constraint_selection() -> Procedure:
         id="constraint-selection",
         version=PROCEDURE_VERSION,
         title="조건 선정",
+        answer_claims="selection",
         purpose=(
             "후보 목록과 값으로 판정할 수 있는 필수 조건·선택 기준이 주어진 선정 문제를 "
             "코드로 계산한다."
@@ -184,6 +185,7 @@ def _two_call(procedure_id: str, title: str, questions: tuple[str, ...]) -> Proc
         purpose=title,
         granularity="two_call",
         conclusion_rule=_CONCLUSION_RULES.get(procedure_id),
+        answer_claims="verdict",
         steps=[
             ProcedureStep(
                 id="A",
