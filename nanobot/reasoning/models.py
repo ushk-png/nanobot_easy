@@ -34,8 +34,6 @@ StepState = Literal[
     "needs_revision",
     "invalidated",
     "stopped",
-    "failed_empty_answer",
-    "direct",
 ]
 CaseStatus = Literal[
     "running",
@@ -45,6 +43,7 @@ CaseStatus = Literal[
     "stopped",
     "failed_empty_answer",
     "direct",
+    "incomplete",
 ]
 
 

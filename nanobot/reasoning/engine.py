@@ -9,7 +9,7 @@ from uuid import uuid4
 from pydantic import ValidationError
 
 from nanobot.reasoning.checks import ANSWER_MISSING, check_stage
-from nanobot.reasoning.llm import StageLLM
+from nanobot.reasoning.llm import BudgetExceededError, StageLLM
 from nanobot.reasoning.models import (
     CheckRecord,
     Conclusion,
@@ -144,7 +144,13 @@ class ReasoningEngine:
                 # Code operations compute; no model call (design 8).
                 payload, op_defects = self._run_code_op(case, procedure, stage)
             else:
-                payload = self.llm.complete(stage, self._payload(case, stage, repair.pop(stage, None)))
+                try:
+                    payload = self.llm.complete(
+                        stage, self._payload(case, stage, repair.pop(stage, None))
+                    )
+                except BudgetExceededError as exc:
+                    self._incomplete(case, stage, exc)
+                    break
             if _result_revision(payload, procedure.revision) != case.execution_revision:
                 case.history.append({"event": "stale_result_ignored", "stage": stage})
                 stale_count = sum(
@@ -454,6 +460,17 @@ class ReasoningEngine:
         step = self._step(self._procedure, stage)
         label = (step.question or step.role or stage).strip().splitlines()[0][:80]
         self.on_stage(stage, state, label)
+
+    def _incomplete(self, case: ReasoningCase, stage: str, exc: BudgetExceededError) -> None:
+        """Budget used up: keep confirmed results, never report the run as completed."""
+
+        case.status = "incomplete"
+        case.step_states[stage] = "stopped"
+        case.stop_reason = f"budget:{exc.kind}"
+        case.history.append(
+            {"event": "budget_exceeded", "stage": stage, "kind": exc.kind, "detail": exc.detail}
+        )
+        self._notify_stage(stage, "stopped")
 
     def _stop(self, case: ReasoningCase, stage: str, reason: str) -> None:
         case.status = "stopped"

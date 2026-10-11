@@ -22,6 +22,7 @@ from nanobot.reasoning.dynamic import (
     recovery_budget_exceeded,
 )
 from nanobot.reasoning.engine import ReasoningEngine
+from nanobot.reasoning.llm import BudgetExceededError, RunBudget
 from nanobot.reasoning.models import Procedure, ReasoningCase
 from nanobot.reasoning.registry import approved_procedures
 from nanobot.reasoning.registry import procedure as approved_procedure
@@ -64,6 +65,10 @@ def is_method_evaluation_request(content: str) -> bool:
 # default to "high" when the field is omitted; "low" is the lowest documented value.
 STAGE_REASONING_EFFORT = "low"
 
+# Per-run budget for every model call of a stepwise run (routing, steps, review, retries).
+DEFAULT_TIME_BUDGET_S = 120.0
+DEFAULT_CALL_BUDGET = 8
+
 
 class ProviderStageLLM:
     """One structured call per stage. The model cannot set verification state."""
@@ -74,12 +79,30 @@ class ProviderStageLLM:
         self.provider = provider
         self.model = model
         self.call_records: list[dict[str, Any]] = []
+        self.budget: RunBudget | None = None
 
     def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
         prompt = _stage_prompt(stage)
         body = json.dumps(payload, ensure_ascii=False)
+        remaining = self.budget.before_call(stage) if self.budget is not None else None
         started = time.monotonic()
-        response = asyncio.run(self._complete(stage, payload, prompt=prompt, body=body))
+        try:
+            # The time budget also bounds the request in flight, not only the gap between calls.
+            response = asyncio.run(
+                self._complete(stage, payload, prompt=prompt, body=body, timeout=remaining)
+            )
+        except TimeoutError as exc:
+            self.call_records.append(
+                {
+                    "call_kind": _call_kind(stage),
+                    "step_id": None if stage in {"procedure", "review"} else stage,
+                    "duration_ms": int((time.monotonic() - started) * 1000),
+                    "model": self.model,
+                    "finish_reason": "budget_timeout",
+                    "payload_bytes": len(prompt.encode("utf-8")) + len(body.encode("utf-8")),
+                }
+            )
+            raise BudgetExceededError("time", f"request for {stage} cut at the time budget") from exc
         duration_ms = int((time.monotonic() - started) * 1000)
         content = response.content or ""
         if stage == "procedure":
@@ -127,12 +150,13 @@ class ProviderStageLLM:
         *,
         prompt: str | None = None,
         body: str | None = None,
+        timeout: float | None = None,
     ):
         prompt = prompt if prompt is not None else _stage_prompt(stage)
         body = body if body is not None else json.dumps(payload, ensure_ascii=False)
         # Stage calls have no tools; hosted (server-side) tools are not attached either.
         with hosted_tools_disabled():
-            return await self.provider.chat_with_retry(
+            request = self.provider.chat_with_retry(
                 messages=[
                     {"role": "system", "content": prompt},
                     {"role": "user", "content": body},
@@ -141,6 +165,9 @@ class ProviderStageLLM:
                 model=self.model,
                 reasoning_effort=self.reasoning_effort,
             )
+            if timeout is None:
+                return await request
+            return await asyncio.wait_for(request, timeout=max(timeout, 0.001))
 
 
 def _stage_prompt(stage: str) -> str:
@@ -242,12 +269,16 @@ async def run_reasoning_procedure(
     sessions: ReasoningSessions | None = None,
     session_key: str | None = None,
     z3_check: bool = False,
+    time_budget_s: float | None = DEFAULT_TIME_BUDGET_S,
+    call_budget: int | None = DEFAULT_CALL_BUDGET,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
     first call chooses direct / reuse / new, or resume / update for the session's
     previous case (design 4.2, 7)."""
 
     llm = ProviderStageLLM(provider, model)
+    # One budget for routing, steps, review and retries (design 9, 12).
+    llm.budget = RunBudget(seconds=time_budget_s, max_calls=call_budget)
     conversation = list(conversation or [])
     mode = _reasoning_mode(provider, model)
     if mode["disable_supported"] is False:
@@ -264,9 +295,23 @@ async def run_reasoning_procedure(
     proposal = _Proposal(selected, [], [], "explicit")
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
-        proposal = await _propose_dynamic_procedure(
-            llm, request, _known_goal(request), conversation, prior, granularity
-        )
+        try:
+            proposal = await _propose_dynamic_procedure(
+                llm, request, _known_goal(request), conversation, prior, granularity
+            )
+        except BudgetExceededError as exc:
+            case = ReasoningCase(
+                id=f"incomplete-{uuid4().hex[:12]}",
+                request=request,
+                procedure_id="unrouted",
+                procedure_version="-",
+                status="incomplete",
+                stop_reason=f"budget:{exc.kind}",
+                history=[{"event": "budget_exceeded", "stage": "procedure", "kind": exc.kind}],
+            )
+            _finish_calls(case, llm, None)
+            _record_execution(case, None, workspace, [])
+            return case
         if proposal.path == "direct":
             # Chat, simple lookups and tool work go to the normal agent loop.
             case = ReasoningCase(
@@ -703,12 +748,44 @@ def user_reply(case: ReasoningCase) -> str:
     answer = case.answer.strip()
     if case.status == "completed" and answer:
         return answer
+    if case.status == "incomplete":
+        return _incomplete_reply(case)
     if case.status in {"waiting_info", "failed_empty_answer"} or case.procedure_id == "dynamic-rejected":
         return case.stop_reason.strip() or "판단을 완료하지 못했습니다."
     reason = case.stop_reason.strip()
     if answer:
         return f"{answer}\n\n※ 이 답변은 마지막 점검을 통과하지 못했습니다. (점검 내용: {reason})"
     return f"판단을 끝내지 못했습니다. (점검 내용: {reason})" if reason else "판단을 완료하지 못했습니다."
+
+
+def _incomplete_reply(case: ReasoningCase) -> str:
+    """Budget used up: say so, show what was confirmed, list what is unfinished."""
+
+    kind = "시간" if case.stop_reason.endswith("time") else "호출 횟수"
+    lines = [f"정해진 {kind} 예산 안에 판단을 마치지 못했습니다."]
+    selection = next(
+        (
+            output["selection"]
+            for output in case.step_outputs.values()
+            if isinstance(output.get("selection"), dict)
+        ),
+        None,
+    )
+    if selection is not None:
+        selected = selection.get("selected") or "없음"
+        lines.append(f"코드로 계산된 선정 결과(설명 전): {selected}")
+    elif case.judgments:
+        results = {"met": "충족", "unmet": "불충족", "unknown": "미확인"}
+        criteria = {item.id: item.statement for item in case.criteria}
+        for judgment in case.judgments[:6]:
+            label = criteria.get(judgment.criterion_id, judgment.criterion_id)
+            lines.append(f"- {label}: {results.get(judgment.result, judgment.result)}")
+    elif case.answer.strip():
+        lines.append(f"점검을 마치지 못한 답변: {case.answer.strip()}")
+    unfinished = [step for step, state in case.step_states.items() if state not in {"passed"}]
+    if unfinished:
+        lines.append(f"미완료 단계: {', '.join(unfinished)}")
+    return "\n".join(lines)
 
 
 def _empty_answer_status(selected: Procedure) -> str:
