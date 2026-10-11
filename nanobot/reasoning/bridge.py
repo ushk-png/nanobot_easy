@@ -669,6 +669,20 @@ def _repair_kind(defects: list[str]) -> str:
     return "procedure_content"
 
 
+def user_reply(case: ReasoningCase) -> str:
+    """Text for the user. An answer that failed its last check is labelled, not passed off."""
+
+    answer = case.answer.strip()
+    if case.status == "completed" and answer:
+        return answer
+    if case.status in {"waiting_info", "failed_empty_answer"} or case.procedure_id == "dynamic-rejected":
+        return case.stop_reason.strip() or "판단을 완료하지 못했습니다."
+    reason = case.stop_reason.strip()
+    if answer:
+        return f"{answer}\n\n※ 이 답변은 마지막 점검을 통과하지 못했습니다. (점검 내용: {reason})"
+    return f"판단을 끝내지 못했습니다. (점검 내용: {reason})" if reason else "판단을 완료하지 못했습니다."
+
+
 def _empty_answer_status(selected: Procedure) -> str:
     answer_steps = [
         step.id for step in selected.steps if step.role == "answer" or "answer" in step.outputs

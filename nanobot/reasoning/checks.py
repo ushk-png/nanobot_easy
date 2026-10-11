@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from nanobot.reasoning.models import CheckRecord, ReasoningCase
@@ -120,9 +121,30 @@ def answer_omissions(case: ReasoningCase) -> list[str]:
         return []
     defects: list[str] = []
     for condition in case.conclusion.conditions:
-        if condition not in case.answer:
+        if not condition_covered(condition, case.answer):
             defects.append(f"answer omits condition: {condition}")
     return defects
+
+
+_TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")
+
+
+def condition_covered(condition: str, answer: str, threshold: float = 0.6) -> bool:
+    """A condition is covered when most of its key terms appear in the answer.
+
+    Verbatim matching rejected faithful paraphrases and stopped a finished run.
+    A trailing Korean particle is tolerated ("도입비가" matches "도입비").
+    """
+
+    terms = _TERM_RE.findall(condition)
+    if not terms:
+        return True
+    hits = sum(1 for term in terms if term in answer or _particle_stripped_in(term, answer))
+    return hits / len(terms) >= threshold
+
+
+def _particle_stripped_in(term: str, answer: str) -> bool:
+    return len(term) >= 3 and "가" <= term[-1] <= "힣" and term[:-1] in answer
 
 
 def _uses_only_unknown(case: ReasoningCase, evidence_ids: list[str]) -> bool:

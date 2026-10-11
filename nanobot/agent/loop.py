@@ -98,6 +98,7 @@ from nanobot.reasoning.bridge import (
     reasoning_mode_notice,
     recent_conversation,
     run_reasoning_procedure,
+    user_reply,
 )
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.service import WorkflowService
@@ -2069,8 +2070,7 @@ class AgentLoop:
         )
         if case.status == "direct":
             return False
-        answer = case.answer.strip() or case.stop_reason.strip() or "판단을 완료하지 못했습니다."
-        ctx.final_content = prefix + answer
+        ctx.final_content = prefix + user_reply(case)
         ctx.tools_used = []
         ctx.all_messages = list(ctx.initial_messages) + [
             {"role": "assistant", "content": ctx.final_content}

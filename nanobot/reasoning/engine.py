@@ -462,8 +462,9 @@ class ReasoningEngine:
         procedure = self._require_procedure()
         step = self._step(procedure, stage)
         fields: dict[str, Any] = {"request": case.request, "stage": stage}
-        if case.conversation and "request" in step.inputs:
-            # Earlier turns resolve references in the request ("그럼 B는?").
+        if case.conversation and ("request" in step.inputs or step.role in {"goal", "facts"}):
+            # Earlier turns resolve references ("그럼 B는?") and hold data a follow-up
+            # corrects; fact gathering needs them as much as the request step does.
             fields["conversation"] = case.conversation
         if case.goal:
             fields["goal"] = case.goal
