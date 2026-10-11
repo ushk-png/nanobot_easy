@@ -262,10 +262,13 @@ def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> 
     """Attach per-call measurements to the case and log one line per call."""
 
     records = [dict(item) for item in getattr(llm, "call_records", [])]
-    roles = {step.id: step.role for step in selected.steps} if selected else {}
+    answer_ids = {
+        step.id for step in (selected.steps if selected else [])
+        if step.role == "answer" or "answer" in step.outputs
+    }
     for record in records:
         record["run_id"] = case.id
-        if record.get("call_kind") == "step" and roles.get(record.get("step_id")) == "answer":
+        if record.get("call_kind") == "step" and record.get("step_id") in answer_ids:
             record["call_kind"] = "answer"
         logger.info("reasoning call {}", json.dumps(record, ensure_ascii=False, sort_keys=True))
     case.call_records = records

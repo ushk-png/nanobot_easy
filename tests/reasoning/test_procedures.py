@@ -42,7 +42,7 @@ def _scripts(goal: str) -> dict[str, dict]:
                 "judgment_ids": ["j1"],
             }
         },
-        "S6": {},
+        "S6": {"defects": []},
         "S7": {"answer": "현재 근거 범위의 결론. 추가 확인 필요."},
     }
 

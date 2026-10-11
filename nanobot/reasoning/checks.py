@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from nanobot.reasoning.models import CheckRecord, ReasoningCase
 
 ANSWER_MISSING = "answer missing"
@@ -18,19 +20,31 @@ def _record(case: ReasoningCase, kind: str, defects: list[str], limit: str) -> C
     )
 
 
-def check_stage(case: ReasoningCase, stage: str) -> list[str]:
-    """Run the checks that gate a stage. Returns defect messages."""
+def check_stage(
+    case: ReasoningCase,
+    stage: str,
+    *,
+    declared_outputs: list[str] | None = None,
+    result: dict[str, Any] | None = None,
+) -> list[str]:
+    """Run the checks that gate a stage. Returns defect messages.
+
+    Every step gets at least one real check; nothing passes unchecked (design 6.2).
+    """
 
     defects: list[str] = []
     if not stage:
-        record = _record(
-            case,
-            "code:unmapped",
-            defects,
-            "no fixed business-rule check for this role",
+        # Work steps: the output contract is the check.
+        produced = result or {}
+        for key in declared_outputs or []:
+            if produced.get(key) is None:
+                defects.append(f"declared output missing: {key}")
+        case.checks.append(
+            _record(case, "code:outputs", defects, "declared outputs present; not their correctness")
         )
-        case.checks.append(record)
         return defects
+    if stage == "S6":
+        return _check_step(case, result or {})
     if stage == "S1":
         if not case.goal.strip():
             defects.append("goal missing")
@@ -115,3 +129,33 @@ def _uses_only_unknown(case: ReasoningCase, evidence_ids: list[str]) -> bool:
     facts = {item.id: item for item in case.facts}
     referenced = [facts[item] for item in evidence_ids if item in facts]
     return bool(referenced) and all(item.status == "unknown" for item in referenced)
+
+
+def _check_step(case: ReasoningCase, result: dict[str, Any]) -> list[str]:
+    """S6: code checks over the whole chain, then the model's semantic findings."""
+
+    code: list[str] = []
+    if case.criteria:
+        covered = {item.criterion_id for item in case.judgments}
+        missing = [item.id for item in case.criteria if item.id not in covered]
+        if missing:
+            code.append(f"criteria without judgment: {', '.join(missing)}")
+    if case.conclusion is not None:
+        known = {item.id for item in case.judgments}
+        unknown = [item for item in case.conclusion.judgment_ids if item not in known]
+        if unknown:
+            code.append(f"conclusion cites unknown judgments: {', '.join(unknown)}")
+        code.extend(conclusion_conflicts(case))
+    case.checks.append(
+        _record(case, "code:S6", code, "chain structure and fixed rules only; not factual truth")
+    )
+    semantic: list[str] = []
+    found = result.get("defects")
+    if not isinstance(found, list):
+        semantic.append("semantic check result missing")
+    else:
+        semantic.extend(f"semantic: {str(item).strip()}" for item in found if str(item).strip())
+    case.checks.append(
+        _record(case, "llm:S6", semantic, "same-model review; may share errors, not a proof")
+    )
+    return code + semantic

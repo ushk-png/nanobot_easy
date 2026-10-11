@@ -76,7 +76,7 @@ def _scripts() -> dict[str, dict]:
                 "judgment_ids": ["j1", "j2"],
             }
         },
-        "S6": {},
+        "S6": {"defects": []},
         "S7": {
             "answer": "현재 구성은 내부망 조건을 충족하지 않습니다. 내부 실행 구조 확인 필요."
         },

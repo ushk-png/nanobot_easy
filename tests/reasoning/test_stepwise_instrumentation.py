@@ -17,7 +17,7 @@ STAGE_OUTPUTS = {
     "S3": {"criteria": [{"id": "c1", "statement": "충돌 해소", "kind": "required", "method": "time", "linked_goal": GOAL}]},
     "S4": {"judgments": [{"id": "j1", "criterion_id": "c1", "result": "met", "evidence_ids": ["f1"], "step_id": "S4"}]},
     "S5": {"conclusion": {"id": "k1", "status": "suitable", "statement": "시간 조정", "conditions": [], "judgment_ids": ["j1"]}},
-    "S6": {},
+    "S6": {"defects": []},
     "S7": {"answer": "겹치는 일정의 시간을 조정합니다."},
 }
 

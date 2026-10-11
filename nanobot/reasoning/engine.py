@@ -113,7 +113,12 @@ class ReasoningEngine:
             shape_defects = self._apply(case, stage, payload)
             if self._step(procedure, stage).role == "check" and case.procedure_id == "rule-judgment":
                 self._check_rule_entailment(case)
-            defects = shape_defects + check_stage(case, self._check_stage(procedure, stage))
+            defects = shape_defects + check_stage(
+                case,
+                self._check_stage(procedure, stage),
+                declared_outputs=self._step(procedure, stage).outputs,
+                result=payload,
+            )
             if defects:
                 case.step_states[stage] = "needs_revision"
                 step = self._step(procedure, stage)
@@ -348,6 +353,9 @@ class ReasoningEngine:
         # The step contract: what this call must do and which keys it must return.
         payload["question"] = step.question
         payload["expected_outputs"] = list(step.outputs)
+        if step.role == "check" and "defects" not in payload["expected_outputs"]:
+            # The check step reports findings; an absent list is not a pass.
+            payload["expected_outputs"].append("defects")
         if repair_defects:
             payload["repair_defects"] = list(repair_defects)
         return payload
