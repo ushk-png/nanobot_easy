@@ -36,11 +36,21 @@ def _usage_from_response_obj(response: Any) -> dict[str, int]:
         usage_raw.get("output_tokens") or usage_raw.get("completion_tokens") or 0
     )
     total_tokens = int(usage_raw.get("total_tokens") or prompt_tokens + completion_tokens)
-    return {
+    usage = {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
         "total_tokens": total_tokens,
     }
+    # Responses API detail fields (OpenAI and xAI share these names).
+    output_details = usage_raw.get("output_tokens_details")
+    if isinstance(output_details, dict) and output_details.get("reasoning_tokens") is not None:
+        usage["reasoning_tokens"] = int(output_details.get("reasoning_tokens") or 0)
+    input_details = usage_raw.get("input_tokens_details")
+    if isinstance(input_details, dict) and input_details.get("cached_tokens") is not None:
+        usage["cached_tokens"] = int(input_details.get("cached_tokens") or 0)
+    if usage_raw.get("num_server_side_tools_used") is not None:
+        usage["server_side_tools_used"] = int(usage_raw.get("num_server_side_tools_used") or 0)
+    return usage
 
 
 def _parse_tool_call_arguments(args_raw: Any, name: str | None) -> Any:

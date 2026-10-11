@@ -254,6 +254,11 @@ class XAIGrokProvider(LLMProvider):
     def get_default_model(self) -> str:
         return self.default_model
 
+    @staticmethod
+    def reasoning_request_options(reasoning_effort: str | None) -> dict[str, str] | None:
+        """Return the ``reasoning`` body field this provider sends for an effort value."""
+        return _build_reasoning_options(reasoning_effort)
+
 
 def _strip_model_prefix(model: str) -> str:
     if model.startswith("xai-grok/") or model.startswith("xai_grok/"):

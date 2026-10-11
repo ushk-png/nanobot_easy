@@ -35,7 +35,13 @@ StepState = Literal[
     "invalidated",
     "stopped",
 ]
-CaseStatus = Literal["running", "completed", "waiting_info", "deferred", "stopped"]
+CaseStatus = Literal[
+    "running",
+    "completed",
+    "waiting_info",
+    "deferred",
+    "stopped",
+]
 
 
 class StepBudget(Base):
@@ -123,6 +129,8 @@ class Usage(Base):
     calls: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
+    reasoning_tokens: int = 0
+    duration_ms: int = 0
     reasoning_effort: str | None = None
     reasoning_disabled_guaranteed: bool = False
 
@@ -150,6 +158,7 @@ class ReasoningCase(Base):
     revision_count: int = 0
     stop_reason: str = ""
     history: list[dict[str, Any]] = Field(default_factory=list)
+    call_records: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class Entailment(str, Enum):

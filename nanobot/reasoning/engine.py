@@ -265,6 +265,8 @@ class ReasoningEngine:
         case.usage.calls += 1
         case.usage.input_tokens += int(usage.get("input_tokens") or 0)
         case.usage.output_tokens += int(usage.get("output_tokens") or 0)
+        case.usage.reasoning_tokens += int(usage.get("reasoning_tokens") or 0)
+        case.usage.duration_ms += int(usage.get("duration_ms") or 0)
 
     def _check_rule_entailment(self, case: ReasoningCase) -> None:
         """Record solver status without treating SAT as proof of the claim."""

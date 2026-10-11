@@ -5,9 +5,12 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import time
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
+
+from loguru import logger
 
 from nanobot.providers.base import LLMProvider
 from nanobot.reasoning.contract import parse_procedure_payload
@@ -18,7 +21,8 @@ from nanobot.reasoning.dynamic import (
 )
 from nanobot.reasoning.engine import ReasoningEngine
 from nanobot.reasoning.models import Procedure, ReasoningCase
-from nanobot.reasoning.registry import approved_procedures, procedure as approved_procedure
+from nanobot.reasoning.registry import approved_procedures
+from nanobot.reasoning.registry import procedure as approved_procedure
 
 _PROCEDURE_MARKERS: dict[str, tuple[str, ...]] = {
     "cause-analysis": ("원인분석", "원인 분석", "왜 이런", "왜 발생", "원인이"),
@@ -57,43 +61,104 @@ def is_method_evaluation_request(content: str) -> bool:
 class ProviderStageLLM:
     """One structured call per stage. The model cannot set verification state."""
 
+    reasoning_effort = "none"
+
     def __init__(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
         self.model = model
+        self.call_records: list[dict[str, Any]] = []
 
     def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
-        response = asyncio.run(self._complete(stage, payload))
+        prompt = _stage_prompt(stage)
+        body = json.dumps(payload, ensure_ascii=False)
+        started = time.monotonic()
+        response = asyncio.run(self._complete(stage, payload, prompt=prompt, body=body))
+        duration_ms = int((time.monotonic() - started) * 1000)
         content = response.content or ""
         if stage == "procedure":
             parsed, defects = parse_procedure_payload(content)
             if parsed is None:
-                return {"parse_defects": [item.message() for item in defects], "raw": content}
+                parsed = {"parse_defects": [item.message() for item in defects], "raw": content}
         else:
             parsed = _parse_object(content)
         usage = response.usage if isinstance(response.usage, dict) else {}
+        input_tokens = int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0)
+        output_tokens = int(usage.get("completion_tokens") or usage.get("output_tokens") or 0)
+        reasoning_tokens = usage.get("reasoning_tokens")
+        self.call_records.append(
+            {
+                "call_kind": _call_kind(stage),
+                "step_id": None if stage in {"procedure", "review"} else stage,
+                "duration_ms": duration_ms,
+                "model": self.model,
+                "reasoning_effort": self.reasoning_effort,
+                "reasoning_request": _reasoning_request(self.provider, self.reasoning_effort),
+                "input_tokens": input_tokens,
+                "output_tokens": output_tokens,
+                "reasoning_tokens": None if reasoning_tokens is None else int(reasoning_tokens),
+                "cached_tokens": usage.get("cached_tokens"),
+                "server_side_tools_used": usage.get("server_side_tools_used"),
+                "payload_bytes": len(prompt.encode("utf-8")) + len(body.encode("utf-8")),
+                "finish_reason": getattr(response, "finish_reason", None),
+                "output_keys": sorted(str(key) for key in parsed if key != "raw"),
+            }
+        )
         parsed["usage"] = {
-            "input_tokens": int(usage.get("prompt_tokens") or usage.get("input_tokens") or 0),
-            "output_tokens": int(usage.get("completion_tokens") or usage.get("output_tokens") or 0),
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "reasoning_tokens": int(reasoning_tokens or 0),
+            "duration_ms": duration_ms,
         }
         return parsed
 
-    async def _complete(self, stage: str, payload: dict[str, Any]):
-        prompt = _PROCEDURE_PROMPT if stage == "procedure" else (
-            f"단계 {stage}의 JSON 객체만 반환한다. "
-            "이 단계는 검증용 짧은 판단이다. 설명, 배경, 장문 근거는 쓰지 않는다. "
-            "각 문장은 40자 안팎의 한 문장으로 하고, 항목은 필요한 최소 개수만 둔다. "
-            "answer가 있는 단계에서만 사용자에게 보일 최종 답을 2~4문장으로 쓴다. "
-            "그 외 단계의 answer는 비운다. 검증 상태나 다음 단계 지시는 포함하지 않는다."
-        )
+    async def _complete(
+        self,
+        stage: str,
+        payload: dict[str, Any],
+        *,
+        prompt: str | None = None,
+        body: str | None = None,
+    ):
+        prompt = prompt if prompt is not None else _stage_prompt(stage)
+        body = body if body is not None else json.dumps(payload, ensure_ascii=False)
         return await self.provider.chat_with_retry(
             messages=[
                 {"role": "system", "content": prompt},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False)},
+                {"role": "user", "content": body},
             ],
             tools=None,
             model=self.model,
-            reasoning_effort="none",
+            reasoning_effort=self.reasoning_effort,
         )
+
+
+def _stage_prompt(stage: str) -> str:
+    if stage == "procedure":
+        return _PROCEDURE_PROMPT
+    return (
+        f"단계 {stage}의 JSON 객체만 반환한다. "
+        "이 단계는 검증용 짧은 판단이다. 설명, 배경, 장문 근거는 쓰지 않는다. "
+        "각 문장은 40자 안팎의 한 문장으로 하고, 항목은 필요한 최소 개수만 둔다. "
+        "answer가 있는 단계에서만 사용자에게 보일 최종 답을 2~4문장으로 쓴다. "
+        "그 외 단계의 answer는 비운다. 검증 상태나 다음 단계 지시는 포함하지 않는다."
+    )
+
+
+def _call_kind(stage: str) -> str:
+    if stage == "procedure":
+        return "compose"
+    if stage == "review":
+        return "review"
+    return "step"
+
+
+def _reasoning_request(provider: Any, effort: str | None) -> Any:
+    """Report the reasoning field actually placed in the request body."""
+
+    describe = getattr(provider, "reasoning_request_options", None)
+    if not callable(describe):
+        return "unknown"
+    return describe(effort)
 
 
 async def run_reasoning_procedure(
@@ -119,6 +184,7 @@ async def run_reasoning_procedure(
                 status="stopped",
                 stop_reason=_user_status(defects),
             )
+            _finish_calls(case, llm, None)
             _record_execution(case, selected, workspace, defects, trace)
             return case
     loop = asyncio.get_running_loop()
@@ -142,9 +208,39 @@ async def run_reasoning_procedure(
     if not case.answer.strip():
         case.status = "stopped"
         case.stop_reason = "판단은 끝났지만 답변을 만들지 못했습니다. 요청을 조금 더 구체적으로 다시 보내 주세요."
-    if selected.dynamic:
-        _record_execution(case, selected, workspace, [])
+    _finish_calls(case, llm, selected)
+    _record_execution(case, selected, workspace, [])
     return case
+
+
+def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> None:
+    """Attach per-call measurements to the case and log one line per call."""
+
+    records = [dict(item) for item in getattr(llm, "call_records", [])]
+    roles = {step.id: step.role for step in selected.steps} if selected else {}
+    for record in records:
+        record["run_id"] = case.id
+        if record.get("call_kind") == "step" and roles.get(record.get("step_id")) == "answer":
+            record["call_kind"] = "answer"
+        logger.info("reasoning call {}", json.dumps(record, ensure_ascii=False, sort_keys=True))
+    case.call_records = records
+    totals = _call_totals(records)
+    logger.info("reasoning run {}", json.dumps({"run_id": case.id, **totals}, sort_keys=True))
+
+
+def _call_totals(records: list[dict[str, Any]]) -> dict[str, Any]:
+    reasoning = [item.get("reasoning_tokens") for item in records]
+    return {
+        "calls": len(records),
+        "duration_ms": sum(int(item.get("duration_ms") or 0) for item in records),
+        "input_tokens": sum(int(item.get("input_tokens") or 0) for item in records),
+        "output_tokens": sum(int(item.get("output_tokens") or 0) for item in records),
+        "reasoning_tokens": (
+            None if all(item is None for item in reasoning)
+            else sum(int(item or 0) for item in reasoning)
+        ),
+        "payload_bytes": sum(int(item.get("payload_bytes") or 0) for item in records),
+    }
 
 
 async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_goal: str = ""):
@@ -246,7 +342,7 @@ def _record_execution(
         "request": case.request,
         "procedure_id": selected.id if selected else case.procedure_id,
         "purpose": selected.purpose if selected else "",
-        "dynamic": True,
+        "dynamic": selected.dynamic if selected else True,
         "reusable": False,
         "status": case.status,
         "answer": case.answer,
@@ -257,6 +353,8 @@ def _record_execution(
         "defects": defects,
         "trace": trace or [],
         "registration": "not_evaluated",
+        "calls": case.call_records,
+        "call_totals": _call_totals(case.call_records),
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record, ensure_ascii=False) + "\n")
