@@ -256,3 +256,48 @@ def test_fact_update_rejudges_only_affected_criteria_in_one_call() -> None:
     assert ids == ["j2", "j3", "j9"]  # j8 for the kept criterion c2 is ignored
     assert case.conclusion.status == "conditionally_suitable"
     assert case.status == "completed"
+
+
+@__import__("pytest").mark.auto_granularity
+def test_routing_call_prefills_step_a_so_the_default_path_is_two_calls(tmp_path) -> None:
+    import asyncio
+    import json
+    from types import SimpleNamespace
+
+    from nanobot.reasoning.bridge import _PROCEDURE_PROMPT, run_reasoning_procedure
+
+    class Provider:
+        def __init__(self, first_step: dict[str, Any]) -> None:
+            self.first_step = first_step
+            self.kinds: list[str] = []
+            self.compose_body: dict[str, Any] = {}
+
+        async def chat_with_retry(self, **kwargs):
+            system = kwargs["messages"][0]["content"]
+            body = json.loads(kwargs["messages"][1]["content"])
+            if system == _PROCEDURE_PROMPT:
+                self.kinds.append("compose")
+                self.compose_body = body
+                content = {"mode": "reuse", "procedure_id": "method-evaluation", "first_step_output": self.first_step}
+            else:
+                self.kinds.append(body["stage"])
+                content = {"A": A_OUT, "B": B_OUT}[body["stage"]]
+            return SimpleNamespace(content=json.dumps(content, ensure_ascii=False), usage={}, finish_reason="stop")
+
+    good = Provider(A_OUT)
+    case = asyncio.run(run_reasoning_procedure(good, model="m", request="평가해 줘", workspace=tmp_path))
+
+    assert case.status == "completed"
+    assert good.kinds == ["compose", "B"]
+    catalog = {item["id"]: item for item in good.compose_body["approved_procedures"]}
+    assert catalog["method-evaluation"]["first_step"]["id"] == "A"
+    assert any(item.get("event") == "prefilled" for item in case.history)
+    assert [item["call_kind"] for item in case.call_records] == ["compose", "answer"]
+
+    # A prefill that fails A's code checks is not trusted: A is called with the defects.
+    broken = {**A_OUT, "criteria": [{**A_OUT["criteria"][0], "kind": "preferred"}]}
+    bad = Provider(broken)
+    case = asyncio.run(run_reasoning_procedure(bad, model="m", request="평가해 줘", workspace=tmp_path))
+
+    assert bad.kinds == ["compose", "A", "B"]
+    assert case.status == "completed"

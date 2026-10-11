@@ -213,3 +213,69 @@ def test_agent_loop_forwards_the_z3_setting(monkeypatch) -> None:
     loop.stepwise_z3_check = True
     asyncio.run(loop._state_run(_ctx(None, session_key="telegram:2")))
     assert seen["z3_check"] is True
+
+
+def test_layout_and_review_settings_reach_the_run(monkeypatch) -> None:
+    from nanobot.config.schema import Config
+
+    defaults = Config().agents.defaults
+    assert defaults.stepwise_layout == "auto"
+    assert defaults.stepwise_review_required == []
+    custom = Config.model_validate(
+        {"agents": {"defaults": {"stepwiseLayout": "compact", "stepwiseReviewRequired": ["rule-judgment"]}}}
+    ).agents.defaults
+    assert custom.stepwise_layout == "compact"
+    assert custom.stepwise_review_required == ["rule-judgment"]
+
+    seen: dict[str, Any] = {}
+    loop = _loop_with(monkeypatch, [])
+
+    async def _capture(*_args, **kwargs):
+        from nanobot.reasoning.models import ReasoningCase
+
+        seen.update(kwargs)
+        return ReasoningCase(
+            id="c", request="r", procedure_id="p", procedure_version="3.1", status="completed", answer="a",
+        )
+
+    monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _capture)
+    loop.stepwise_layout = "compact"
+    loop.stepwise_review_required = ["rule-judgment"]
+    asyncio.run(loop._state_run(_ctx(None, session_key="telegram:3")))
+
+    assert seen["layout"] == "compact"
+    assert seen["review_required"] == ("rule-judgment",)
+
+
+def test_required_review_policy_is_applied_to_the_loaded_procedure(tmp_path) -> None:
+    from nanobot.reasoning.bridge import run_reasoning_procedure
+
+    seen: dict[str, Any] = {}
+
+    class Provider:
+        async def chat_with_retry(self, **kwargs):
+            body = json.loads(kwargs["messages"][1]["content"])
+            seen.setdefault("first", body)
+            return SimpleNamespace(content="{}", usage={}, finish_reason="stop")
+
+    import nanobot.reasoning.bridge as bridge
+
+    captured: dict[str, Any] = {}
+    real_run = bridge.ReasoningEngine.run
+
+    def spy(self, request, **kwargs):
+        captured["policy"] = kwargs["procedure"].review_policy
+        return real_run(self, request, **kwargs)
+
+    bridge.ReasoningEngine.run = spy
+    try:
+        asyncio.run(
+            run_reasoning_procedure(
+                Provider(), model="m", request="규정 판단", procedure_id="rule-judgment",
+                workspace=tmp_path, review_required=("rule-judgment",),
+            )
+        )
+    finally:
+        bridge.ReasoningEngine.run = real_run
+
+    assert captured["policy"] == "required"

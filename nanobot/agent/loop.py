@@ -235,6 +235,8 @@ class AgentLoop:
         context_block_limit: int | None = None,
         reasoning_effort: str | None = None,
         stepwise_z3_check: bool = False,
+        stepwise_layout: str = "auto",
+        stepwise_review_required: list[str] | None = None,
         max_tool_result_chars: int | None = None,
         fail_on_tool_error: bool | None = None,
         provider_retry_mode: str = "standard",
@@ -297,6 +299,8 @@ class AgentLoop:
         self.context_block_limit = context_block_limit
         self.reasoning_effort = reasoning_effort
         self.stepwise_z3_check = stepwise_z3_check
+        self.stepwise_layout = stepwise_layout
+        self.stepwise_review_required = list(stepwise_review_required or [])
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -494,6 +498,8 @@ class AgentLoop:
             context_block_limit=defaults.context_block_limit,
             reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
             stepwise_z3_check=defaults.stepwise_z3_check,
+            stepwise_layout=defaults.stepwise_layout,
+            stepwise_review_required=defaults.stepwise_review_required,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -2067,6 +2073,8 @@ class AgentLoop:
             sessions=self._stepwise_sessions(),
             session_key=ctx.session_key,
             z3_check=getattr(self, "stepwise_z3_check", False),
+            layout=getattr(self, "stepwise_layout", "auto"),
+            review_required=tuple(getattr(self, "stepwise_review_required", ())),
         )
         if case.status == "direct":
             return False

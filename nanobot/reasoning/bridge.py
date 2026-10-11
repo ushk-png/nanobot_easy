@@ -21,7 +21,7 @@ from nanobot.reasoning.dynamic import (
     prepare_dynamic_procedure,
     recovery_budget_exceeded,
 )
-from nanobot.reasoning.engine import ReasoningEngine
+from nanobot.reasoning.engine import ReasoningEngine, first_step_contract
 from nanobot.reasoning.llm import BudgetExceededError, RunBudget
 from nanobot.reasoning.models import Procedure, ReasoningCase
 from nanobot.reasoning.registry import approved_procedures
@@ -255,6 +255,7 @@ class _Proposal:
     trace: list[dict[str, Any]]
     path: str
     facts: list[dict[str, Any]] = field(default_factory=list)
+    prefill: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
 async def run_reasoning_procedure(
@@ -271,6 +272,10 @@ async def run_reasoning_procedure(
     z3_check: bool = False,
     time_budget_s: float | None = DEFAULT_TIME_BUDGET_S,
     call_budget: int | None = DEFAULT_CALL_BUDGET,
+    layout: str = "auto",
+    review_required: tuple[str, ...] | list[str] = (),
+    procedures: tuple[str, ...] | list[str] | None = None,
+    prefill: bool | None = None,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
     first call chooses direct / reuse / new, or resume / update for the session's
@@ -290,14 +295,32 @@ async def run_reasoning_procedure(
             STAGE_REASONING_EFFORT,
         )
     prior = sessions.get(session_key) if sessions is not None and session_key else None
-    granularity = procedure_granularity(provider, model)
-    selected = approved_procedure(procedure_id, granularity) if procedure_id else None
+    granularity = procedure_granularity(provider, model, layout)
+    # The routing call also does the first step's extraction in the two-call layout.
+    prefill_enabled = granularity == "two_call" if prefill is None else prefill
+    catalog_ids = tuple(procedures) if procedures is not None else approved_procedures()
+
+    def load(procedure_name: str) -> Procedure:
+        loaded = approved_procedure(procedure_name, granularity)
+        if procedure_name in review_required:
+            loaded.review_policy = "required"
+        return loaded
+
+    selected = load(procedure_id) if procedure_id else None
     proposal = _Proposal(selected, [], [], "explicit")
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
         try:
             proposal = await _propose_dynamic_procedure(
-                llm, request, _known_goal(request), conversation, prior, granularity
+                llm,
+                request,
+                _known_goal(request),
+                conversation,
+                prior,
+                granularity,
+                load=load,
+                catalog_ids=catalog_ids,
+                prefill_enabled=prefill_enabled,
             )
         except BudgetExceededError as exc:
             case = ReasoningCase(
@@ -366,7 +389,11 @@ async def run_reasoning_procedure(
     else:
         assert selected is not None
         case = await asyncio.to_thread(
-            engine.run, request, procedure=selected, conversation=conversation
+            engine.run,
+            request,
+            procedure=selected,
+            conversation=conversation,
+            prefill=proposal.prefill,
         )
     case.path = proposal.path
     if pending:
@@ -406,10 +433,12 @@ def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> 
 
 
 # Dynamic procedure step limits by granularity (design 10).
-_MAX_STEPS = {"fine": 7, "compact": 4}
+_MAX_STEPS = {"fine": 7, "compact": 4, "two_call": 4}
+# Layout chosen by layout="auto" for models that reason internally.
+AUTO_REASONING_LAYOUT = "two_call"
 
 
-def procedure_granularity(provider: Any, model: str | None) -> str:
+def procedure_granularity(provider: Any, model: str | None, layout: str = "auto") -> str:
     """Merge logical steps when the model reasons internally anyway (design 1, 10).
 
     A model that keeps reasoning on (or stage calls run above 'none') already works
@@ -417,10 +446,12 @@ def procedure_granularity(provider: Any, model: str | None) -> str:
     mostly add latency. Fine steps stay for models whose reasoning is truly off.
     """
 
+    if layout in {"fine", "compact", "two_call"}:
+        return layout
     if STAGE_REASONING_EFFORT.lower() != "none":
-        return "compact"
+        return AUTO_REASONING_LAYOUT
     if _reasoning_mode(provider, model)["disable_supported"] is False:
-        return "compact"
+        return AUTO_REASONING_LAYOUT
     return "fine"
 
 
@@ -480,6 +511,10 @@ async def _propose_dynamic_procedure(
     conversation: list[dict[str, str]] | None = None,
     prior: tuple[ReasoningCase, Procedure] | None = None,
     granularity: str = "fine",
+    *,
+    load: Callable[[str], Procedure] | None = None,
+    catalog_ids: tuple[str, ...] | None = None,
+    prefill_enabled: bool = False,
 ) -> _Proposal:
     """First call: choose direct / reuse / new / resume / update. Code checks the choice."""
 
@@ -487,10 +522,12 @@ async def _propose_dynamic_procedure(
     trace: list[dict[str, Any]] = []
     proposal: dict[str, Any] = {}
     procedure_id: str | None = None
+    load = load or (lambda name: approved_procedure(name, granularity))
+    catalog_ids = catalog_ids if catalog_ids is not None else approved_procedures()
     max_steps = _MAX_STEPS[granularity]
     base: dict[str, Any] = {
         "request": request,
-        "approved_procedures": _approved_catalog(granularity),
+        "approved_procedures": _approved_catalog(load, catalog_ids, prefill_enabled),
         "step_budget": {"granularity": granularity, "max_steps": max_steps},
     }
     if conversation:
@@ -528,10 +565,19 @@ async def _propose_dynamic_procedure(
             continue
         if mode == "reuse":
             chosen = str(proposal.get("procedure_id") or "").strip()
-            if chosen in approved_procedures():
+            if chosen in catalog_ids:
                 # Unchanged approved procedure: no regeneration or review (design 10).
-                trace.append({"attempt": attempt, "mode": "reuse", "procedure_id": chosen})
-                return _Proposal(approved_procedure(chosen, granularity), [], trace, "reuse")
+                loaded = load(chosen)
+                first = proposal.get("first_step_output")
+                prefilled = (
+                    {loaded.steps[0].id: first}
+                    if prefill_enabled and isinstance(first, dict) and first
+                    else {}
+                )
+                trace.append(
+                    {"attempt": attempt, "mode": "reuse", "procedure_id": chosen, "prefilled": bool(prefilled)}
+                )
+                return _Proposal(loaded, [], trace, "reuse", prefill=prefilled)
             defects = [f"unknown_procedure at procedure_id: expected approved id; observed {chosen or 'missing'}"]
             trace.append({"attempt": attempt, "mode": "reuse", "defects": defects})
             if recovery_budget_exceeded(attempt):
@@ -659,18 +705,23 @@ def _message_text(content: Any) -> str:
     return ""
 
 
-def _approved_catalog(granularity: str = "fine") -> list[dict[str, str]]:
-    catalog = []
-    for item in approved_procedures():
-        procedure = approved_procedure(item, granularity)
-        catalog.append(
-            {
-                "id": procedure.id,
-                "title": procedure.title,
-                "purpose": procedure.purpose,
-                "steps": " → ".join(step.question for step in procedure.steps),
-            }
-        )
+def _approved_catalog(
+    load: Callable[[str], Procedure],
+    ids: tuple[str, ...],
+    prefill_enabled: bool = False,
+) -> list[dict[str, Any]]:
+    catalog: list[dict[str, Any]] = []
+    for item in ids:
+        procedure = load(item)
+        entry: dict[str, Any] = {
+            "id": procedure.id,
+            "title": procedure.title,
+            "purpose": procedure.purpose,
+            "steps": " → ".join(step.question for step in procedure.steps),
+        }
+        if prefill_enabled:
+            entry["first_step"] = first_step_contract(procedure)
+        catalog.append(entry)
     return catalog
 
 
@@ -917,6 +968,9 @@ _PROCEDURE_PROMPT = (
     "constraint-selection을 reuse한다(선택은 코드가 계산). "
     "reuse: approved_procedures 중 목적·입력이 요청에 그대로 맞는 절차가 있으면 "
     "{\"mode\": \"reuse\", \"procedure_id\": \"id\"}를 반환한다. "
+    "고른 절차에 first_step이 있으면 그 output_shape대로 첫 단계 결과를 first_step_output에 "
+    "함께 낸다(대화에 정정된 값이 있으면 정정 값). "
+    "목적·필수 조건·평가 기준이 바뀌는 메시지는 update가 아니라 reuse로 처음부터 다시 한다. "
     "new: 그 밖에 판단이 필요한 요청은 mode new와 함께 절차를 반환한다. "
     "previous_case가 있을 때: 이 메시지가 그 questions에 대한 답이면 {\"mode\": \"resume\"}. "
     "이전 결과에 대한 새 사실이나 정정이고 can_update_facts가 true이면 "

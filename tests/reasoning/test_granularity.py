@@ -130,11 +130,13 @@ def test_granularity_follows_reasoning_capability(monkeypatch) -> None:
             return False
 
     real = bridge.procedure_granularity
-    assert real(object(), "m") == "compact"  # stage effort is 'low'
+    auto = bridge.AUTO_REASONING_LAYOUT
+    assert real(object(), "m") == auto  # stage effort is 'low'
+    assert real(object(), "m", "compact") == "compact"  # an explicit layout wins
     monkeypatch.setattr(bridge, "STAGE_REASONING_EFFORT", "none")
     assert real(Off(), "m") == "fine"
     assert real(object(), "m") == "fine"
-    assert real(AlwaysOn(), "m") == "compact"
+    assert real(AlwaysOn(), "m") == auto
 
 
 @pytest.mark.auto_granularity
@@ -159,7 +161,9 @@ def test_bridge_reuses_the_compact_layout_with_low_effort(tmp_path) -> None:
             return SimpleNamespace(content=json.dumps(content, ensure_ascii=False), usage={}, finish_reason="stop")
 
     provider = Provider()
-    case = asyncio.run(run_reasoning_procedure(provider, model="m", request="평가해 줘", workspace=tmp_path))
+    case = asyncio.run(
+        run_reasoning_procedure(provider, model="m", request="평가해 줘", workspace=tmp_path, layout="compact")
+    )
 
     assert case.status == "completed"
     assert provider.kinds == ["compose", "S1-2", "S3-5", "S6", "S7"]

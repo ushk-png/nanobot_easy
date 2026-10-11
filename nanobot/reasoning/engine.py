@@ -1039,6 +1039,21 @@ _JUDGMENT_DEFECT_MARKERS = (
 )
 
 
+def first_step_contract(procedure: Procedure) -> dict[str, Any]:
+    """What a routing call must return to stand in for the procedure's first step."""
+
+    step = procedure.steps[0]
+    shape: dict[str, Any] = {}
+    for role in step.roles:
+        shape.update(_OUTPUT_SHAPES.get(role, {}))
+    return {
+        "id": step.id,
+        "question": step.question,
+        "expected_outputs": list(step.outputs),
+        "output_shape": shape,
+    }
+
+
 def _is_judgment_defect(defect: str) -> bool:
     return any(marker in defect for marker in _JUDGMENT_DEFECT_MARKERS)
 
