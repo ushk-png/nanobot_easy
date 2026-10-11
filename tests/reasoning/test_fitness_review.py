@@ -122,11 +122,21 @@ def test_procedure_that_never_passes_review_is_not_executed(tmp_path: Path) -> N
     case = _run(provider, tmp_path)
 
     assert "step" not in provider.kinds
-    assert case.status == "stopped"
-    assert "실행하지 않았습니다" in case.stop_reason
+    # One review-driven repair, then the general path answers (design 4.5).
+    assert case.status == "direct" and case.path == "fallback"
+    assert {"event": "fallback_direct", "reason": "review"} in case.history
     record = json.loads((tmp_path / "memory" / "dynamic-reasoning.jsonl").read_text().splitlines()[-1])
     assert any(item.startswith("review_unhandled") for item in record["defects"])
-    assert [item["call_kind"] for item in record["calls"]] == ["compose", "review"] * 3
+    assert [item["call_kind"] for item in record["calls"]] == ["compose", "review"] * 2
+
+    provider = ReviewingProvider([INCOMPLETE])
+    stopped = asyncio.run(
+        run_reasoning_procedure(
+            provider, model="xai-grok/grok-4.7", request=REQUEST, workspace=tmp_path, fallback_direct=False
+        )
+    )
+    assert stopped.status == "stopped"
+    assert "실행하지 않았습니다" in stopped.stop_reason
 
 
 def test_reviewer_without_mapping_does_not_pass(tmp_path: Path) -> None:
@@ -151,3 +161,65 @@ def test_approved_procedure_skips_review(tmp_path: Path) -> None:
     kinds = {item["call_kind"] for item in case.call_records}
     assert case.status == "completed"
     assert kinds == {"step", "answer"}
+
+
+def test_composition_stops_when_too_little_budget_is_left_to_run(tmp_path: Path) -> None:
+    """Observed live: three compose/review rounds used 120 s and S1 never ran."""
+
+    provider = ReviewingProvider([INCOMPLETE, COMPLETE])
+
+    case = asyncio.run(
+        run_reasoning_procedure(
+            provider, model="m", request=REQUEST, workspace=tmp_path, time_budget_s=None, call_budget=4
+        )
+    )
+
+    # Round one used 2 of 4 calls; 2 left is below the 3 kept for execution.
+    assert provider.kinds == ["compose", "review"]
+    assert case.status == "direct" and case.path == "fallback"
+    assert {"event": "fallback_direct", "reason": "budget"} in case.history
+
+
+def test_agent_loop_tells_the_user_before_falling_back(monkeypatch) -> None:
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.reasoning.bridge import FALLBACK_NOTICE, _fallback_case
+
+    notes: list[str] = []
+
+    async def _fake_run(*_args, **_kwargs):
+        return _fallback_case("r", "review")
+
+    async def _normal(*_args, **_kwargs):
+        return "일반 답", [], [], "completed", False
+
+    async def _continue(_ctx) -> None:
+        return None
+
+    async def _progress(content: str, *, tool_hint: bool = False) -> None:
+        notes.append(content)
+
+    class _Runtime:
+        async def run_status_changed(self, *_args, **_kwargs) -> None:
+            return None
+
+    monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _fake_run)
+    monkeypatch.setattr("nanobot.agent.loop.turn_continuation.maybe_continue_turn", _continue)
+    monkeypatch.setattr(AgentLoop, "_run_agent_loop", _normal)
+    loop = AgentLoop.__new__(AgentLoop)
+    loop.reasoning_effort = "none"
+    loop.workspace = None
+    loop.provider = object()
+    loop.model = "m"
+    loop._runtime_events = lambda: _Runtime()
+    ctx = SimpleNamespace(
+        msg=SimpleNamespace(content="두 기록이 상충합니다. 상태를 확정해 주세요.", channel="telegram", chat_id="1", metadata={}),
+        session_key="telegram:9", visible_run_started_at=None, initial_messages=[], on_progress=_progress,
+        on_stream=None, on_stream_end=None, on_retry_wait=None, session=None, pending_queue=None,
+        ephemeral=False, run_extra_hooks_for_ephemeral=False, hooks=[], tools=None, final_content=None,
+        tools_used=None, all_messages=None, stop_reason=None, had_injections=None,
+    )
+
+    asyncio.run(loop._state_run(ctx))
+
+    assert FALLBACK_NOTICE in notes
+    assert ctx.final_content == "일반 답"

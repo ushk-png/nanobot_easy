@@ -73,5 +73,15 @@ def test_routing_call_over_budget_is_incomplete(tmp_path) -> None:
         )
     )
 
-    assert case.status == "incomplete"
-    assert "예산" in user_reply(case)
+    # Default: fall back to the general path instead of ending with nothing (design 4.5).
+    assert case.status == "direct" and case.path == "fallback"
+    assert {"event": "budget_exceeded", "stage": "procedure", "kind": "calls"} in case.history
+
+    stopped = asyncio.run(
+        run_reasoning_procedure(
+            Provider(), model="m", request="안녕", workspace=tmp_path, call_budget=0,
+            fallback_direct=False,
+        )
+    )
+    assert stopped.status == "incomplete"
+    assert "예산" in user_reply(stopped)

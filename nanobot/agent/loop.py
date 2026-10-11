@@ -2077,6 +2077,8 @@ class AgentLoop:
             review_required=tuple(getattr(self, "stepwise_review_required", ())),
         )
         if case.status == "direct":
+            if case.path == "fallback" and ctx.on_progress is not None and case.stop_reason:
+                await ctx.on_progress(case.stop_reason, tool_hint=False)
             return False
         ctx.final_content = prefix + user_reply(case)
         # Nothing was streamed on this path. With on_stream set the reply would be

@@ -68,6 +68,11 @@ STAGE_REASONING_EFFORT = "low"
 # Per-run budget for every model call of a stepwise run (routing, steps, review, retries).
 DEFAULT_TIME_BUDGET_S = 120.0
 DEFAULT_CALL_BUDGET = 8
+# Building a new procedure must leave this much of the budget to run it.
+MIN_EXECUTION_CALLS = 3
+MIN_EXECUTION_SHARE = 0.4
+# Review-driven repairs of a new procedure before falling back.
+MAX_REVIEW_REPAIRS = 1
 
 
 class ProviderStageLLM:
@@ -256,6 +261,8 @@ class _Proposal:
     path: str
     facts: list[dict[str, Any]] = field(default_factory=list)
     prefill: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Why a new procedure could not be settled ("review", "contract", "budget").
+    fallback: str = ""
 
 
 async def run_reasoning_procedure(
@@ -276,6 +283,7 @@ async def run_reasoning_procedure(
     review_required: tuple[str, ...] | list[str] = (),
     procedures: tuple[str, ...] | list[str] | None = None,
     prefill: bool | None = None,
+    fallback_direct: bool = True,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
     first call chooses direct / reuse / new, or resume / update for the session's
@@ -323,6 +331,12 @@ async def run_reasoning_procedure(
                 prefill_enabled=prefill_enabled,
             )
         except BudgetExceededError as exc:
+            if fallback_direct:
+                case = _fallback_case(request, "budget")
+                case.history.append({"event": "budget_exceeded", "stage": "procedure", "kind": exc.kind})
+                _finish_calls(case, llm, None)
+                _record_execution(case, None, workspace, [])
+                return case
             case = ReasoningCase(
                 id=f"incomplete-{uuid4().hex[:12]}",
                 request=request,
@@ -350,6 +364,12 @@ async def run_reasoning_procedure(
             return case
         selected = proposal.procedure
         if selected is None and proposal.path not in {"resume", "update"}:
+            if fallback_direct:
+                # Design 4.5: no incomplete procedure is forced; the general path answers.
+                case = _fallback_case(request, proposal.fallback or "contract")
+                _finish_calls(case, llm, None)
+                _record_execution(case, None, workspace, proposal.defects, proposal.trace)
+                return case
             case = ReasoningCase(
                 id="dynamic-rejected",
                 request=request,
@@ -534,7 +554,12 @@ async def _propose_dynamic_procedure(
         base["conversation"] = conversation
     if prior is not None:
         base["previous_case"] = _previous_summary(*prior)
+    review_failures = 0
     for attempt in range(MAX_DYNAMIC_RECOVERY + 1):
+        if attempt > 0 and not _room_to_execute(getattr(llm, "budget", None)):
+            # Another compose/review round would leave too little to run anything.
+            trace.append({"attempt": attempt, "stopped": "budget reserved for execution"})
+            return _Proposal(None, defects, trace, "new", fallback="budget")
         payload = dict(base) if attempt == 0 else {
             **base,
             "repair_defects": defects,
@@ -604,15 +629,20 @@ async def _propose_dynamic_procedure(
             )
             trace.append({"attempt": attempt, "review": review_trace, "defects": review_defects})
             if not review_defects:
+                if not _room_to_execute(getattr(llm, "budget", None)):
+                    return _Proposal(None, [], trace, "new", fallback="budget")
                 return _Proposal(selected, [], trace, "new")
             defects = review_defects
-            if recovery_budget_exceeded(attempt):
-                break
+            review_failures += 1
+            if review_failures > MAX_REVIEW_REPAIRS or recovery_budget_exceeded(attempt):
+                # Same-model reviews can disagree with each other round to round;
+                # one review-driven repair, then fall back (design 4.5, 9).
+                return _Proposal(None, defects, trace, "new", fallback="review")
             continue
         defects = [item.message() for item in contract_defects]
         if recovery_budget_exceeded(attempt):
             break
-    return _Proposal(None, defects, trace, "new")
+    return _Proposal(None, defects, trace, "new", fallback="contract")
 
 
 def _previous_summary(case: ReasoningCase, procedure: Procedure) -> dict[str, Any]:
@@ -809,6 +839,34 @@ def user_reply(case: ReasoningCase) -> str:
     return f"판단을 끝내지 못했습니다. (점검 내용: {reason})" if reason else "판단을 완료하지 못했습니다."
 
 
+FALLBACK_NOTICE = "단계별 절차를 정해진 범위 안에서 확정하지 못해, 일반 답변으로 진행합니다."
+
+
+def _fallback_case(request: str, reason: str) -> ReasoningCase:
+    return ReasoningCase(
+        id=f"fallback-{uuid4().hex[:12]}",
+        request=request,
+        procedure_id="direct",
+        procedure_version="-",
+        status="direct",
+        path="fallback",
+        stop_reason=FALLBACK_NOTICE,
+        history=[{"event": "fallback_direct", "reason": reason}],
+    )
+
+
+def _room_to_execute(budget: RunBudget | None) -> bool:
+    """Keep enough of the run budget to execute a procedure once it is settled."""
+
+    if budget is None:
+        return True
+    if budget.max_calls is not None and budget.max_calls - budget.calls < MIN_EXECUTION_CALLS:
+        return False
+    if budget.seconds is not None and budget.seconds - budget.elapsed() < budget.seconds * MIN_EXECUTION_SHARE:
+        return False
+    return True
+
+
 def _incomplete_reply(case: ReasoningCase) -> str:
     """Budget used up: say so, show what was confirmed, list what is unfinished."""
 
@@ -834,6 +892,8 @@ def _incomplete_reply(case: ReasoningCase) -> str:
     elif case.answer.strip():
         lines.append(f"점검을 마치지 못한 답변: {case.answer.strip()}")
     unfinished = [step for step, state in case.step_states.items() if state not in {"passed"}]
+    if len(lines) == 1 and unfinished and len(unfinished) == len(case.step_states):
+        lines.append("판단 단계를 시작하기 전에 예산을 다 써서, 확인된 결과가 없습니다.")
     if unfinished:
         lines.append(f"미완료 단계: {', '.join(unfinished)}")
     return "\n".join(lines)
@@ -964,6 +1024,7 @@ _PROCEDURE_PROMPT = (
     "요청을 처리할 방법을 정해 JSON 객체 하나만 반환한다. mode는 direct, reuse, new 중 하나다. "
     "direct: 인사·잡담, 단순 사실 확인·번역·요약처럼 단계별 판단이 필요 없는 요청, "
     "또는 웹 조회·파일·명령 실행 같은 도구가 필요한 요청. {\"mode\": \"direct\"}만 반환한다. "
+    "상충하거나 부족한 근거로 상태·원인·주장을 확정해 달라는 요청은 evidence-assessment를 reuse한다. "
     "후보와 조건이 값으로 주어지고 규칙대로 하나를 고르는 선정 문제는 "
     "constraint-selection을 reuse한다(선택은 코드가 계산). "
     "reuse: approved_procedures 중 목적·입력이 요청에 그대로 맞는 절차가 있으면 "
