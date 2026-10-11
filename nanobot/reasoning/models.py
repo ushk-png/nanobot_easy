@@ -64,6 +64,14 @@ class ProcedureStep(Base):
     failure_returns_to: StepId | None = None
     budget: StepBudget = Field(default_factory=StepBudget)
     version: str = "3.1"
+    # Extra typed roles handled in the same call (compact granularity, design 10).
+    merged_roles: list[str] = Field(default_factory=list)
+    # "llm" or a registered code operation such as "code:constraint_select".
+    op: str = "llm"
+
+    @property
+    def roles(self) -> list[str]:
+        return [self.role, *self.merged_roles]
 
 
 class Procedure(Base):
@@ -76,6 +84,8 @@ class Procedure(Base):
     steps: list[ProcedureStep]
     dynamic: bool = False
     reusable: bool = False
+    # "fine": one call per logical step; "compact": merged calls for reasoning models.
+    granularity: str = "fine"
 
     def step(self, step_id: str) -> ProcedureStep:
         for step in self.steps:
@@ -163,6 +173,7 @@ class ReasoningCase(Base):
     stop_reason: str = ""
     history: list[dict[str, Any]] = Field(default_factory=list)
     path: str = ""
+    open_issues: list[str] = Field(default_factory=list)
     conversation: list[dict[str, str]] = Field(default_factory=list)
     step_outputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
     call_records: list[dict[str, Any]] = Field(default_factory=list)

@@ -74,13 +74,19 @@ _PROCEDURES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
-def procedure(procedure_id: str) -> Procedure:
-    """Return one reviewed procedure. Unknown IDs are rejected."""
+def procedure(procedure_id: str, granularity: str = "fine") -> Procedure:
+    """Return one reviewed procedure. Unknown IDs are rejected.
+
+    ``granularity="compact"`` merges logical steps into fewer calls for models
+    that reason internally (design 10); every step's code checks still run.
+    """
 
     try:
         title, questions = _PROCEDURES[procedure_id]
     except KeyError as exc:
         raise KeyError(f"unapproved procedure: {procedure_id}") from exc
+    if granularity == "compact":
+        return _compact(procedure_id, title, questions)
     roles = ("goal", "facts", "criteria", "judgments", "conclusion", "check", "answer")
     outputs = ("goal", "facts", "criteria", "judgments", "conclusion", "checks", "answer")
     returns = (None, "S1", "S1", "S2", "S4", "S5", "S5")
@@ -101,6 +107,45 @@ def procedure(procedure_id: str) -> Procedure:
                 version=PROCEDURE_VERSION,
             )
             for index, question in enumerate(questions, start=1)
+        ],
+    )
+
+
+def _compact(procedure_id: str, title: str, questions: tuple[str, ...]) -> Procedure:
+    q = questions
+    layout = (
+        ("S1-2", "goal", ["facts"], f"{q[0]} {q[1]}", ["request"], ["goal", "facts"], None),
+        (
+            "S3-5",
+            "criteria",
+            ["judgments", "conclusion"],
+            f"{q[2]} {q[3]} {q[4]}",
+            ["S1-2"],
+            ["criteria", "judgments", "conclusion"],
+            "S1-2",
+        ),
+        ("S6", "check", [], q[5], ["S3-5"], ["checks"], "S3-5"),
+        ("S7", "answer", [], q[6], ["S6"], ["answer"], "S3-5"),
+    )
+    return Procedure(
+        id=procedure_id,
+        version=PROCEDURE_VERSION,
+        title=title,
+        purpose=title,
+        granularity="compact",
+        steps=[
+            ProcedureStep(
+                id=step_id,
+                role=role,
+                merged_roles=merged,
+                question=question,
+                inputs=inputs,
+                outputs=outputs,
+                checks=["structure"] if role != "answer" else ["faithfulness"],
+                failure_returns_to=returns,
+                version=PROCEDURE_VERSION,
+            )
+            for step_id, role, merged, question, inputs, outputs, returns in layout
         ],
     )
 

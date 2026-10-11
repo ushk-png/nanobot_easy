@@ -43,6 +43,7 @@ class ReasoningEngine:
         reasoning_disabled_guaranteed: bool = False,
         max_revisions: int = 3,
         max_stage_calls: int = 64,
+        max_check_returns: int = 1,
         on_stage: Callable[[str, str, str], None] | None = None,
         z3_check: bool = False,
     ) -> None:
@@ -51,6 +52,8 @@ class ReasoningEngine:
         self.reasoning_disabled_guaranteed = reasoning_disabled_guaranteed
         self.max_revisions = max_revisions
         self.max_stage_calls = max_stage_calls
+        # Returns a check step may trigger before its remaining findings become open issues.
+        self.max_check_returns = max_check_returns
         self.on_stage = on_stage
         # Off until rules are actually formalized; a disabled check is recorded, never passed.
         self.z3_check = z3_check
@@ -149,17 +152,28 @@ class ReasoningEngine:
                 continue
             self._record_usage(case, payload)
             shape_defects = self._apply(case, stage, payload)
-            if self._step(procedure, stage).role == "check" and case.procedure_id == "rule-judgment":
+            if "check" in self._step(procedure, stage).roles and case.procedure_id == "rule-judgment":
                 if self.z3_check:
                     self._check_rule_entailment(case)
                 else:
                     self._record_z3_disabled(case)
-            defects = shape_defects + check_stage(
-                case,
-                self._check_stage(procedure, stage),
-                declared_outputs=self._step(procedure, stage).outputs,
-                result=payload,
-            )
+            defects = shape_defects + [
+                defect
+                for key in self._check_keys(procedure, stage)
+                for defect in check_stage(
+                    case,
+                    key,
+                    declared_outputs=self._step(procedure, stage).outputs,
+                    result=payload,
+                )
+            ]
+            if defects and self._accept_open_issues(case, stage, defects):
+                # A check that already sent the run back once: remaining model findings
+                # go to the answer as open issues instead of another loop (design 6.2, 9).
+                case.step_states[stage] = "conditionally_passed"
+                self._notify_stage(stage, "passed")
+                index += 1
+                continue
             if defects:
                 case.step_states[stage] = "needs_revision"
                 step = self._step(procedure, stage)
@@ -181,7 +195,7 @@ class ReasoningEngine:
                 continue
             case.step_states[stage] = "passed"
             self._notify_stage(stage, "passed")
-            if self._step(procedure, stage).role == "goal" and case.questions:
+            if "goal" in self._step(procedure, stage).roles and case.questions:
                 case.status = "waiting_info"
                 case.step_states[stage] = "waiting_info"
                 case.stop_reason = "\n".join(case.questions)
@@ -196,6 +210,19 @@ class ReasoningEngine:
                 case.status = "failed_empty_answer"
                 case.stop_reason = ANSWER_MISSING
         return case
+
+    def _accept_open_issues(self, case: ReasoningCase, stage: str, defects: list[str]) -> bool:
+        step = self._step(self._require_procedure(), stage)
+        if "check" not in step.roles or not all(item.startswith("semantic: ") for item in defects):
+            return False
+        returns = sum(
+            1 for item in case.history if item.get("event") == "return" and item.get("from") == stage
+        )
+        if returns < self.max_check_returns:
+            return False
+        case.open_issues = [item.removeprefix("semantic: ") for item in defects]
+        case.history.append({"event": "open_issues", "stage": stage, "issues": case.open_issues})
+        return True
 
     def _retry_same_step(self, step, defects: list[str], calls: int, case: ReasoningCase) -> bool:
         if calls >= step.budget.max_calls or case.revision_count >= self.max_revisions:
@@ -244,30 +271,14 @@ class ReasoningEngine:
     def _apply(self, case: ReasoningCase, stage: str, payload: dict[str, Any]) -> list[str]:
         """Store a stage result. Malformed typed output is a step defect, not a crash."""
 
-        role = self._step(self._require_procedure(), stage).role
-        defects: list[str] = []
-        try:
-            if role == "goal":
-                case.goal = str(payload.get("goal") or "")
-                case.constraints = [str(item) for item in payload.get("constraints") or []]
-                case.questions = [str(item) for item in payload.get("questions") or []]
-                case.assumptions = [str(item) for item in payload.get("assumptions") or []]
-            elif role == "facts":
-                case.facts = [Fact.model_validate(item) for item in _as_list(payload.get("facts"))]
-            elif role == "criteria":
-                case.criteria = [
-                    Criterion.model_validate(item) for item in _as_list(payload.get("criteria"))
-                ]
-            elif role == "judgments":
-                case.judgments = [
-                    Judgment.model_validate(item) for item in _as_list(payload.get("judgments"))
-                ]
-            elif role == "conclusion":
-                raw = payload.get("conclusion")
-                case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
-        except ValidationError:
-            defects.append(f"{role} output has an invalid shape")
         step = self._step(self._require_procedure(), stage)
+        role = step.role
+        defects: list[str] = []
+        for item_role in step.roles:
+            try:
+                self._apply_role(case, item_role, payload)
+            except ValidationError:
+                defects.append(f"{item_role} output has an invalid shape")
         case.step_outputs[stage] = {
             key: payload[key] for key in step.outputs if key in payload and key != "usage"
         }
@@ -276,6 +287,27 @@ class ReasoningEngine:
             case.answer = answer if isinstance(answer, str) else ""
         case.history.append({"event": "stage_result", "stage": stage, "role": role})
         return defects
+
+    @staticmethod
+    def _apply_role(case: ReasoningCase, role: str, payload: dict[str, Any]) -> None:
+        if role == "goal":
+            case.goal = str(payload.get("goal") or "")
+            case.constraints = [str(item) for item in payload.get("constraints") or []]
+            case.questions = [str(item) for item in payload.get("questions") or []]
+            case.assumptions = [str(item) for item in payload.get("assumptions") or []]
+        elif role == "facts":
+            case.facts = [Fact.model_validate(item) for item in _as_list(payload.get("facts"))]
+        elif role == "criteria":
+            case.criteria = [
+                Criterion.model_validate(item) for item in _as_list(payload.get("criteria"))
+            ]
+        elif role == "judgments":
+            case.judgments = [
+                Judgment.model_validate(item) for item in _as_list(payload.get("judgments"))
+            ]
+        elif role == "conclusion":
+            raw = payload.get("conclusion")
+            case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
 
     def _defect_target(
         self,
@@ -286,7 +318,7 @@ class ReasoningEngine:
     ) -> str | None:
         """Check steps name where each defect is fixed; code keeps only earlier steps (design 5, 9)."""
 
-        if self._step(procedure, stage).role != "check":
+        if "check" not in self._step(procedure, stage).roles:
             return None
         position = order.index(stage)
         targets = [
@@ -316,7 +348,7 @@ class ReasoningEngine:
             case.step_states[item] = "invalidated"
         # An invalidated step's result must not survive as the current result.
         steps = [procedure.step(item) for item in affected]
-        if any(step.role == "conclusion" for step in steps):
+        if any("conclusion" in step.roles for step in steps):
             case.conclusion = None
         if any(_is_answer_step(step) for step in steps):
             case.answer = ""
@@ -357,16 +389,19 @@ class ReasoningEngine:
                 return False
         return True
 
-    def _check_stage(self, procedure: Procedure, stage: str) -> str:
+    def _check_keys(self, procedure: Procedure, stage: str) -> list[str]:
+        """Checks for every role the step covers; '' is the declared-output check."""
+
         step = self._step(procedure, stage)
-        if _is_answer_step(step):
-            return _ROLE_CHECKS["answer"]
-        return _ROLE_CHECKS.get(step.role, "")
+        keys = [_ROLE_CHECKS[role] for role in step.roles if role in _ROLE_CHECKS]
+        if _is_answer_step(step) and _ROLE_CHECKS["answer"] not in keys:
+            keys.append(_ROLE_CHECKS["answer"])
+        return keys or [""]
 
     def _first_role(self, role: str) -> str:
         procedure = self._require_procedure()
         for step in procedure.steps:
-            if step.role == role:
+            if role in step.roles:
                 return step.id
         return procedure.steps[0].id
 
@@ -446,12 +481,23 @@ class ReasoningEngine:
         # The step contract: what this call must do and which keys it must return.
         payload["question"] = step.question
         payload["expected_outputs"] = list(step.outputs)
-        if step.role == "check" and "defects" not in payload["expected_outputs"]:
+        if "check" in step.roles and "defects" not in payload["expected_outputs"]:
             # The check step reports findings; an absent list is not a pass.
             payload["expected_outputs"].append("defects")
-        if step.role in _OUTPUT_SHAPES:
+            procedure = self._require_procedure()
+            order = self._execution_order(procedure)
+            payload["fixable_steps"] = [
+                {"id": item, "roles": procedure.step(item).roles}
+                for item in order[: order.index(stage)]
+            ]
+        shape: dict[str, Any] = {}
+        for role in step.roles:
             # Typed roles are parsed into case objects; the model needs their shape.
-            payload["output_shape"] = _OUTPUT_SHAPES[step.role]
+            shape.update(_OUTPUT_SHAPES.get(role, {}))
+        if shape:
+            payload["output_shape"] = shape
+        if _is_answer_step(step) and case.open_issues:
+            payload["open_issues"] = list(case.open_issues)
         if repair_defects:
             payload["repair_defects"] = list(repair_defects)
         return payload
@@ -462,7 +508,7 @@ class ReasoningEngine:
         procedure = self._require_procedure()
         step = self._step(procedure, stage)
         fields: dict[str, Any] = {"request": case.request, "stage": stage}
-        if case.conversation and ("request" in step.inputs or step.role in {"goal", "facts"}):
+        if case.conversation and ("request" in step.inputs or {"goal", "facts"} & set(step.roles)):
             # Earlier turns resolve references ("그럼 B는?") and hold data a follow-up
             # corrects; fact gathering needs them as much as the request step does.
             fields["conversation"] = case.conversation
@@ -476,7 +522,11 @@ class ReasoningEngine:
             "judgments": lambda: [item.model_dump() for item in case.judgments],
             "conclusion": lambda: case.conclusion.model_dump() if case.conclusion else None,
         }
-        for name in _ROLE_FIELDS.get(step.role, ()):
+        produced = set(step.roles)
+        reads = [name for role in step.roles for name in _ROLE_FIELDS.get(role, ())]
+        for name in dict.fromkeys(reads):
+            if name in produced:
+                continue  # a merged step writes this field itself
             value = values[name]()
             if value:
                 fields[name] = value
@@ -563,12 +613,12 @@ _OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
     "check": {
         "defects": [
             {
-                "step": "결함을 고칠 앞 단계 id(사실 S2, 기준 S3, 판단 S4, 결론 S5 등)",
+                "step": "결함을 고칠 앞 단계 id(fixable_steps 중 그 역할을 맡은 단계)",
                 "issue": "결론을 바꾸거나 규칙을 어기는 결함만 한 문장으로, 없으면 빈 배열",
             }
         ]
     },
-    "answer": {"answer": "사용자에게 보일 최종 답 2~4문장"},
+    "answer": {"answer": "사용자에게 보일 최종 답 2~4문장. open_issues가 있으면 미해결로 함께 밝힘"},
 }
 
 

@@ -177,7 +177,7 @@ def test_stopped_case_does_not_keep_an_invalidated_answer() -> None:
             return result
 
     llm = LateFlag(_scripts(S5={"conclusion": conclusion}, S7={"answer": "조건A가 충족되면 조정합니다."}))
-    case = ReasoningEngine(llm).run("평가")
+    case = ReasoningEngine(llm, max_check_returns=10).run("평가")
 
     assert case.status == "stopped"
     assert case.answer == ""

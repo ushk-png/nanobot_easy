@@ -45,6 +45,7 @@ def prepare_dynamic_procedure(
     known_goal: str = "",
     procedure_id: str | None = None,
     revision: int = 1,
+    max_steps: int | None = None,
 ) -> tuple[Procedure | None, dict[str, Any], list[ContractDefect]]:
     normalized, record, defects = normalize_procedure(
         payload,
@@ -59,6 +60,7 @@ def prepare_dynamic_procedure(
         normalized,
         request=request,
         known_goal=known_goal,
+        max_steps=max_steps,
     )
     trace = {
         "normalization": record.__dict__,

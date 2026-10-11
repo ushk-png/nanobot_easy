@@ -173,6 +173,7 @@ def validate_normalized_procedure(
     *,
     request: str,
     known_goal: str = "",
+    max_steps: int | None = None,
 ) -> tuple[Procedure | None, list[ContractDefect]]:
     """Validate the shared contract without requiring seven S-steps."""
 
@@ -198,6 +199,11 @@ def validate_normalized_procedure(
     if not isinstance(raw_steps, list) or not raw_steps:
         defects.append(ContractDefect("steps_missing", "procedure.steps", "one or more steps", "missing", True))
         return None, defects
+    if max_steps is not None and len(raw_steps) > max_steps:
+        # The step budget follows the model's reasoning level (design 10); code owns it.
+        defects.append(
+            ContractDefect("too_many_steps", "procedure.steps", f"at most {max_steps} steps", str(len(raw_steps)), True)
+        )
 
     steps: list[ProcedureStep] = []
     seen: set[str] = set()

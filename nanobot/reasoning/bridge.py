@@ -259,12 +259,13 @@ async def run_reasoning_procedure(
             STAGE_REASONING_EFFORT,
         )
     prior = sessions.get(session_key) if sessions is not None and session_key else None
-    selected = approved_procedure(procedure_id) if procedure_id else None
+    granularity = procedure_granularity(provider, model)
+    selected = approved_procedure(procedure_id, granularity) if procedure_id else None
     proposal = _Proposal(selected, [], [], "explicit")
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
         proposal = await _propose_dynamic_procedure(
-            llm, request, _known_goal(request), conversation, prior
+            llm, request, _known_goal(request), conversation, prior, granularity
         )
         if proposal.path == "direct":
             # Chat, simple lookups and tool work go to the normal agent loop.
@@ -359,6 +360,25 @@ def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> 
     case.history.append({"event": "reasoning_mode", **mode})
 
 
+# Dynamic procedure step limits by granularity (design 10).
+_MAX_STEPS = {"fine": 7, "compact": 4}
+
+
+def procedure_granularity(provider: Any, model: str | None) -> str:
+    """Merge logical steps when the model reasons internally anyway (design 1, 10).
+
+    A model that keeps reasoning on (or stage calls run above 'none') already works
+    through intermediate steps inside each call, so separate calls per logical step
+    mostly add latency. Fine steps stay for models whose reasoning is truly off.
+    """
+
+    if STAGE_REASONING_EFFORT.lower() != "none":
+        return "compact"
+    if _reasoning_mode(provider, model)["disable_supported"] is False:
+        return "compact"
+    return "fine"
+
+
 def reasoning_mode_notice(provider: Any, model: str | None) -> str | None:
     """User-facing notice when 'reasoning off' cannot be honoured (design 1)."""
 
@@ -414,6 +434,7 @@ async def _propose_dynamic_procedure(
     known_goal: str = "",
     conversation: list[dict[str, str]] | None = None,
     prior: tuple[ReasoningCase, Procedure] | None = None,
+    granularity: str = "fine",
 ) -> _Proposal:
     """First call: choose direct / reuse / new / resume / update. Code checks the choice."""
 
@@ -421,7 +442,12 @@ async def _propose_dynamic_procedure(
     trace: list[dict[str, Any]] = []
     proposal: dict[str, Any] = {}
     procedure_id: str | None = None
-    base: dict[str, Any] = {"request": request, "approved_procedures": _approved_catalog()}
+    max_steps = _MAX_STEPS[granularity]
+    base: dict[str, Any] = {
+        "request": request,
+        "approved_procedures": _approved_catalog(granularity),
+        "step_budget": {"granularity": granularity, "max_steps": max_steps},
+    }
     if conversation:
         base["conversation"] = conversation
     if prior is not None:
@@ -460,7 +486,7 @@ async def _propose_dynamic_procedure(
             if chosen in approved_procedures():
                 # Unchanged approved procedure: no regeneration or review (design 10).
                 trace.append({"attempt": attempt, "mode": "reuse", "procedure_id": chosen})
-                return _Proposal(approved_procedure(chosen), [], trace, "reuse")
+                return _Proposal(approved_procedure(chosen, granularity), [], trace, "reuse")
             defects = [f"unknown_procedure at procedure_id: expected approved id; observed {chosen or 'missing'}"]
             trace.append({"attempt": attempt, "mode": "reuse", "defects": defects})
             if recovery_budget_exceeded(attempt):
@@ -472,6 +498,7 @@ async def _propose_dynamic_procedure(
             known_goal=known_goal,
             procedure_id=procedure_id,
             revision=attempt + 1,
+            max_steps=max_steps,
         )
         normalized = attempt_trace.get("normalized")
         if isinstance(normalized, dict):
@@ -587,10 +614,10 @@ def _message_text(content: Any) -> str:
     return ""
 
 
-def _approved_catalog() -> list[dict[str, str]]:
+def _approved_catalog(granularity: str = "fine") -> list[dict[str, str]]:
     catalog = []
     for item in approved_procedures():
-        procedure = approved_procedure(item)
+        procedure = approved_procedure(item, granularity)
         catalog.append(
             {
                 "id": procedure.id,
@@ -740,6 +767,7 @@ def _record_execution(
         "procedure_id": selected.id if selected else case.procedure_id,
         "purpose": selected.purpose if selected else "",
         "dynamic": selected.dynamic if selected else True,
+        "granularity": selected.granularity if selected else None,
         "path": case.path,
         "procedure": _procedure_outline(selected),
         "reusable": False,
@@ -817,7 +845,8 @@ _PROCEDURE_PROMPT = (
     "새 주제이면 위 규칙대로 고른다. "
     "conversation은 이전 대화이며 요청 속 지시어를 해석하는 데만 쓴다. "
     "절차의 id, title은 생략해도 된다. purpose는 목표 한 문장이다. "
-    "steps는 판단에 필요한 최소 단계만 둔다. 보통 3~5개이며 7개를 넘기지 않는다. "
+    "steps는 판단에 필요한 최소 단계만 두고 step_budget.max_steps를 넘기지 않는다. "
+    "모델이 한 호출 안에서 추론하므로 compact이면 추출·판단·답변 정도로 묶는다. "
     "각 question은 20자 안팎의 짧은 판단 질문이다. "
     "단, 마지막 답변 단계 question에는 사용자가 답에 넣어 달라고 한 항목"
     "(선정 결과, 근거, 제외 이유 등)을 빠짐없이 적는다. "
