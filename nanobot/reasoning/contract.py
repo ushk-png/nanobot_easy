@@ -250,7 +250,10 @@ def validate_normalized_procedure(
         revision=int(payload.get("revision") or 1),
         title=str(payload.get("title") or procedure_id),
         purpose=purpose,
-        requirements=[str(item) for item in payload.get("requirements") or [] if str(item).strip()],
+        requirements=[
+            f"{item['id']}: {item['statement']}" if item["statement"] else item["id"]
+            for item in requirements
+        ],
         steps=steps,
         dynamic=True,
         reusable=False,
@@ -429,6 +432,12 @@ def _link_defects(steps: list[ProcedureStep], requirement_ids: set[str] | None =
                     True,
                 )
             )
+    answer_steps = [step for step in steps if "answer" in step.outputs]
+    if len(steps) > 1 and answer_steps and not any(graph[step.id] for step in answer_steps):
+        # With step inputs narrowed, an answer step with no step input gets no results.
+        defects.append(
+            ContractDefect("answer_inputs_missing", "steps", "answer step consuming a step result", "request only", True)
+        )
     if _has_unbounded_cycle(graph):
         defects.append(ContractDefect("dependency_cycle", "steps", "acyclic dependencies", "cycle", True))
     produced = [item for step in steps for item in step.outputs]

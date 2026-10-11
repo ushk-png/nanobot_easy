@@ -6,6 +6,8 @@ from collections.abc import Callable
 from typing import Any
 from uuid import uuid4
 
+from pydantic import ValidationError
+
 from nanobot.reasoning.checks import ANSWER_MISSING, check_stage
 from nanobot.reasoning.llm import StageLLM
 from nanobot.reasoning.models import (
@@ -106,10 +108,10 @@ class ReasoningEngine:
                     break
                 continue
             self._record_usage(case, payload)
-            self._apply(case, stage, payload)
+            shape_defects = self._apply(case, stage, payload)
             if self._step(procedure, stage).role == "check" and case.procedure_id == "rule-judgment":
                 self._check_rule_entailment(case)
-            defects = check_stage(case, self._check_stage(procedure, stage))
+            defects = shape_defects + check_stage(case, self._check_stage(procedure, stage))
             if defects:
                 case.step_states[stage] = "needs_revision"
                 step = self._step(procedure, stage)
@@ -178,22 +180,32 @@ class ReasoningEngine:
             case.history.append({"event": "facts_updated", "fact_ids": sorted(changed)})
         return case
 
-    def _apply(self, case: ReasoningCase, stage: str, payload: dict[str, Any]) -> None:
+    def _apply(self, case: ReasoningCase, stage: str, payload: dict[str, Any]) -> list[str]:
+        """Store a stage result. Malformed typed output is a step defect, not a crash."""
+
         role = self._step(self._require_procedure(), stage).role
-        if role == "goal":
-            case.goal = str(payload.get("goal") or "")
-            case.constraints = [str(item) for item in payload.get("constraints") or []]
-            case.questions = [str(item) for item in payload.get("questions") or []]
-            case.assumptions = [str(item) for item in payload.get("assumptions") or []]
-        elif role == "facts":
-            case.facts = [Fact.model_validate(item) for item in payload.get("facts") or []]
-        elif role == "criteria":
-            case.criteria = [Criterion.model_validate(item) for item in payload.get("criteria") or []]
-        elif role == "judgments":
-            case.judgments = [Judgment.model_validate(item) for item in payload.get("judgments") or []]
-        elif role == "conclusion":
-            raw = payload.get("conclusion")
-            case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
+        defects: list[str] = []
+        try:
+            if role == "goal":
+                case.goal = str(payload.get("goal") or "")
+                case.constraints = [str(item) for item in payload.get("constraints") or []]
+                case.questions = [str(item) for item in payload.get("questions") or []]
+                case.assumptions = [str(item) for item in payload.get("assumptions") or []]
+            elif role == "facts":
+                case.facts = [Fact.model_validate(item) for item in _as_list(payload.get("facts"))]
+            elif role == "criteria":
+                case.criteria = [
+                    Criterion.model_validate(item) for item in _as_list(payload.get("criteria"))
+                ]
+            elif role == "judgments":
+                case.judgments = [
+                    Judgment.model_validate(item) for item in _as_list(payload.get("judgments"))
+                ]
+            elif role == "conclusion":
+                raw = payload.get("conclusion")
+                case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
+        except ValidationError:
+            defects.append(f"{role} output has an invalid shape")
         step = self._step(self._require_procedure(), stage)
         case.step_outputs[stage] = {
             key: payload[key] for key in step.outputs if key in payload and key != "usage"
@@ -202,6 +214,7 @@ class ReasoningEngine:
             answer = payload.get("answer")
             case.answer = answer if isinstance(answer, str) else ""
         case.history.append({"event": "stage_result", "stage": stage, "role": role})
+        return defects
 
     def _return_to(self, case: ReasoningCase, stage: str) -> bool:
         if self._procedure is None:
@@ -338,16 +351,61 @@ class ReasoningEngine:
         return payload
 
     def _case_fields(self, case: ReasoningCase, stage: str) -> dict[str, Any]:
-        return {
-            "request": case.request,
-            "goal": case.goal,
-            "constraints": case.constraints,
-            "facts": [item.model_dump() for item in case.facts],
-            "criteria": [item.model_dump() for item in case.criteria],
-            "judgments": [item.model_dump() for item in case.judgments],
-            "conclusion": case.conclusion.model_dump() if case.conclusion else None,
-            "stage": stage,
+        """Send the request, constraints, role fields and declared inputs only (design 12)."""
+
+        procedure = self._require_procedure()
+        step = self._step(procedure, stage)
+        fields: dict[str, Any] = {"request": case.request, "stage": stage}
+        if case.goal:
+            fields["goal"] = case.goal
+        if case.constraints:
+            fields["constraints"] = case.constraints
+        values = {
+            "facts": lambda: [item.model_dump() for item in case.facts],
+            "criteria": lambda: [item.model_dump() for item in case.criteria],
+            "judgments": lambda: [item.model_dump() for item in case.judgments],
+            "conclusion": lambda: case.conclusion.model_dump() if case.conclusion else None,
         }
+        for name in _ROLE_FIELDS.get(step.role, ()):
+            value = values[name]()
+            if value:
+                fields[name] = value
+        known = {item.id for item in procedure.steps}
+        inputs: dict[str, Any] = {}
+        for ref in step.inputs:
+            if ref in known:
+                output = {
+                    key: value
+                    for key, value in case.step_outputs.get(ref, {}).items()
+                    if key not in fields
+                }
+                if output:
+                    inputs[ref] = output
+            elif ref != "request":
+                matches = [item for item in procedure.requirements if item.split(":", 1)[0].strip() == ref]
+                if matches:
+                    inputs[ref] = matches[0]
+        if inputs:
+            fields["inputs"] = inputs
+        return fields
+
+
+# Case fields each typed role reads. Work steps read only their declared inputs.
+_ROLE_FIELDS: dict[str, tuple[str, ...]] = {
+    "goal": (),
+    "facts": (),
+    "criteria": ("facts",),
+    "judgments": ("facts", "criteria"),
+    "conclusion": ("criteria", "judgments"),
+    "check": ("facts", "criteria", "judgments", "conclusion"),
+    "answer": ("judgments", "conclusion"),
+}
+
+
+def _as_list(value: Any) -> list[Any]:
+    if value is None or value == "":
+        return []
+    return value if isinstance(value, list) else [value]
 
 
 def _is_answer_step(step) -> bool:
