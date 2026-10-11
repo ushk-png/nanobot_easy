@@ -93,6 +93,7 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
+from nanobot.reasoning.bridge import run_reasoning_procedure, select_procedure
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.service import WorkflowService
 
@@ -226,6 +227,7 @@ class AgentLoop:
         max_subagent_depth: int | None = None,
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
+        reasoning_effort: str | None = None,
         max_tool_result_chars: int | None = None,
         fail_on_tool_error: bool | None = None,
         provider_retry_mode: str = "standard",
@@ -286,6 +288,7 @@ class AgentLoop:
             else defaults.context_window_tokens
         )
         self.context_block_limit = context_block_limit
+        self.reasoning_effort = reasoning_effort
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -481,6 +484,7 @@ class AgentLoop:
             max_subagent_depth=defaults.max_subagent_depth,
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
+            reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -1083,6 +1087,7 @@ class AgentLoop:
                 model=self.model,
                 max_iterations=self.max_iterations,
                 max_tool_result_chars=self.max_tool_result_chars,
+                reasoning_effort=self.reasoning_effort,
                 hook=hook,
                 error_message="Sorry, I encountered an error calling the AI model.",
                 concurrent_tools=True,
@@ -2003,7 +2008,42 @@ class AgentLoop:
             return text.split(marker, 1)[0].strip()
         return text
 
+    @staticmethod
+    def _is_direct_request(content: str) -> bool:
+        text = content.strip().lower()
+        markers = ("날씨", "몇 시", "번역", "hello", "안녕")
+        return len(text) <= 40 and any(marker in text for marker in markers)
+
     async def _state_run(self, ctx: TurnContext) -> str:
+        if (
+            self.reasoning_effort
+            and self.reasoning_effort.lower() == "none"
+            and not self._is_direct_request(ctx.msg.content)
+        ):
+            if ctx.visible_run_started_at is None:
+                ctx.visible_run_started_at = time.time()
+            await self._runtime_events().run_status_changed(
+                ctx.msg,
+                ctx.session_key,
+                "running",
+                started_at=ctx.visible_run_started_at,
+            )
+            case = await run_reasoning_procedure(
+                self.provider,
+                model=self.model,
+                request=ctx.msg.content,
+                procedure_id=select_procedure(ctx.msg.content),
+                workspace=self.workspace,
+                on_progress=ctx.on_progress,
+            )
+            ctx.final_content = case.answer.strip() or case.stop_reason.strip() or "판단을 완료하지 못했습니다."
+            ctx.tools_used = []
+            ctx.all_messages = list(ctx.initial_messages) + [
+                {"role": "assistant", "content": ctx.final_content}
+            ]
+            ctx.stop_reason = "completed" if case.status == "completed" else case.status
+            ctx.had_injections = False
+            return "ok"
         if ctx.visible_run_started_at is None:
             ctx.visible_run_started_at = time.time()
         await self._runtime_events().run_status_changed(

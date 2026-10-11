@@ -70,7 +70,9 @@ def test_xai_grok_registry_exposes_curated_x_search_model() -> None:
 
 
 def test_reasoning_options_omit_disabled_effort() -> None:
-    assert _build_reasoning_options("none") == {"summary": "concise"}
+    assert _build_reasoning_options("none") is None
+    assert _build_reasoning_options(None) is None
+    assert _build_reasoning_options("low") == {"summary": "concise", "effort": "low"}
 
 
 @pytest.mark.asyncio
@@ -129,6 +131,7 @@ async def test_provider_injects_hosted_x_search_and_required_proxy_headers(monke
     assert body["temperature"] == 0.2
     assert body["stream_tool_calls"] is True
     assert body["reasoning"] == {"summary": "concise", "effort": "high"}
+    assert body["include"] == ["reasoning.encrypted_content"]
     assert body["store"] is False
     assert headers["Authorization"] == "Bearer subscription-token"
     assert headers["X-XAI-Token-Auth"] == "xai-grok-cli"

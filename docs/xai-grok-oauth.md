@@ -43,6 +43,18 @@ xAI Grok을 고른다. 새 탭에서 로그인하면 보통 자동으로 완료�
 | 로그인 창에서 넘어가지 않음 | 대화상자에 인증 코드를 붙여 넣기. 대화상자의 "로그인 페이지 열기" 링크로 다시 열 수 있음 |
 | "sign-in expired" | 로그인은 10분 안에 끝내야 한다. 다시 시작 |
 | 잘 되다가 갑자기 실패 | xAI 쪽 계약 변경 가능성. 업스트림 nanobot의 수정 여부 확인 |
+| 로그인은 되는데 채팅마다 426 오류("Your Grok CLI version ... is outdated") | xAI가 최소 클라이언트 버전을 올린 것. 아래 "클라이언트 버전" 참고 |
+
+## 클라이언트 버전
+
+xAI는 정해진 최소 버전보다 낮은 클라이언트의 요청을 HTTP 426으로 거절한다. 2026-09-30에 하한이
+1.0.13으로 올라갔고, nanobot-easy는 현재 `1.0.42`를 보낸다(`nanobot/providers/xai_oauth.py ::
+XAI_CLIENT_VERSION`). 하한이 다시 오르면 코드를 고치지 않고 환경변수로 덮어쓸 수 있다. 값은
+게이트웨이가 시작될 때 읽으므로, 이미 떠 있다면 환경변수를 준 채로 다시 시작한다.
+
+```bash
+NANOBOT_XAI_CLIENT_VERSION=1.1.0 nanobot restart
+```
 
 ## 업스트림과 다른 점
 
@@ -53,6 +65,7 @@ xAI Grok을 고른다. 새 탭에서 로그인하면 보통 자동으로 완료�
   (`ProviderOAuthLoginDialog`)를 쓴다.
 - `provider login --config`가 로그인 전에 적용되도록 고쳤다. 이전에는 토큰이 항상 기본
   인스턴스에 저장됐다.
+- 클라이언트 버전을 `1.0.42`로 올리고 `NANOBOT_XAI_CLIENT_VERSION`으로 덮어쓸 수 있게 했다.
 
 ## 가져오지 않은 것
 

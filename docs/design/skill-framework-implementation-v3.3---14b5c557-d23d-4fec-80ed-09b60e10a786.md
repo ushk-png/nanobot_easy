@@ -1,4 +1,4 @@
-# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.13
+# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.14
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 
 대상 독자: 코드 생성 도구(Claude Code, Codex) 및 구현자.
@@ -14,6 +14,7 @@ v3.4.10 변경: 학생 친화 배포판 설계를 본 문서에 병합한다. �
 v3.4.11 변경: 워크플로우 설계 지시서 v2를 반영해 durable workflow 작업, `workflow` 도구, `WorkflowService`, 런타임 대기 줄, 명시적 resume 연결, 최종 전달 훅, 접근 검사, 동적 조합과 품질 평가를 별도 구현 축으로 추가한다. 단 `config.tools.workflow.enabled=false`가 기본이며 비활성 상태에서는 도구·서비스·훅·런타임 줄·파일 생성이 모두 무영향이어야 한다.
 v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기준으로 문서를 실제 구현 상태에 맞춰 현행화한다. Stage 0~4는 구현·테스트 완료, Stage 5는 평가 도구만 구현했고 실제 모델 on/off 평가는 미실시, Stage 6 확장 harness는 별도 `feat/workflow-extension-stage6` 브랜치로 분리, 서브에이전트 scope 노출은 안전한 context/registry 연결 전까지 보류, LLM tool `input`은 세션 원문 대체값으로 쓰지 않는 것으로 정정한다.
 v3.4.13 변경: PR #24(`16dfbb9f`)에서 빠진 이전 설치·온보딩·에이전트 관리 개정안(구 v3.4.11 패치)은 적용되지 않았고 이번 v3.4.13에 통합한다. 구 v3.4.11 패치는 현재의 워크플로우 v3.4.11 명칭과 충돌하고 PR #24 이후 문서에 직접 적용되지 않으므로 참고 자료로만 보며, 현재 코드 확인 결과에 따라 3.8 설치/LLM 연결, 3.10 설치 경로, 3.11 브라우저 온보딩, 3.12 에이전트 관리, 12장 relay 현황, 13장 설계서와 구현의 차이를 갱신한다.
+v3.4.14 변경: v3.4.13 이후 병합된 PR #26·#27, #29~#36, #38·#39(최신 `6e475bcd`)를 반영한다. ① 학생 모드 미지원 결정(#27)을 0장 요약·2장 매핑·3.11·9장·10장까지 일관되게 반영하고, 관련 테스트·마일스톤은 "재도입 시"로 보류 표시한다. ② xAI Grok OAuth 프로바이더(#38)와 클라이언트 버전 상향(#39)을 3.13으로 신설하고 3.8 LLM 연결·11장 미결 사항에 반영한다. ③ WebUI 디자인 정렬 작업(#29~#36: 테마 토큰, 공용 부품, 화면별 정렬, 셸·홈 예시 문장)을 3.14로 신설한다.
 
 ---
 
@@ -23,10 +24,12 @@ v3.4.13 변경: PR #24(`16dfbb9f`)에서 빠진 이전 설치·온보딩·에이
 - 신규 개발 4덩어리: ① Skill Store(sqlite: registry+trace) ② skill_search 툴(배치 지원) ③ Composer 스킬군+CLI ④ delegate 동기 위임 툴. 그 외 신규 산출물: 시스템 스킬 composite-task (코드가 아닌 SKILL.md).
 - 핵심 실행 원칙: 단일 저위험 답변형 스킬은 메인이 직접 실행, 격리 필요 시에만 위임(3.4). 복합 작업에서도 절차 기록은 강제하지만, low-risk no-exec 소형 하위 작업은 메인 직접 실행을 허용한다. exec·격리·대량 컨텍스트·실질 병렬 이득·전문 프로파일 필요 시 spawn/delegate를 사용한다(3.5).
 - 스킬 선택은 별도 파이프라인이 아니라 메인 에이전트 한 턴 안의 선택지다(3.1).
-- 학생 친화 배포판은 별도 포크 아키텍처가 아니라 설치 모드·프로파일·스킬·도구 정책의 조합이다. CLI는 원본 기능을 유지하고, 웹 UI는 Student mode에서 안전한 학습 흐름만 노출한다.
+- 학생 친화 배포판은 별도 포크 아키텍처가 아니라 설치 모드·프로파일·스킬·도구 정책의 조합으로 설계했다. 단 PR #27 이후 학생 모드는 **현재 미지원**이다. WebUI 경로에 `tools.safe_mode` 연동이 없어 학생 모드의 도구 제한이 실제로 적용되지 않기 때문이며, WebUI는 General/Student 선택 UI를 숨긴다(3.8, 13.3). 3.8·4.5의 학생 모드 명세는 재도입 시의 설계로 보존한다.
 - PR #23 이후 `workflow`는 별도 코드 구현이 아니라 실제 opt-in 도구/서비스 계층으로 존재한다. 기본값은 꺼짐이며, 켜진 경우에만 `WorkflowTool`, `WorkflowService`, runtime waiting lines, resume control, delivery hook이 연결된다. 단 Stage 5는 평가 도구 구현 상태이고 실제 모델로 workflow on/off 품질 비교는 아직 수행하지 않았다.
 - Stage 6 확장/evaluation harness는 main의 PR #23 범위가 아니다. 별도 `feat/workflow-extension-stage6` 브랜치에 보존되어 있으며, 이 문서의 구현 상태 표에서는 미병합/후속으로 다룬다.
 - v3.4.13은 PR #24에서 빠진 설치·온보딩·에이전트 관리·relay-setup 현황과 설계서/구현 차이를 문서에 통합한다. 구현 차이와 결정 필요 항목은 13장을 먼저 확인한다.
+- v3.4.14 기준 모델 연결은 OpenAI Codex·GitHub Copilot에 더해 xAI Grok 구독 계정 OAuth를 지원한다(3.13). xAI의 비공개 클라이언트 계약에 의존하므로 예고 없이 멈출 수 있다.
+- WebUI는 목업 기준으로 테마 토큰·공용 부품(`Chip`, `OptionCard`, `PageHeader`)·셸을 통일했다(3.14). 새 화면은 이 토큰과 부품을 먼저 쓴다.
 
 ---
 
@@ -64,14 +67,16 @@ v3.4.13 변경: PR #24(`16dfbb9f`)에서 빠진 이전 설치·온보딩·에이
 | Workflow Definition/Executor | `workflow/schema.py`, `validator.py`, `executor.py`, `definitions/situation_judgment.v1.json` | 완료 — 5개 단계 유형, validators, branch pruning |
 | 대화 메모리 | 기존 memory 시스템(sessions/*.jsonl, Consolidator, MEMORY.md, Dream) | 있음 (3.7의 소규모 보강) |
 | 멀티토픽 보강 | topic-recall 스킬 + topics/ 스냅샷 규약 + Consolidator 템플릿 수정 | **신규 #5 (스킬·규약 위주)** |
-| 설치 모드 | Quick Start의 General/Student mode + `config.studentMode` | **신규 #6** |
-| 학생 학습 스킬 | `highschool-study`, `spaced-review` | **신규 #7 (내장 스킬)** |
-| 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** |
-| 웹 UI 안전 모드 | `tools.safeMode` + ToolLoader 차단 정책 | **신규 #9** |
+| 설치 모드 | Quick Start의 General/Student mode + `config.studentMode` | **신규 #6** — 현재 미지원(PR #27), WebUI 선택 UI 숨김 |
+| 학생 학습 스킬 | `highschool-study`, `spaced-review` | **신규 #7 (내장 스킬)** — 학생 모드와 함께 보류 |
+| 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** — 학생 모드와 함께 보류 |
+| 웹 UI 안전 모드 | `tools.safeMode` + ToolLoader 차단 정책 | **신규 #9** — WebUI 경로 ToolLoader 연동 미구현(13.3). xAI 호스티드 검색 차단에는 사용(3.13) |
 | 단일 파일 설치 | `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat` + `nanobot/cli/commands.py :: up`/`down`/`restart` | 완료 — 플랫폼 래퍼는 얇게 두고 `nanobot/cli/up.py`에 공통 로직 집중 |
 | 브라우저 온보딩 마법사 | `webui/src/components/onboarding/OnboardingWizardPage.tsx`, `webui/src/App.tsx :: onboardingNeeded` | 완료 — provider 미설정 시 설정/easy-setup으로 자동 진입 |
 | 에이전트 관리 UI | `webui/src/components/settings/AgentManagementSettings.tsx`, `nanobot/webui/settings_api.py :: save_agent_profile` | 완료 — 사용자 프로파일 CRUD, 단 `when_not_to_use` 입력 UI 없음 |
 | Relay setup skill | `nanobot/skills/relay-setup/SKILL.md` + `nanobot relay` CLI | 구현됨 — candidate, high risk, exec 필요, raw token 비노출 지침 포함 |
+| xAI Grok OAuth provider | `nanobot/providers/xai_oauth.py`, `xai_grok_provider.py`, `registry.py :: xai_grok`, WebUI `useProviderOAuthFlow` + `ProviderOAuthLoginDialog` | 완료 (PR #38·#39) — 3.13 |
+| WebUI 디자인 체계 | `webui/src/globals.css` 토큰, `tailwind.config.js`, `components/ui/{chip,option-card,page-header}.tsx` | 완료 (PR #29~#36) — 3.14 |
 
 [구현 지시] 위 신규 항목 외의 새 컴포넌트를 만들지 마라. 특히 "Skill Executor", "Intent Router", "Response Composer", "Composite Detector"라는 이름의 별도 모듈 금지 — 이들은 메인 에이전트 루프의 행동 또는 스킬 지시문이지 코드가 아니다. 예외: PR #23에서 승인·병합된 `nanobot/workflow/` 패키지와 `WorkflowService`/`WorkflowTool`은 본 문서 v3.4.12의 현행 구현 기준이다. 새 "Workflow Engine" 이름의 병렬 시스템을 추가하지 말고 이 구현을 확장한다.
 
@@ -229,7 +234,8 @@ Composer는 별도 앱이 아니라 메인 에이전트가 Composer 스킬을 �
 **LLM 연결**
 - OpenAI 연결은 OAuth/로그인 기반 흐름을 우선 검토한다. 오픈소스 클라이언트 특성상 client secret을 숨길 수 없으므로 PKCE 공개 클라이언트 방식을 전제로 한다.
 - OAuth가 막히거나 제공 범위가 부족한 경우를 위해 API key 입력 + 즉시 테스트 호출을 폴백으로 유지한다.
-- 구현 현황: `webui/src/components/onboarding/OnboardingWizardPage.tsx`의 OpenAI 카드에는 `openai_codex` OAuth 로그인 경로와 API key 입력 경로가 병렬로 있다. `nanobot/webui/settings_api.py :: _oauth_provider_status`는 `openai_codex`와 `github_copilot` OAuth 상태를 별도로 확인한다.
+- 구현 현황: `webui/src/components/onboarding/OnboardingWizardPage.tsx`의 OpenAI 카드에는 `openai_codex` OAuth 로그인 경로와 API key 입력 경로가 병렬로 있다. `nanobot/webui/settings_api.py :: _oauth_provider_status`는 `openai_codex`, `xai_grok`, `github_copilot` OAuth 상태를 각각 확인한다.
+- xAI Grok은 구독 계정 OAuth로 연결한다. 온보딩에서는 기타 provider 목록에서 고르고, 설정 > 모델에서도 로그인할 수 있다. 상세는 3.13을 따른다.
 - 로컬 백엔드는 단일 provider가 아니라 `nanobot/providers/registry.py`와 온보딩의 `LOCAL_BACKENDS` 기준 `ollama`, `lm_studio`, `vllm`, `sglang`, `ovms`, `atomic_chat` 개별 provider다.
 - 연결 후에는 `webui/src/components/onboarding/OnboardingWizardPage.tsx :: loadModels`가 `fetchProviderModels()`를 호출하고, WebUI API는 `/api/settings/provider-models` 경로로 실제 모델 목록을 조회해 기본 preset에 반영한다.
 - 사용액 상한은 이 설계 범위에서 제외한다. 대신 온보딩 문서에는 provider 대시보드에서 직접 사용 한도를 설정하는 방법을 별도 안내할 수 있다.
@@ -319,14 +325,16 @@ v3.4.10의 Windows 1순위 방침은 현재 배포 흐름과 맞지 않는다. �
 
 마법사 구성은 4단계다.
 
-1. 모델 연결 — OpenAI/Codex OAuth, API key, 로컬 provider, 기타 provider 선택.
+1. 모델 연결 — OpenAI/Codex OAuth, API key, 로컬 provider, 기타 provider 선택. 기타 provider 중 OAuth provider(xAI Grok)는 공용 `useProviderOAuthFlow`로 로그인하고, 모델 목록을 조회할 수 없으면 서버가 내려준 `oauth_default_model`로 기본 모델을 채운다(3.13).
 2. 메신저 연결 — Telegram/WhatsApp/Slack 등 채널 feature 연결.
 3. 도구 — Web, File, Exec, CLI Apps, 이미지 생성 등 도구 토글.
 4. 완료 — 설정 완료 후 채팅 화면으로 복귀.
 
 provider 미설정 상태에서도 게이트웨이가 떠야 한다. 이를 위해 `nanobot/providers/factory.py :: UnconfiguredProvider`가 존재하며, 실제 chat 요청에는 "No model is configured yet" 오류 응답을 돌려 서버 프로세스를 종료하지 않는다.
 
-현재 온보딩 마법사에는 Student mode 선택 단계가 없다. Student mode는 `webui/src/components/settings/SettingsView.tsx`와 `AdvancedSettings.tsx`의 설정 화면에서 `updateStudentModeSettings()`를 통해 바뀐다. 따라서 3.8의 "설치 시 General/Student mode 선택" 문구는 구현과 다르며, 결정 필요 항목은 13장에 기록한다.
+온보딩 마법사에는 Student mode 선택 단계가 없고, PR #27 이후 설정 화면(`SettingsView.tsx`, `AdvancedSettings.tsx`)에서도 General/Student 선택과 학생 모드 세부 입력(`coach_name`, `review_teacher_name`, 경로, cron 이름)이 제거되었다. 이미 `student_mode.mode = "student"`로 저장된 설정에만 "지원 중단" 경고와 "General로 되돌리기" 버튼이 보이며, 이 버튼은 `updateStudentModeSettings()`로 `mode`만 `general`로 저장한다. 결정 근거는 13.3에 있다.
+
+첫 실행 이후 홈 화면의 예시 문장 칩(`HomeHero.tsx :: HomeExampleQuestions`)은 누르면 입력창을 채우기만 하고 전송하지 않는다(PR #35, `ThreadComposer`의 `draftRequest`). 응답 생성 중이거나 부팅 중에 누른 요청은 버리고, 생성이 끝난 뒤 늦게 적용하지 않는다.
 
 ### 3.12 에이전트 관리 화면 (v3.4.13 현행)
 
@@ -341,6 +349,42 @@ provider 미설정 상태에서도 게이트웨이가 떠야 한다. 이를 위�
 - 새 프로필의 기본 도구는 수정 후 `tools=["read_file", "grep", "find_files"]`, `can_spawn=False`로 저장된다. 이는 설계 원문의 `tools: None`(전체 허용)보다 보수적인 기본값을 주려는 방침에 따른 것이며, 읽기 전용 파일 읽기와 검색만 허용한다. 과거 `search`라는 존재하지 않는 Agent Tool 이름을 넣어 결과적으로 `read_file`만 남던 결함은 `grep`, `find_files`로 교체해 수정했다.
 
 확인 결과: 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. API payload는 `when_not_to_use`를 읽어 표시 데이터에 포함할 수 있지만, 현재 UI draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. 위임 판단 카드가 `when_to_use`와 `when_not_to_use` 양쪽을 근거로 삼는 설계와 차이가 있으므로 13장에 구현 누락으로 남긴다.
+
+### 3.13 xAI Grok OAuth provider (v3.4.14, PR #38·#39)
+
+X Premium / Grok 구독 계정으로 로그인해 API key 없이 Grok 모델을 쓰는 provider다. 업스트림 HKUDS nanobot `c7393c78`(PR #5035)를 v0.2.2 기반으로 이식했다. 사용자용 안내는 `docs/xai-grok-oauth.md`에 있다.
+
+**계약 의존**: xAI 개발자 API나 X Developer OAuth가 아니라, Grok Build가 쓰는 공개 OAuth 클라이언트 계약(Authorization Code + PKCE, `auth.x.ai`)과 구독용 프록시(`https://cli-chat-proxy.grok.com/v1`)를 따른다. 공개 문서화된 계약이 아니므로 xAI가 바꾸면 예고 없이 멈출 수 있다(11장).
+
+**구성 요소**
+- `nanobot/providers/registry.py`: `ProviderSpec(name="xai_grok", backend="xai_grok", is_oauth=True)`. 업스트림과 달리 `builtin_models`가 없어 레지스트리에서 기본 모델을 갖지 않는다.
+- `nanobot/providers/xai_oauth.py`: PKCE 로그인, 로컬 콜백 서버, 수동 코드 붙여넣기 완료, 토큰 갱신, 로그아웃. 토큰은 인스턴스별 `auth/xai.json`(기본 `~/.nanobot/auth/xai.json`, 권한 600)에 저장하고 `config.json`에는 넣지 않는다. 설정 파일 스키마의 `providers.xai_grok`은 다른 OAuth provider와 같이 `exclude=True`다.
+- `nanobot/providers/xai_grok_provider.py :: XAIGrokProvider`: 기본 모델 `xai-grok/grok-4.5`, 컨텍스트 창 500,000 토큰. 모델 목록은 조회하지 않으며 다른 모델은 설정에서 ID를 직접 입력한다.
+- `nanobot/cli/commands.py`: `nanobot provider login xai-grok [--set-main] [--config <path>]`, `nanobot provider logout xai-grok`. `--config`는 로그인 전에 적용되어 토큰이 지정 인스턴스에 저장된다.
+- WebUI: `settings_routes.py`의 `/api/settings/provider/oauth-login`, `/oauth-login/complete`, `/oauth-logout`. 설정 > 모델과 온보딩 마법사는 공용 훅 `webui/src/hooks/useProviderOAuthFlow.ts`와 `ProviderOAuthLoginDialog.tsx`를 쓴다. 다른 기기의 브라우저로 WebUI를 연 경우 콜백이 닿지 않으므로, 대화상자에 인증 코드(또는 마지막 콜백 주소)를 붙여 넣어 완료한다. 로그인은 10분 안에 끝내야 한다.
+
+**클라이언트 버전 (PR #39)**: xAI는 최소 Grok 클라이언트 버전 미만 요청에 HTTP 426을 돌려준다(2026-09-30 하한 1.0.13으로 상향, 로그인은 되지만 모든 채팅 요청 실패). `xai_oauth.py :: XAI_CLIENT_VERSION`은 `1.0.42`를 기본으로 보내고, 환경변수 `NANOBOT_XAI_CLIENT_VERSION`이 있으면 그 값을 쓴다. 다음 하한 상향 때는 코드 수정 없이 환경변수로 대응한다.
+
+**안전 경계**
+- 모델이 지원하면 xAI 서버가 실행하는 X 검색(`x_search`)이 켜진다. 이 검색은 `ToolRegistry`를 거치지 않아 도구 정책이 적용되지 않으므로, `providers/factory.py`는 `hosted_search=not config.tools.safe_mode`로 넘겨 safe mode에서는 요청에 넣지 않는다.
+- OAuth provider는 자동 폴백 대상이 아니다.
+- 프록시는 `providers.xaiGrok.proxy`로 지정한다. `factory.py`의 proxy 허용 backend에 `xai_grok`이 추가되었다.
+
+**가져오지 않은 업스트림 변경**: 온라인 모델 목록 조회, Grok 4.6, 검색 중단 복구, X Search 진행 표시, WebUI 프록시 수정(업스트림 `bc4de246`, `2389ab1f`, `7941450a`, `9cf2fb19`).
+
+### 3.14 WebUI 디자인 체계 (v3.4.14, PR #29~#36)
+
+목업(`webui-mockup.html`, `onboarding-mockup.html`) 기준으로 WebUI 화면을 단계별로 정렬했다. 기능 변경 없이 모양과 공용 부품을 통일한 작업이며, 새 화면이나 수정 화면은 아래 토큰과 부품을 먼저 쓴다. 화면마다 임의의 색·반경·글꼴 값을 새로 넣지 않는다.
+
+| 단계 | PR | 내용 |
+|---|---|---|
+| 1 토큰 | #29 | `webui/src/globals.css`에 `--radius-lg`, `--font-sans`, `--font-mono`, `--panel`, `--border-strong`, `--foreground-secondary`, `--primary-secondary`, `--accent-border`, `--warning-border`, `--overlay`, `--shadow`를 추가하고 다크 테마 값도 정의. `tailwind.config.js`의 글꼴은 CSS 변수만 참조. `globals.css`의 `.nanobot-easy-wizard` 전용 색 블록은 삭제하고, `onboarding-wizard.css`의 `.ne-wizard` 범위 `--ne-*` 변수는 공용 토큰을 참조하는 별칭으로 바꿈 |
+| 2 공용 부품 | #30 | `components/ui/chip.tsx`(`filter`/`example` 변형, `aria-pressed`로 선택 표시), `option-card.tsx`(선택형 카드, `asChild` 지원), `page-header.tsx`(제목·설명·액션). `button`, `input`, `textarea`, `settings-primitives` 정렬 |
+| 3 화면 | #31·#32·#33·#34 | 도구(`AgentToolsSettings`), 스킬(`SkillsCatalogSettings`), 연결(`AppsCatalogSettings`), 나머지 설정(고급·에이전트 관리·자동화·런타임)과 대화 화면(`ThreadComposer`, `ThreadHeader`, `HomeHero`)을 토큰 기준으로 정렬 |
+| 4 셸 | #35 | `Sidebar` 브랜드 행·검색·항목 스타일, `ConnectionBadge`의 `footer`/`pill` 변형, 홈 예시 문장 칩(입력창 채우기 전용, 3.11). 9개 locale에 문구 추가 |
+| 3 부품 적용 | #36 | `PageHeader`·`OptionCard`를 에이전트 관리·모델·설정 화면 머리글과 선택 카드에 적용 |
+
+회귀 테스트: `webui/src/tests/ui-primitives.test.tsx`, `stage4-shell.test.tsx`, `composer-draft-request.test.tsx`, `settings-view.test.tsx`, `thread-composer.test.tsx`, `thread-shell.test.tsx`.
 
 ---
 
@@ -456,9 +500,12 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
 - Execution A/B: 스킬 유무 비교, 차이 없으면 반려.
 - Regression: trace의 routing_failure 건 자동 축적.
 - Harness 회귀: 프로파일별 툴 스냅샷, depth 초과 거부, 서브에이전트 프롬프트에 composite-task 부재 확인.
-- Student mode 회귀: Quick Start에서 General/Student 선택 시 `studentMode.mode`, `tools.safeMode`, `highschool-study`, `study-coach`, `review-teacher` 프로파일이 의도대로 구성되는지 확인.
-- Safe mode 회귀: 위험 도구는 로드되지 않고 `student_learning`은 로드되는지 확인한다.
-- 학습 데이터 회귀: `study_log.jsonl` append, `review_queue.jsonl` upsert, `subject + concept` 중복 판단, `due_reviews` 조회를 테스트한다.
+- (학생 모드 재도입 시) Student mode 회귀: General/Student 선택 시 `studentMode.mode`, `tools.safeMode`, `highschool-study`, `study-coach`, `review-teacher` 프로파일이 의도대로 구성되는지 확인.
+- (학생 모드 재도입 시) Safe mode 회귀: WebUI 경로에서도 위험 도구는 로드되지 않고 `student_learning`은 로드되는지 확인한다. 이 테스트가 통과하기 전에는 학생 모드를 다시 노출하지 않는다.
+- (학생 모드 재도입 시) 학습 데이터 회귀: `study_log.jsonl` append, `review_queue.jsonl` upsert, `subject + concept` 중복 판단, `due_reviews` 조회를 테스트한다.
+- 학생 모드 숨김 회귀(현행, PR #27): 설정 화면에 General/Student 선택이 없고, 저장값이 `student`일 때만 지원 중단 경고와 General 되돌리기 버튼이 보이는지 `webui/src/tests/settings-view.test.tsx`로 확인한다.
+- xAI Grok 회귀(PR #38·#39): `tests/providers/test_xai_oauth.py`, `test_xai_grok_provider.py`, `tests/cli/test_xai_login.py`, `tests/config/test_xai_grok_config.py`, `tests/webui/test_xai_oauth_settings.py`, `webui/src/tests/provider-oauth-flow.test.tsx`, `onboarding-xai-oauth.test.tsx`. safe mode에서 `hosted_search`가 꺼지는지 포함한다. 클라이언트 버전 하한 대응(HTTP 426)은 모의 테스트로 보장되지 않으므로 실제 계정 smoke test로 확인한다.
+- WebUI 디자인 회귀(PR #29~#36): 3.14의 테스트 목록. 홈 예시 문장 칩이 전송하지 않고 입력창만 채우는지 포함한다.
 - 설치 회귀: `bootstrap.sh`, `bootstrap.command`, `bootstrap.ps1`, `bootstrap.bat`가 얇은 래퍼로 동작하고 `nanobot up`/`down`/`restart` 공통 경로를 타는지 플랫폼별 smoke test한다. Windows SmartScreen 안내는 README 이미지 절차로 검증한다.
 - WebUI 회귀: 저장된 locale이 없을 때 브라우저/OS locale로 한국어가 선택되는지 확인한다.
 - 수용 시나리오 (시뮬레이션 셋):
@@ -477,6 +524,7 @@ trace_id, ts, session_key, query_digest, candidates_json, selected_skill, select
   P1 "스킬로 만들어줘" → Composer 진입 → draft 생성 → approve 전 검색 미노출
   T1 코딩→스케줄→잡담→"아까 코딩 이어서" → topic-recall로 상태 복원 (topics/ 파일 경유)
   T2 topics/ 파일이 없는 과거 주제 복귀 → history.jsonl 경량 폴백 또는 필요 시 sessions jsonl 재구성 경로 동작
+  ST1~ST4는 학생 모드 재도입 시의 수용 시나리오다(현재 보류, 13.3).
   ST1 Student mode 설치 → 담임 선생님이 기본 경험, 원본 nanobot은 설정·고급 기능 경로로 이동
   ST2 General mode 설치 → 원본 nanobot이 기본 경험, 담임/복습 선생님은 서브에이전트로 제공
   ST3 복습 등록 → review-teacher가 매일 1개 cron과 review queue로 due 항목만 처리
@@ -500,11 +548,11 @@ M3 — delegate 툴. 수용: 동기 왕복 + 게이트 error 재위임.
 M4 — 수동 스킬 15~20개 + **composite-task 작성** + **topic-recall 작성 + 주제 스냅샷 규약 + Consolidator 템플릿 수정(3.7)** + Routing Test 러너. 수용: 라우팅 정확도 ≥90%, C1~C5, T1~T2.
 M5 — Composer 스킬군 + approve CLI + 생명주기. 수용: P1 E2E.
 M6 — 통계 가중 랭킹(Phase 2), Hot Path 승격 리포트, 강등 규칙.
-M7 — Student mode 배포 흐름. 수용: `bootstrap.sh`/`bootstrap.command`/`bootstrap.ps1`/`bootstrap.bat`와 `nanobot up` 경로, 브라우저 온보딩, 설정 화면 Student mode 전환, `highschool-study`/`spaced-review`, `student_learning`, safe mode, locale 자동 선택이 ST1~ST4를 통과한다.
+M7 — Student mode 배포 흐름. **보류(PR #27 미지원 결정).** 설치(`bootstrap.*`, `nanobot up`)·브라우저 온보딩·locale 자동 선택은 일반 배포 흐름으로 이미 동작한다(3.10, 3.11). 재개 조건은 WebUI 경로의 `tools.safe_mode` ToolLoader 연동이다(13.3). 재개 시 수용: `bootstrap.sh`/`bootstrap.command`/`bootstrap.ps1`/`bootstrap.bat`와 `nanobot up` 경로, 브라우저 온보딩, 설정 화면 Student mode 전환, `highschool-study`/`spaced-review`, `student_learning`, safe mode, locale 자동 선택이 ST1~ST4를 통과한다.
 
 ## 11. 미결 사항
 
-임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / workflow streaming 전달 semantics / subagent-safe workflow scope 연결 / duplicate WorkflowService coordination / Stage 6 확장 harness 병합 여부 / 실제 provider 품질 평가 / production rollout 시 agent별 `tools.workflow.enabled` 설정·재시작 절차 / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝) / OpenAI OAuth 가능 범위와 PKCE 등록 방식 / Windows 설치 파일 서명·SmartScreen 이탈률 / 학생 모드 자동 게시 재개 조건.
+임베딩 모델·검색 점수 분포 튜닝(M1, 후보 노출 품질용) / cross-provider 모델 오버라이드(후속) / LLM 검증 게이트(운영 데이터 후) / Heartbeat·Checkpoint(후속) / workflow streaming 전달 semantics / subagent-safe workflow scope 연결 / duplicate WorkflowService coordination / Stage 6 확장 harness 병합 여부 / 실제 provider 품질 평가 / production rollout 시 agent별 `tools.workflow.enabled` 설정·재시작 절차 / 웨이브당 최대 병렬 수(max_concurrent_subagents 연동, M4 튜닝) / OpenAI OAuth 가능 범위와 PKCE 등록 방식 / Windows 설치 파일 서명·SmartScreen 이탈률 / 학생 모드 자동 게시 재개 조건 / xAI Grok 비공개 클라이언트 계약 의존(로그인·프록시 주소·최소 클라이언트 버전이 바뀌면 예고 없이 중단, `NANOBOT_XAI_CLIENT_VERSION`은 버전 하한에만 대응) / xAI Grok 업스트림 후속 변경(모델 목록 조회, Grok 4.6, 검색 중단 복구) 이식 여부.
 
 **업스트림 기준점**
 원본 nanobot을 그대로 따라갈 수 있을 정도로 변경량이 작지 않다. 따라서 “업스트림 전체 동기화”가 아니라 “기준 커밋을 기록하고 필요한 변경만 선별 반영”하는 전략을 쓴다. 기준 커밋/버전, 원저작자, 라이선스 표기는 README와 릴리스 노트에 고정한다. 이후 업스트림 diff는 provider·보안 패치·버그픽스처럼 이 포크에 필요한 항목만 검토해 가져온다.
@@ -553,7 +601,7 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 
 ---
 
-## 13. 설계서와 구현의 차이 (v3.4.13)
+## 13. 설계서와 구현의 차이 (v3.4.13, v3.4.14 갱신)
 
 이 장은 구현 지시가 아니라 현재 문서와 코드가 어긋났던 지점과 아직 결정이 필요한 지점을 기록한다. 확인하지 않은 항목은 구현됨으로 쓰지 않는다.
 
@@ -566,15 +614,20 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 | 에이전트 관리 | config 직접 편집 전제 | `AgentManagementSettings.tsx`와 `settings_api.py :: save_agent_profile` WebUI CRUD | 3.12 신설 |
 | relay setup | 구 패치에서는 미구현으로 기록 | `nanobot/skills/relay-setup/SKILL.md`가 candidate로 존재 | 12장 현황 갱신 |
 | 로컬 LLM | 단일 로컬 provider처럼 보일 수 있음 | `ollama`, `lm_studio`, `vllm`, `sglang`, `ovms`, `atomic_chat` 개별 provider | 3.8 LLM 연결에 반영 |
+| 학생 모드 (v3.4.14) | 0장 요약·2장 매핑·9장·M7이 학생 모드를 동작하는 기능으로 서술, 3.11은 설정 화면에서 전환 가능하다고 서술 | PR #27로 WebUI 선택 UI 숨김, 저장값이 `student`일 때만 경고와 General 되돌리기 | 0·2·3.11·9·10장 갱신, 관련 테스트·ST1~ST4·M7은 재도입 시로 보류 표시 |
+| OAuth provider (v3.4.14) | `_oauth_provider_status`가 `openai_codex`, `github_copilot`만 확인 | PR #38로 `xai_grok` 추가, PR #39로 클라이언트 버전 1.0.42 + `NANOBOT_XAI_CLIENT_VERSION` | 3.8 갱신, 3.13 신설, 11장 미결 추가 |
+| WebUI 디자인 (v3.4.14) | 공용 디자인 토큰·부품 기록 없음 | PR #29~#36으로 토큰·`Chip`/`OptionCard`/`PageHeader`·셸 정렬, 홈 예시 문장은 입력창 채우기 전용 | 3.11 갱신, 3.14 신설 |
 
 ### 13.2 구현이 빠진 곳
 
 - 에이전트 관리 화면에는 `when_not_to_use` 전용 입력 수단이 없다. `settings_api.py :: _agent_profiles_rows`는 `when_not_to_use`를 payload에 포함하지만, `AgentManagementSettings.tsx`의 편집 draft와 저장 요청은 `name`, `icon`, `requirements`만 다룬다. `save_agent_profile`도 `requirements`를 `description`과 단일 `when_to_use`로만 저장한다.
 - 수정됨: `save_agent_profile`의 새 프로필 기본 도구 목록에 존재하지 않는 `search`가 들어 있어, `profile.tools` 필터 이후 실제 사용 가능 도구가 의도보다 좁은 `read_file`만 남던 결함은 기본값을 `read_file`, `grep`, `find_files`로 바꾸고 등록 가능 도구명 검증 테스트를 추가해 막았다.
+- v3.4.14 확인: PR #29에서 `globals.css`의 `.nanobot-easy-wizard` 색 블록이 삭제되었지만 `webui/src/components/settings/EasySetupWizard.tsx`의 "모델을 먼저 연결하세요" 안내 문구는 아직 `text-[hsl(var(--ne-warn))]`를 쓴다. `--ne-warn`은 이제 `.ne-wizard` 범위 안에서만, 그것도 `hsl(...)`로 감싼 값으로 정의되므로 이 문구는 경고색을 잃는다. `text-warning`으로 바꾸면 된다(코드 수정은 별도 PR).
 
-### 13.3 결정이 필요한 곳
+### 13.3 결정된 사항과 남은 결정
 
-- Student mode 선택 위치 / `tools.safe_mode`와 WebUI 학생 모드 잠금: 학생 모드는 미지원으로 결정한다. WebUI에서는 General/Student 선택 UI를 숨기고, 이미 `student`로 저장된 설정에만 지원 중단 경고와 General 되돌리기 버튼을 노출한다. 재도입 시에는 `student_mode.mode` 변경보다 먼저 ToolLoader의 `tools.safe_mode` 연동부터 구현해야 한다.
+- 결정됨(PR #27) — Student mode 선택 위치 / `tools.safe_mode`와 WebUI 학생 모드 잠금: 학생 모드는 미지원으로 결정한다. WebUI에서는 General/Student 선택 UI를 숨기고, 이미 `student`로 저장된 설정에만 지원 중단 경고와 General 되돌리기 버튼을 노출한다. 재도입 시에는 `student_mode.mode` 변경보다 먼저 ToolLoader의 `tools.safe_mode` 연동부터 구현해야 한다. README와 `docs/student-mode-distribution-ko.md`도 v3.4.14에서 미지원 상태로 맞췄다.
+- 남은 결정 — xAI Grok 노출 수준: 비공개 계약에 의존하는 provider를 온보딩 기타 provider 목록에 다른 provider와 같은 위치로 둘지, "실험적" 표시를 붙일지 정해야 한다. 현재는 표시 없이 노출된다.
 
 ### 13.4 워크플로우를 켜기 전 확인 사항
 

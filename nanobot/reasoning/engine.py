@@ -1,0 +1,301 @@
+"""Execute the method-evaluation procedure under code control."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from typing import Any
+from uuid import uuid4
+
+from nanobot.reasoning.checks import check_stage
+from nanobot.reasoning.llm import StageLLM
+from nanobot.reasoning.models import (
+    CheckRecord,
+    Conclusion,
+    Criterion,
+    Fact,
+    Judgment,
+    Procedure,
+    ReasoningCase,
+    Usage,
+)
+from nanobot.reasoning.registry import procedure as load_procedure
+from nanobot.reasoning.z3check import check_entailment
+
+_ROLE_CHECKS = {
+    "goal": "S1",
+    "facts": "S2",
+    "criteria": "S3",
+    "judgments": "S4",
+    "conclusion": "S5",
+    "check": "S6",
+    "answer": "S7",
+}
+
+
+class ReasoningEngine:
+    def __init__(
+        self,
+        llm: StageLLM,
+        *,
+        reasoning_effort: str | None = "none",
+        reasoning_disabled_guaranteed: bool = False,
+        max_revisions: int = 3,
+        max_stage_calls: int = 64,
+        on_stage: Callable[[str, str, str], None] | None = None,
+    ) -> None:
+        self.llm = llm
+        self.reasoning_effort = reasoning_effort
+        self.reasoning_disabled_guaranteed = reasoning_disabled_guaranteed
+        self.max_revisions = max_revisions
+        self.max_stage_calls = max_stage_calls
+        self.on_stage = on_stage
+        self._procedure: Procedure | None = None
+
+    def run(
+        self,
+        request: str,
+        *,
+        procedure_id: str = "method-evaluation",
+        procedure: Procedure | None = None,
+        case_id: str | None = None,
+    ) -> ReasoningCase:
+        procedure = procedure or load_procedure(procedure_id)
+        self._procedure = procedure
+        case = ReasoningCase(
+            id=case_id or f"reason-{uuid4().hex[:12]}",
+            request=request,
+            procedure_id=procedure.id,
+            procedure_version=procedure.version,
+            step_states={step.id: "pending" for step in procedure.steps},
+            execution_revision=procedure.revision,
+            usage=Usage(
+                reasoning_effort=self.reasoning_effort,
+                reasoning_disabled_guaranteed=self.reasoning_disabled_guaranteed,
+            ),
+        )
+        order = self._execution_order(procedure)
+        index = 0
+        stage_calls = 0
+        while index < len(order):
+            stage = order[index]
+            if stage_calls >= self.max_stage_calls:
+                self._stop(case, stage, "stage call budget exceeded")
+                break
+            stage_calls += 1
+            if case.revision_count > self.max_revisions:
+                self._stop(case, stage, "revision budget exceeded")
+                break
+            if not self._inputs_ready(procedure, stage, case):
+                self._stop(case, stage, f"{stage} inputs are not ready")
+                break
+            case.current_step = stage
+            case.step_states[stage] = "running"
+            payload = self.llm.complete(stage, self._payload(case, stage))
+            if int(payload.get("revision") or procedure.revision) != case.execution_revision:
+                case.history.append({"event": "stale_result_ignored", "stage": stage})
+                stale_count = sum(
+                    1
+                    for item in case.history
+                    if item.get("event") == "stale_result_ignored" and item.get("stage") == stage
+                )
+                if stale_count > 1:
+                    self._stop(case, stage, "stale revision result repeated")
+                    break
+                continue
+            self._record_usage(case, payload)
+            self._apply(case, stage, payload)
+            if self._step(procedure, stage).role == "check" and case.procedure_id == "rule-judgment":
+                self._check_rule_entailment(case)
+            defects = check_stage(case, self._check_stage(procedure, stage))
+            if defects:
+                case.step_states[stage] = "needs_revision"
+                if not self._return_to(case, stage):
+                    self._stop(case, stage, "; ".join(defects))
+                    break
+                index = order.index(case.current_step)
+                continue
+            case.step_states[stage] = "passed"
+            self._notify_stage(stage, "passed")
+            if self._step(procedure, stage).role == "goal" and case.questions:
+                case.status = "waiting_info"
+                case.step_states[stage] = "waiting_info"
+                case.stop_reason = case.questions[0]
+                break
+            index += 1
+        else:
+            case.status = "completed"
+            case.stop_reason = "procedure completed"
+        return case
+
+    def update_facts(self, case: ReasoningCase, facts: list[dict[str, Any]]) -> ReasoningCase:
+        """Replace changed facts and invalidate only dependent judgments."""
+
+        if self._procedure is None or self._procedure.id != case.procedure_id:
+            self._procedure = load_procedure(case.procedure_id)
+        by_id = {item.id: item for item in case.facts}
+        changed: set[str] = set()
+        for raw in facts:
+            fact = Fact.model_validate(raw)
+            previous = by_id.get(fact.id)
+            fact.version = 1 if previous is None else previous.version + 1
+            by_id[fact.id] = fact
+            changed.add(fact.id)
+        case.facts = list(by_id.values())
+        if changed:
+            case.judgments = [
+                item for item in case.judgments if not set(item.evidence_ids) & changed
+            ]
+            case.conclusion = None
+            case.answer = ""
+            self._invalidate_from(case, self._first_role("judgments"))
+            case.current_step = self._first_role("judgments")
+            case.status = "running"
+            case.history.append({"event": "facts_updated", "fact_ids": sorted(changed)})
+        return case
+
+    def _apply(self, case: ReasoningCase, stage: str, payload: dict[str, Any]) -> None:
+        role = self._step(self._require_procedure(), stage).role
+        if role == "goal":
+            case.goal = str(payload.get("goal") or "")
+            case.constraints = [str(item) for item in payload.get("constraints") or []]
+            case.questions = [str(item) for item in payload.get("questions") or []]
+            case.assumptions = [str(item) for item in payload.get("assumptions") or []]
+        elif role == "facts":
+            case.facts = [Fact.model_validate(item) for item in payload.get("facts") or []]
+        elif role == "criteria":
+            case.criteria = [Criterion.model_validate(item) for item in payload.get("criteria") or []]
+        elif role == "judgments":
+            case.judgments = [Judgment.model_validate(item) for item in payload.get("judgments") or []]
+        elif role == "conclusion":
+            raw = payload.get("conclusion")
+            case.conclusion = Conclusion.model_validate(raw) if isinstance(raw, dict) else None
+        elif role == "answer":
+            case.answer = str(payload.get("answer") or "")
+        case.history.append({"event": "stage_result", "stage": stage, "role": role})
+
+    def _return_to(self, case: ReasoningCase, stage: str) -> bool:
+        if self._procedure is None:
+            raise RuntimeError("procedure is not loaded")
+        target = self._procedure.step(stage).failure_returns_to
+        if target is None or case.revision_count >= self.max_revisions:
+            return False
+        case.revision_count += 1
+        self._invalidate_from(case, target if target != stage else stage)
+        case.current_step = target
+        case.history.append({"event": "return", "from": stage, "to": target})
+        return True
+
+    def _invalidate_from(self, case: ReasoningCase, stage: str) -> None:
+        for item in self._downstream(stage):
+            case.step_states[item] = "invalidated"
+        if self._step(self._require_procedure(), stage).role in {"goal", "facts", "criteria"}:
+            case.conclusion = None
+            case.answer = ""
+
+    def _execution_order(self, procedure: Procedure) -> list[str]:
+        known = {step.id for step in procedure.steps}
+        dependencies = {
+            step.id: [item for item in step.inputs if item in known]
+            for step in procedure.steps
+        }
+        ordered: list[str] = []
+        pending = dict(dependencies)
+        while pending:
+            ready = [step_id for step_id, deps in pending.items() if all(item in ordered for item in deps)]
+            if not ready:
+                return [step.id for step in procedure.steps]
+            ordered.extend(sorted(ready, key=lambda item: [step.id for step in procedure.steps].index(item)))
+            for step_id in ready:
+                pending.pop(step_id)
+        return ordered
+
+    def _downstream(self, stage: str) -> set[str]:
+        procedure = self._require_procedure()
+        dependents = {stage}
+        changed = True
+        while changed:
+            changed = False
+            for step in procedure.steps:
+                if step.id not in dependents and (stage in step.inputs or dependents & set(step.inputs)):
+                    dependents.add(step.id)
+                    changed = True
+        return dependents
+
+    def _inputs_ready(self, procedure: Procedure, stage: str, case: ReasoningCase) -> bool:
+        known = {step.id for step in procedure.steps}
+        for ref in self._step(procedure, stage).inputs:
+            if ref in known and case.step_states.get(ref) not in {"passed", "conditionally_passed"}:
+                return False
+        return True
+
+    def _check_stage(self, procedure: Procedure, stage: str) -> str:
+        role = self._step(procedure, stage).role
+        return _ROLE_CHECKS.get(role, "")
+
+    def _first_role(self, role: str) -> str:
+        procedure = self._require_procedure()
+        for step in procedure.steps:
+            if step.role == role:
+                return step.id
+        return procedure.steps[0].id
+
+    def _step(self, procedure: Procedure, stage: str):
+        return procedure.step(stage)
+
+    def _require_procedure(self) -> Procedure:
+        if self._procedure is None:
+            raise RuntimeError("procedure is not loaded")
+        return self._procedure
+
+    def _notify_stage(self, stage: str, state: str) -> None:
+        if self.on_stage is None or self._procedure is None:
+            return
+        step = self._step(self._procedure, stage)
+        label = (step.question or step.role or stage).strip().splitlines()[0][:80]
+        self.on_stage(stage, state, label)
+
+    def _stop(self, case: ReasoningCase, stage: str, reason: str) -> None:
+        case.status = "stopped"
+        case.step_states[stage] = "stopped"
+        case.stop_reason = reason
+        self._notify_stage(stage, "stopped")
+
+    def _record_usage(self, case: ReasoningCase, payload: dict[str, Any]) -> None:
+        usage = payload.get("usage") if isinstance(payload.get("usage"), dict) else {}
+        case.usage.calls += 1
+        case.usage.input_tokens += int(usage.get("input_tokens") or 0)
+        case.usage.output_tokens += int(usage.get("output_tokens") or 0)
+
+    def _check_rule_entailment(self, case: ReasoningCase) -> None:
+        """Record solver status without treating SAT as proof of the claim."""
+
+        premises = {
+            fact.id: fact.status == "confirmed" for fact in case.facts if fact.status != "unknown"
+        }
+        claim_name = case.conclusion.statement if case.conclusion else ""
+        if not premises or not claim_name:
+            result = "SOLVER_UNKNOWN"
+        else:
+            result = check_entailment(premises, (claim_name, True)).value
+        case.checks.append(
+            CheckRecord(
+                id=f"check-{len(case.checks) + 1}",
+                target_version=f"{case.procedure_id}:{case.procedure_version}",
+                kind="z3:entailment",
+                result=result,
+                limit="Boolean assignment consistency only; not natural-language truth",
+                defects=[] if result != "INCONSISTENT" else ["premises conflict"],
+            )
+        )
+
+    def _payload(self, case: ReasoningCase, stage: str) -> dict[str, Any]:
+        return {
+            "request": case.request,
+            "goal": case.goal,
+            "constraints": case.constraints,
+            "facts": [item.model_dump() for item in case.facts],
+            "criteria": [item.model_dump() for item in case.criteria],
+            "judgments": [item.model_dump() for item in case.judgments],
+            "conclusion": case.conclusion.model_dump() if case.conclusion else None,
+            "stage": stage,
+        }

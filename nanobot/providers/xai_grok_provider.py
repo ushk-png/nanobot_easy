@@ -137,15 +137,19 @@ class XAIGrokProvider(LLMProvider):
                 "stream": True,
                 "instructions": system_prompt,
                 "input": input_items,
-                "include": ["reasoning.encrypted_content"],
                 "tools": converted_tools,
                 "tool_choice": tool_choice or "auto",
                 "parallel_tool_calls": True,
                 "stream_tool_calls": True,
                 "max_output_tokens": max_tokens,
                 "temperature": temperature,
-                "reasoning": _build_reasoning_options(reasoning_effort),
             }
+            reasoning = _build_reasoning_options(reasoning_effort)
+            if reasoning:
+                body["reasoning"] = reasoning
+                body["include"] = ["reasoning.encrypted_content"]
+            # effort=none sends neither field. Grok may still reason internally,
+            # so callers must not treat this as a guaranteed disable.
             if self._extra_body:
                 body.update(self._extra_body)
 
@@ -257,11 +261,10 @@ def _strip_model_prefix(model: str) -> str:
     return model
 
 
-def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str]:
-    options = {"summary": "concise"}
-    if reasoning_effort and reasoning_effort.lower() != "none":
-        options["effort"] = reasoning_effort
-    return options
+def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str] | None:
+    if not reasoning_effort or reasoning_effort.lower() == "none":
+        return None
+    return {"summary": "concise", "effort": reasoning_effort}
 
 
 def _build_headers(token: str, model: str) -> dict[str, str]:

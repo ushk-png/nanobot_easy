@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import signal
 import time
 import uuid
 from contextlib import suppress
@@ -170,6 +172,9 @@ class _ExecSession:
     async def kill(self) -> None:
         if self.process.returncode is not None:
             return
+        if os.name != "nt" and self.process.pid:
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(self.process.pid, signal.SIGKILL)
         self.process.kill()
         with suppress(asyncio.TimeoutError):
             await asyncio.wait_for(self.process.wait(), timeout=5.0)
