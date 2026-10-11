@@ -41,6 +41,10 @@ DEFAULT_XAI_GROK_URL = "https://cli-chat-proxy.grok.com/v1/responses"
 DEFAULT_XAI_GROK_MODELS_URL = "https://cli-chat-proxy.grok.com/v1/models"
 DEFAULT_XAI_GROK_MODEL = "xai-grok/grok-4.5"
 _MODEL_CAPABILITIES_TTL_S = 5 * 60
+# docs.x.ai reasoning guide (checked 2026-10-11): these models accept effort
+# low/medium/high(/xhigh), reasoning cannot be disabled, and an omitted effort
+# defaults to "high".
+_REASONING_ALWAYS_ON_MODELS = ("grok-4.5", "grok-4.6", "grok-4.7")
 _MAX_ERROR_BODY_CHARS = 1000
 _SENSITIVE_ERROR_KEYS = {
     "accesstoken",
@@ -258,6 +262,14 @@ class XAIGrokProvider(LLMProvider):
     def reasoning_request_options(reasoning_effort: str | None) -> dict[str, str] | None:
         """Return the ``reasoning`` body field this provider sends for an effort value."""
         return _build_reasoning_options(reasoning_effort)
+
+    @staticmethod
+    def reasoning_disable_supported(model: str | None) -> bool | None:
+        """False when the model documents always-on reasoning; None when unknown."""
+        wire = _strip_model_prefix(model or "")
+        if any(wire == name or wire.startswith(f"{name}-") for name in _REASONING_ALWAYS_ON_MODELS):
+            return False
+        return None
 
 
 def _strip_model_prefix(model: str) -> str:

@@ -58,10 +58,13 @@ def is_method_evaluation_request(content: str) -> bool:
     return select_procedure(content) == "method-evaluation"
 
 
+STAGE_REASONING_EFFORT = "none"
+
+
 class ProviderStageLLM:
     """One structured call per stage. The model cannot set verification state."""
 
-    reasoning_effort = "none"
+    reasoning_effort = STAGE_REASONING_EFFORT
 
     def __init__(self, provider: LLMProvider, model: str) -> None:
         self.provider = provider
@@ -234,6 +237,37 @@ def _finish_calls(case: ReasoningCase, llm: Any, selected: Procedure | None) -> 
     case.call_records = records
     totals = _call_totals(records)
     logger.info("reasoning run {}", json.dumps({"run_id": case.id, **totals}, sort_keys=True))
+    mode = _reasoning_mode(getattr(llm, "provider", None), getattr(llm, "model", None))
+    case.history.append({"event": "reasoning_mode", **mode})
+    if mode["disable_supported"] is False:
+        logger.warning(
+            "reasoning run {}: {} does not support non-reasoning mode; "
+            "reasoning_effort=none is not applied (provider default reasoning runs)",
+            case.id,
+            mode["model"],
+        )
+
+
+def _reasoning_mode(provider: Any, model: str | None) -> dict[str, Any]:
+    """Design 1: show when 'reasoning off' cannot be honoured instead of hiding it."""
+
+    inner = getattr(provider, "_primary", None)
+    probe = getattr(provider, "reasoning_disable_supported", None) or getattr(
+        inner, "reasoning_disable_supported", None
+    )
+    supported = probe(model) if callable(probe) else None
+    if supported is False:
+        status = "unsupported: this model has no non-reasoning mode"
+    elif supported is None:
+        status = "unknown: provider does not report non-reasoning support"
+    else:
+        status = "supported"
+    return {
+        "model": model,
+        "requested_effort": STAGE_REASONING_EFFORT,
+        "disable_supported": supported,
+        "status": status,
+    }
 
 
 def _call_totals(records: list[dict[str, Any]]) -> dict[str, Any]:
@@ -433,6 +467,14 @@ def _record_execution(
         "defects": defects,
         "trace": trace or [],
         "registration": "not_evaluated",
+        "reasoning_mode": next(
+            (
+                {k: v for k, v in item.items() if k != "event"}
+                for item in case.history
+                if item.get("event") == "reasoning_mode"
+            ),
+            None,
+        ),
         "calls": case.call_records,
         "call_totals": _call_totals(case.call_records),
     }
