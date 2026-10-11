@@ -20,6 +20,12 @@ class _ProposalLLM:
         self.calls.append(stage)
         if stage == "procedure":
             return self.proposal
+        if stage == "review":
+            return {
+                "request_items": [{"item": "겹치는 일정 조정", "step_id": "S7"}],
+                "answer_step_id": "S7",
+                "defects": [],
+            }
         goal = "일정 충돌 조정"
         return {
             "S1": {"goal": goal, "constraints": [], "questions": []},

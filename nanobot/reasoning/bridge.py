@@ -135,6 +135,8 @@ class ProviderStageLLM:
 def _stage_prompt(stage: str) -> str:
     if stage == "procedure":
         return _PROCEDURE_PROMPT
+    if stage == "review":
+        return _REVIEW_PROMPT
     return (
         f"단계 {stage}의 JSON 객체만 반환한다. "
         "question에 답하고 expected_outputs에 적힌 키를 모두 채운다. "
@@ -283,11 +285,67 @@ async def _propose_dynamic_procedure(llm: ProviderStageLLM, request: str, known_
         public_trace = {key: value for key, value in attempt_trace.items() if key != "normalized"}
         trace.append({"attempt": attempt, **public_trace, "defects": [item.message() for item in contract_defects]})
         if selected is not None:
-            return selected, [], trace
+            # Fitness review is a separate call; the generator's output is not its evidence.
+            review_defects, review_trace = await _review_procedure(llm, request, known_goal, selected)
+            trace.append({"attempt": attempt, "review": review_trace, "defects": review_defects})
+            if not review_defects:
+                return selected, [], trace
+            defects = review_defects
+            if recovery_budget_exceeded(attempt):
+                break
+            continue
         defects = [item.message() for item in contract_defects]
         if recovery_budget_exceeded(attempt):
             break
     return None, defects, trace
+
+
+async def _review_procedure(
+    llm: Any,
+    request: str,
+    known_goal: str,
+    selected: Procedure,
+) -> tuple[list[str], dict[str, Any]]:
+    """Ask a separate call where each request item is handled; code decides pass/fail."""
+
+    outline = _procedure_outline(selected) or {}
+    payload = {
+        "request": request,
+        "known_goal": known_goal,
+        "procedure": {"purpose": selected.purpose, "steps": outline.get("steps", [])},
+    }
+    result = await asyncio.to_thread(llm.complete, "review", payload)
+    result.pop("usage", None)
+    defects = review_defects(result, selected)
+    return defects, {
+        "request_items": len(result.get("request_items") or []),
+        "answer_step_id": result.get("answer_step_id"),
+        "defects": defects,
+    }
+
+
+def review_defects(result: dict[str, Any], selected: Procedure) -> list[str]:
+    """Turn the reviewer's mapping into defects. The reviewer has no pass flag."""
+
+    steps = {step.id: step for step in selected.steps}
+    defects: list[str] = []
+    items = result.get("request_items")
+    if not isinstance(items, list) or not items:
+        return ["review_unusable: no request items were mapped to steps"]
+    for raw in items:
+        item = raw if isinstance(raw, dict) else {}
+        text = str(item.get("item") or "").strip() or "unnamed item"
+        step_id = str(item.get("step_id") or "").strip()
+        if step_id not in steps:
+            defects.append(f"review_unhandled: no step handles '{text}'")
+    answer_id = str(result.get("answer_step_id") or "").strip()
+    answer_step = steps.get(answer_id)
+    if answer_step is None or "answer" not in answer_step.outputs:
+        defects.append("review_no_answer_step: no step writes the final answer")
+    for raw in result.get("defects") or []:
+        if str(raw).strip():
+            defects.append(f"review_defect: {str(raw).strip()}")
+    return defects
 
 
 def _known_goal(request: str) -> str:
@@ -300,6 +358,8 @@ def _known_goal(request: str) -> str:
 def _repair_kind(defects: list[str]) -> str:
     """Separate a contract-link failure from a procedure that omits work."""
 
+    if any(item.startswith("review_") for item in defects):
+        return "fitness_review"
     if any(item.startswith(("requirement_unlinked", "requirement_unjudged")) for item in defects):
         return "contract_link"
     return "procedure_content"
@@ -317,6 +377,8 @@ def _empty_answer_status(selected: Procedure) -> str:
 
 
 def _user_status(defects: list[str]) -> str:
+    if any(item.startswith("review_") for item in defects):
+        return "요청의 일부를 처리하거나 최종 답을 쓰는 단계가 없는 절차라 실행하지 않았습니다."
     if any(item.startswith("parse_failed") for item in defects):
         return "절차를 구성하지 못해 요청을 진행하지 못했습니다."
     if any("purpose_conflict" in item for item in defects):
@@ -422,6 +484,18 @@ _PROCEDURE_PROMPT = (
     "각 단계는 id, question, inputs, outputs를 가진다. "
     "마지막 단계 outputs에만 answer를 포함한다. S1부터 S7까지 고정하지 않는다. "
     "검증 완료 상태나 재사용 승인 표시는 포함하지 않는다."
+)
+
+
+_REVIEW_PROMPT = (
+    "절차를 만든 쪽과 별개인 검토자로서 JSON 객체 하나만 반환한다. "
+    "request를 사용자가 요구한 항목(무엇을 골라야 하는지, 지켜야 할 조건, 근거 요구 등)으로 "
+    "나누고, 각 항목을 실제로 처리하는 procedure.steps의 id를 붙인다. "
+    "처리하는 단계가 없으면 step_id를 null로 둔다. "
+    "형식: {\"request_items\": [{\"item\": \"짧은 항목\", \"step_id\": \"id 또는 null\"}], "
+    "\"answer_step_id\": \"사용자에게 줄 최종 답을 쓰는 단계 id 또는 null\", "
+    "\"defects\": [\"목적과 맞지 않는 점, 없으면 빈 배열\"]}. "
+    "통과 여부는 쓰지 않는다. 항목은 짧게 쓴다."
 )
 
 
