@@ -93,6 +93,13 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
+from nanobot.reasoning.bridge import (
+    ReasoningSessions,
+    reasoning_mode_notice,
+    recent_conversation,
+    run_reasoning_procedure,
+    user_reply,
+)
 from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
 from nanobot.workflow.service import WorkflowService
 
@@ -226,6 +233,12 @@ class AgentLoop:
         max_subagent_depth: int | None = None,
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
+        reasoning_effort: str | None = None,
+        stepwise_enabled: bool = False,
+        stepwise_applied_at: str | None = None,
+        stepwise_z3_check: bool = False,
+        stepwise_layout: str = "auto",
+        stepwise_review_required: list[str] | None = None,
         max_tool_result_chars: int | None = None,
         fail_on_tool_error: bool | None = None,
         provider_retry_mode: str = "standard",
@@ -286,6 +299,25 @@ class AgentLoop:
             else defaults.context_window_tokens
         )
         self.context_block_limit = context_block_limit
+        self.reasoning_effort = reasoning_effort
+        # Stepwise reasoning ("Genie method") is on only when applied explicitly.
+        self.stepwise_enabled = stepwise_enabled
+        self.stepwise_applied_at = stepwise_applied_at
+        self.stepwise_z3_check = stepwise_z3_check
+        self.stepwise_layout = stepwise_layout
+        self.stepwise_review_required = list(stepwise_review_required or [])
+        if stepwise_enabled:
+            logger.info(
+                "Stepwise reasoning (Genie method) is applied to this agent "
+                "(applied {}, layout {}); check with `nanobot stepwise status`",
+                stepwise_applied_at or "unknown",
+                stepwise_layout,
+            )
+        elif reasoning_effort and reasoning_effort.lower() == "none":
+            logger.warning(
+                "reasoningEffort is 'none' but stepwise reasoning is not applied; it no longer "
+                "turns on by itself. Apply it with `nanobot stepwise apply --config <config>`"
+            )
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -481,6 +513,12 @@ class AgentLoop:
             max_subagent_depth=defaults.max_subagent_depth,
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
+            reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
+            stepwise_enabled=defaults.stepwise.enabled,
+            stepwise_applied_at=defaults.stepwise.applied_at,
+            stepwise_z3_check=defaults.stepwise.z3_check,
+            stepwise_layout=defaults.stepwise.layout,
+            stepwise_review_required=defaults.stepwise.review_required,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -1083,6 +1121,7 @@ class AgentLoop:
                 model=self.model,
                 max_iterations=self.max_iterations,
                 max_tool_result_chars=self.max_tool_result_chars,
+                reasoning_effort=self.reasoning_effort,
                 hook=hook,
                 error_message="Sorry, I encountered an error calling the AI model.",
                 concurrent_tools=True,
@@ -2003,7 +2042,84 @@ class AgentLoop:
             return text.split(marker, 1)[0].strip()
         return text
 
+    @staticmethod
+    def _is_direct_request(content: str) -> bool:
+        text = content.strip().lower()
+        markers = ("날씨", "몇 시", "번역", "hello", "안녕")
+        return len(text) <= 40 and any(marker in text for marker in markers)
+
+    def _stepwise_enabled(self) -> bool:
+        # Explicit only (`nanobot stepwise apply`); reasoningEffort no longer implies it.
+        return bool(getattr(self, "stepwise_enabled", False))
+
+    def _stepwise_sessions(self) -> ReasoningSessions:
+        sessions = getattr(self, "_reasoning_sessions", None)
+        if sessions is None:
+            sessions = ReasoningSessions()
+            self._reasoning_sessions = sessions
+        return sessions
+
+    async def _run_stepwise(self, ctx: TurnContext) -> bool:
+        """Run the code-controlled stepwise procedure. False hands the turn to the normal loop."""
+
+        if ctx.visible_run_started_at is None:
+            ctx.visible_run_started_at = time.time()
+        await self._runtime_events().run_status_changed(
+            ctx.msg,
+            ctx.session_key,
+            "running",
+            started_at=ctx.visible_run_started_at,
+        )
+        # Design 1: check reasoning-off support before running and say so when unsupported.
+        notice = reasoning_mode_notice(self.provider, self.model)
+        notified: set[str] | None = getattr(self, "_reasoning_notice_sessions", None)
+        if notified is None:
+            notified = set()
+            self._reasoning_notice_sessions = notified
+        prefix = ""
+        if notice and ctx.session_key not in notified:
+            notified.add(ctx.session_key)
+            if ctx.on_progress is not None:
+                await ctx.on_progress(notice, tool_hint=False)
+            else:
+                prefix = notice + "\n\n"
+        case = await run_reasoning_procedure(
+            self.provider,
+            model=self.model,
+            request=ctx.msg.content,
+            workspace=self.workspace,
+            on_progress=ctx.on_progress,
+            conversation=recent_conversation(ctx.initial_messages),
+            sessions=self._stepwise_sessions(),
+            session_key=ctx.session_key,
+            z3_check=getattr(self, "stepwise_z3_check", False),
+            layout=getattr(self, "stepwise_layout", "auto"),
+            review_required=tuple(getattr(self, "stepwise_review_required", ())),
+        )
+        if case.status == "direct":
+            if case.path == "fallback" and ctx.on_progress is not None and case.stop_reason:
+                await ctx.on_progress(case.stop_reason, tool_hint=False)
+            return False
+        ctx.final_content = prefix + user_reply(case)
+        # Nothing was streamed on this path. With on_stream set the reply would be
+        # marked StreamedResponseEvent, which channels treat as already delivered,
+        # and the final answer would never be sent.
+        ctx.on_stream = None
+        ctx.tools_used = []
+        ctx.all_messages = list(ctx.initial_messages) + [
+            {"role": "assistant", "content": ctx.final_content}
+        ]
+        ctx.stop_reason = "completed" if case.status == "completed" else case.status
+        ctx.had_injections = False
+        return True
+
     async def _state_run(self, ctx: TurnContext) -> str:
+        if (
+            self._stepwise_enabled()
+            and not self._is_direct_request(ctx.msg.content)
+            and await self._run_stepwise(ctx)
+        ):
+            return "ok"
         if ctx.visible_run_started_at is None:
             ctx.visible_run_started_at = time.time()
         await self._runtime_events().run_status_changed(

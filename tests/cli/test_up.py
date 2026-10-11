@@ -331,3 +331,33 @@ def test_run_down_falls_back_to_port_when_not_tracked(tmp_path: Path, monkeypatc
 
     code = up_mod.run_down(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
     assert code == 0
+
+
+def test_companion_specs_only_for_primary_config(tmp_path: Path):
+    local = tmp_path / ".local"
+    local.mkdir()
+    (local / "config.genie.json").write_text("{}")
+    assert up_mod.companion_gateway_specs(local / "config.genie.json") == ()
+    specs = up_mod.companion_gateway_specs(local / "config.json")
+    assert [item[0] for item in specs] == ["genie"]
+    assert specs[0][3] == 18795
+
+
+def test_restart_restarts_companions_only_after_primary_success(tmp_path: Path, monkeypatch):
+    config_path = tmp_path / ".local" / "config.json"
+    workspace_path = tmp_path / ".local" / "workspace"
+    calls = []
+    monkeypatch.setattr(up_mod, "run_down", lambda **_kwargs: 0)
+    monkeypatch.setattr(up_mod, "run_up", lambda **_kwargs: 0)
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: type("R", (), {"status": lambda self: type("S", (), {"running": False, "pid": None})()})())
+    monkeypatch.setattr(up_mod, "restart_companion_gateways", lambda path, print_fn: calls.append(path.name))
+
+    code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
+    assert code == 0
+    assert calls == ["config.json"]
+
+    calls.clear()
+    monkeypatch.setattr(up_mod, "run_up", lambda **_kwargs: 1)
+    code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
+    assert code == 1
+    assert calls == []

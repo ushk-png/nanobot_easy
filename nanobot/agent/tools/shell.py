@@ -6,6 +6,7 @@ import asyncio
 import os
 import re
 import shutil
+import signal
 import sys
 from contextlib import suppress
 from dataclasses import dataclass
@@ -522,6 +523,7 @@ class ExecTool(Tool):
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
+            start_new_session=not _IS_WINDOWS,
             env=env,
         )
 
@@ -598,7 +600,15 @@ class ExecTool(Tool):
 
     @staticmethod
     async def _kill_process(process: asyncio.subprocess.Process) -> None:
-        """Kill a subprocess and reap it to prevent zombies."""
+        """Kill a subprocess and reap it to prevent zombies.
+
+        Unix commands run in their own session, so a timeout also signals the
+        child process group. Killing only the shell would leave pytest workers
+        and other grandchildren alive.
+        """
+        if not _IS_WINDOWS and process.pid:
+            with suppress(ProcessLookupError, PermissionError):
+                os.killpg(process.pid, signal.SIGKILL)
         process.kill()
         try:
             with suppress(asyncio.TimeoutError):

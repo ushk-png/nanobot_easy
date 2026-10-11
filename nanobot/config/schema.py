@@ -131,6 +131,20 @@ class SubagentProfile(Base):
     can_spawn: bool = False
 
 
+class StepwiseConfig(Base):
+    """Stepwise reasoning ("Genie method", design docs/design/stepwise-llm-reasoning.md).
+
+    Off unless applied explicitly with ``nanobot stepwise apply``, which records when.
+    """
+
+    enabled: bool = False
+    method: str = "genie"
+    applied_at: str | None = None
+    layout: Literal["auto", "two_call", "compact", "fine"] = "auto"  # auto follows the model's reasoning
+    review_required: list[str] = Field(default_factory=list)  # procedure ids whose S6 model review always runs
+    z3_check: bool = False  # Z3 entailment in rule judgments; off until rules are formalized
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -178,6 +192,7 @@ class AgentDefaults(Base):
         serialization_alias="toolHintMaxLength",
     )  # Max characters for tool hint display (e.g. "$ cd …/project && npm test")
     reasoning_effort: str | None = None  # low / medium / high / adaptive / none — LLM thinking effort; None preserves the provider default
+    stepwise: StepwiseConfig = Field(default_factory=StepwiseConfig)  # set by `nanobot stepwise apply`
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     bot_name: str = "nanobot"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
     bot_icon: str = "🐈"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit

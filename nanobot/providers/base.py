@@ -6,7 +6,8 @@ import os
 import re
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from contextlib import suppress
+from contextlib import contextmanager, suppress
+from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
@@ -146,6 +147,26 @@ def tool_arguments_json_for_replay(arguments: Any) -> str:
     return json.dumps(tool_arguments_object_for_replay(arguments), ensure_ascii=False)
 
 
+_HOSTED_TOOLS_ENABLED: ContextVar[bool] = ContextVar("nanobot_hosted_tools_enabled", default=True)
+
+
+@contextmanager
+def hosted_tools_disabled():
+    """Within this block, providers must not attach server-side (hosted) tools.
+
+    Used by calls whose tool scope is fixed by code, e.g. stepwise reasoning stages.
+    """
+    token = _HOSTED_TOOLS_ENABLED.set(False)
+    try:
+        yield
+    finally:
+        _HOSTED_TOOLS_ENABLED.reset(token)
+
+
+def hosted_tools_enabled() -> bool:
+    return _HOSTED_TOOLS_ENABLED.get()
+
+
 @dataclass
 class LLMResponse:
     """Response from an LLM provider."""
@@ -163,6 +184,8 @@ class LLMResponse:
     error_code: str | None = None  # Provider/code semantic, e.g. rate_limit_exceeded.
     error_retry_after_s: float | None = None
     error_should_retry: bool | None = None
+    # Request fields a provider reports as actually sent (e.g. {"reasoning": ...}); None = not reported.
+    request_options: dict[str, Any] | None = None
 
     @property
     def has_tool_calls(self) -> bool:

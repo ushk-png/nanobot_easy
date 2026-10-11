@@ -664,7 +664,68 @@ def run_restart(*, config_path: str, workspace_path: str, print_fn: Callable[[st
     down_code = run_down(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn)
     if down_code not in (0,):
         return down_code
-    return run_up(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn)
+    up_code = run_up(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn)
+    if up_code == 0:
+        restart_companion_gateways(cfg_path, print_fn=print_fn)
+    return up_code
+
+
+def companion_gateway_specs(config_path: Path) -> tuple[tuple[str, Path, Path, int], ...]:
+    """Persona gateways that should follow a restart of the primary config."""
+    if config_path.name != "config.json":
+        return ()
+    root = config_path.parent
+    specs = (
+        ("genie", "config.genie.json", "workspace-genie", 18795),
+        ("heart", "config.heart.json", "workspace-heart", 18796),
+        ("testy", "config.testy.json", "workspace-testy", 18797),
+        ("rees", "config.rees.json", "workspace-rees", 18793),
+        ("elle", "config.japanese-sentence-coach.json", "workspace-japanese-sentence-coach", 18794),
+    )
+    return tuple(
+        (name, root / config_name, root / workspace_name, port)
+        for name, config_name, workspace_name, port in specs
+        if (root / config_name).is_file()
+    )
+
+
+def restart_companion_gateways(config_path: Path, *, print_fn: Callable[[str], None] = print) -> None:
+    """Restart configured persona gateways after the primary gateway restarts.
+
+    Each companion gets its own session so a later primary restart cannot signal it
+    indirectly. A companion failure is reported but does not fail the primary restart.
+    """
+    specs = companion_gateway_specs(config_path)
+    if not specs:
+        return
+    env = os.environ.copy()
+    env["NANOBOT_DETACHED_RESTART"] = "1"
+    env["NANOBOT_ALLOW_SELF_STOP"] = "1"
+    for name, companion_config, workspace, port in specs:
+        print_fn(f"restarting companion gateway: {name} ({port})")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "nanobot",
+                "restart",
+                "--config",
+                str(companion_config),
+                "--workspace",
+                str(workspace),
+            ],
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            start_new_session=True,
+        )
+        if result.returncode == 0:
+            print_fn(f"companion gateway restarted: {name}")
+        else:
+            detail = " ".join(result.stdout.split())[:300]
+            print_fn(f"warning: companion gateway {name} did not restart ({detail or result.returncode})")
 
 
 def _schedule_detached_restart(config_path: str, workspace_path: str, *, delay: float, log_path: Path) -> None:

@@ -28,7 +28,12 @@ class WorkflowLLMAdapter:
         payload: dict[str, Any],
         max_tokens: int = 2048,
         temperature: float = 0.0,
+        reasoning_effort: str | None = None,
     ) -> dict[str, Any]:
+        if reasoning_effort is None:
+            # Carry the configured setting; chat() alone would drop it.
+            generation = getattr(self.provider, "generation", None)
+            reasoning_effort = getattr(generation, "reasoning_effort", None)
         response = await self.provider.chat(
             messages=[
                 {"role": "system", "content": system},
@@ -37,6 +42,7 @@ class WorkflowLLMAdapter:
             tools=None,
             max_tokens=max_tokens,
             temperature=temperature,
+            reasoning_effort=reasoning_effort,
         )
         if response.finish_reason == "error":
             raise WorkflowLLMError(response.content or "workflow llm call failed")

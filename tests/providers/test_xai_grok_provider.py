@@ -70,7 +70,9 @@ def test_xai_grok_registry_exposes_curated_x_search_model() -> None:
 
 
 def test_reasoning_options_omit_disabled_effort() -> None:
-    assert _build_reasoning_options("none") == {"summary": "concise"}
+    assert _build_reasoning_options("none") is None
+    assert _build_reasoning_options(None) is None
+    assert _build_reasoning_options("low") == {"summary": "concise", "effort": "low"}
 
 
 @pytest.mark.asyncio
@@ -129,6 +131,7 @@ async def test_provider_injects_hosted_x_search_and_required_proxy_headers(monke
     assert body["temperature"] == 0.2
     assert body["stream_tool_calls"] is True
     assert body["reasoning"] == {"summary": "concise", "effort": "high"}
+    assert body["include"] == ["reasoning.encrypted_content"]
     assert body["store"] is False
     assert headers["Authorization"] == "Bearer subscription-token"
     assert headers["X-XAI-Token-Auth"] == "xai-grok-cli"
@@ -202,7 +205,7 @@ async def test_provider_fails_closed_and_caches_model_catalog_failure(monkeypatc
     await provider.chat([{"role": "user", "content": "second"}])
 
     assert fetch_calls == 1
-    assert all({"type": "x_search"} not in body["tools"] for body in bodies)
+    assert all({"type": "x_search"} not in body.get("tools", []) for body in bodies)
 
 
 @pytest.mark.asyncio
@@ -550,7 +553,7 @@ async def test_hosted_search_disabled_skips_x_search_and_capability_lookup(monke
 
     await provider.chat([{"role": "user", "content": "hello"}])
 
-    assert all(tool.get("type") != "x_search" for tool in bodies[0]["tools"])
+    assert all(tool.get("type") != "x_search" for tool in bodies[0].get("tools", []))
 
 
 @pytest.mark.asyncio
@@ -578,5 +581,5 @@ async def test_factory_disables_hosted_search_in_safe_mode(monkeypatch) -> None:
     await build(True).chat([{"role": "user", "content": "hello"}])
     await build(False).chat([{"role": "user", "content": "hello"}])
 
-    assert all(tool.get("type") != "x_search" for tool in bodies[0]["tools"])
+    assert all(tool.get("type") != "x_search" for tool in bodies[0].get("tools", []))
     assert {"type": "x_search"} in bodies[1]["tools"]

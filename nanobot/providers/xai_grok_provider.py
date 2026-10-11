@@ -24,6 +24,7 @@ from nanobot.providers.base import (
     LLMProvider,
     LLMResponse,
     ToolCallRequest,
+    hosted_tools_enabled,
     resolve_stream_idle_timeout_s,
 )
 from nanobot.providers.openai_responses import (
@@ -41,6 +42,10 @@ DEFAULT_XAI_GROK_URL = "https://cli-chat-proxy.grok.com/v1/responses"
 DEFAULT_XAI_GROK_MODELS_URL = "https://cli-chat-proxy.grok.com/v1/models"
 DEFAULT_XAI_GROK_MODEL = "xai-grok/grok-4.5"
 _MODEL_CAPABILITIES_TTL_S = 5 * 60
+# docs.x.ai reasoning guide (checked 2026-10-11): these models accept effort
+# low/medium/high(/xhigh), reasoning cannot be disabled, and an omitted effort
+# defaults to "high".
+_REASONING_ALWAYS_ON_MODELS = ("grok-4.5", "grok-4.6", "grok-4.7")
 _MAX_ERROR_BODY_CHARS = 1000
 _SENSITIVE_ERROR_KEYS = {
     "accesstoken",
@@ -121,7 +126,7 @@ class XAIGrokProvider(LLMProvider):
         try:
             token = await asyncio.to_thread(get_xai_oauth_token, proxy=self.proxy)
             supports_backend_search = False
-            if self._hosted_search:
+            if self._hosted_search and hosted_tools_enabled():
                 stage = "model_capabilities"
                 supports_backend_search = await self._supports_backend_search(token, wire_model)
             converted_tools = convert_tools(tools or [])
@@ -137,15 +142,25 @@ class XAIGrokProvider(LLMProvider):
                 "stream": True,
                 "instructions": system_prompt,
                 "input": input_items,
-                "include": ["reasoning.encrypted_content"],
-                "tools": converted_tools,
-                "tool_choice": tool_choice or "auto",
-                "parallel_tool_calls": True,
-                "stream_tool_calls": True,
                 "max_output_tokens": max_tokens,
                 "temperature": temperature,
-                "reasoning": _build_reasoning_options(reasoning_effort),
             }
+            if converted_tools:
+                body.update(
+                    {
+                        "tools": converted_tools,
+                        "tool_choice": tool_choice or "auto",
+                        "parallel_tool_calls": True,
+                        "stream_tool_calls": True,
+                    }
+                )
+            # Without tools, xAI rejects tool_choice ("no tools were specified", HTTP 400).
+            reasoning = _build_reasoning_options(reasoning_effort)
+            if reasoning:
+                body["reasoning"] = reasoning
+                body["include"] = ["reasoning.encrypted_content"]
+            # effort=none sends neither field. Grok may still reason internally,
+            # so callers must not treat this as a guaranteed disable.
             if self._extra_body:
                 body.update(self._extra_body)
 
@@ -191,6 +206,7 @@ class XAIGrokProvider(LLMProvider):
                 finish_reason=finish_reason,
                 usage=usage,
                 reasoning_content=reasoning_content,
+                request_options={"reasoning": body.get("reasoning")},
             )
         except Exception as exc:
             response = _xai_error_response(exc)
@@ -250,6 +266,19 @@ class XAIGrokProvider(LLMProvider):
     def get_default_model(self) -> str:
         return self.default_model
 
+    @staticmethod
+    def reasoning_request_options(reasoning_effort: str | None) -> dict[str, str] | None:
+        """Return the ``reasoning`` body field this provider sends for an effort value."""
+        return _build_reasoning_options(reasoning_effort)
+
+    @staticmethod
+    def reasoning_disable_supported(model: str | None) -> bool | None:
+        """False when the model documents always-on reasoning; None when unknown."""
+        wire = _strip_model_prefix(model or "")
+        if any(wire == name or wire.startswith(f"{name}-") for name in _REASONING_ALWAYS_ON_MODELS):
+            return False
+        return None
+
 
 def _strip_model_prefix(model: str) -> str:
     if model.startswith("xai-grok/") or model.startswith("xai_grok/"):
@@ -257,11 +286,10 @@ def _strip_model_prefix(model: str) -> str:
     return model
 
 
-def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str]:
-    options = {"summary": "concise"}
-    if reasoning_effort and reasoning_effort.lower() != "none":
-        options["effort"] = reasoning_effort
-    return options
+def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str] | None:
+    if not reasoning_effort or reasoning_effort.lower() == "none":
+        return None
+    return {"summary": "concise", "effort": reasoning_effort}
 
 
 def _build_headers(token: str, model: str) -> dict[str, str]:
