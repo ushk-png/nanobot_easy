@@ -622,6 +622,7 @@ def _approved_catalog(granularity: str = "fine") -> list[dict[str, str]]:
             {
                 "id": procedure.id,
                 "title": procedure.title,
+                "purpose": procedure.purpose,
                 "steps": " → ".join(step.question for step in procedure.steps),
             }
         )
@@ -835,6 +836,8 @@ _PROCEDURE_PROMPT = (
     "요청을 처리할 방법을 정해 JSON 객체 하나만 반환한다. mode는 direct, reuse, new 중 하나다. "
     "direct: 인사·잡담, 단순 사실 확인·번역·요약처럼 단계별 판단이 필요 없는 요청, "
     "또는 웹 조회·파일·명령 실행 같은 도구가 필요한 요청. {\"mode\": \"direct\"}만 반환한다. "
+    "후보와 조건이 값으로 주어지고 규칙대로 하나를 고르는 선정 문제는 "
+    "constraint-selection을 reuse한다(선택은 코드가 계산). "
     "reuse: approved_procedures 중 목적·입력이 요청에 그대로 맞는 절차가 있으면 "
     "{\"mode\": \"reuse\", \"procedure_id\": \"id\"}를 반환한다. "
     "new: 그 밖에 판단이 필요한 요청은 mode new와 함께 절차를 반환한다. "

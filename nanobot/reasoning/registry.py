@@ -6,6 +6,8 @@ That execution does not add it to this registry.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from nanobot.reasoning.models import Procedure, ProcedureStep
 
 PROCEDURE_VERSION = "3.1"
@@ -74,6 +76,55 @@ _PROCEDURES: dict[str, tuple[str, tuple[str, ...]]] = {
 }
 
 
+def _constraint_selection() -> Procedure:
+    """Extract a candidate table, select in code, explain. Same layout at every granularity."""
+
+    steps = [
+        ProcedureStep(
+            id="X1",
+            role="extract",
+            question="후보, 필수 조건, 고르는 기준(최대·최소)을 표로 추출한다.",
+            inputs=["request"],
+            outputs=["table"],
+            checks=["structure"],
+            version=PROCEDURE_VERSION,
+        ),
+        ProcedureStep(
+            id="X2",
+            role="compute",
+            op="code:constraint_select",
+            question="필수 조건을 모두 확인된 값으로 충족하는 후보 중 기준에 맞는 하나를 계산한다.",
+            inputs=["X1"],
+            outputs=["selection"],
+            checks=["structure"],
+            failure_returns_to="X1",
+            version=PROCEDURE_VERSION,
+        ),
+        ProcedureStep(
+            id="X3",
+            role="answer",
+            question="계산된 선정 결과와, 다른 후보마다 선정하지 않은 이유(미충족·미확인 조건)를 답한다.",
+            inputs=["X2"],
+            outputs=["answer"],
+            checks=["faithfulness"],
+            version=PROCEDURE_VERSION,
+        ),
+    ]
+    return Procedure(
+        id="constraint-selection",
+        version=PROCEDURE_VERSION,
+        title="조건 선정",
+        purpose=(
+            "후보 목록과 값으로 판정할 수 있는 필수 조건·선택 기준이 주어진 선정 문제를 "
+            "코드로 계산한다."
+        ),
+        steps=steps,
+    )
+
+
+_SPECIAL: dict[str, Callable[[], Procedure]] = {"constraint-selection": _constraint_selection}
+
+
 def procedure(procedure_id: str, granularity: str = "fine") -> Procedure:
     """Return one reviewed procedure. Unknown IDs are rejected.
 
@@ -81,6 +132,8 @@ def procedure(procedure_id: str, granularity: str = "fine") -> Procedure:
     that reason internally (design 10); every step's code checks still run.
     """
 
+    if procedure_id in _SPECIAL:
+        return _SPECIAL[procedure_id]()
     try:
         title, questions = _PROCEDURES[procedure_id]
     except KeyError as exc:
@@ -154,5 +207,10 @@ def method_evaluation() -> Procedure:
     return procedure("method-evaluation")
 
 
-def approved_procedures() -> tuple[str, ...]:
+def template_procedures() -> tuple[str, ...]:
+    """Approved procedures built on the S1-S7 template."""
     return tuple(_PROCEDURES)
+
+
+def approved_procedures() -> tuple[str, ...]:
+    return (*_PROCEDURES, *_SPECIAL)

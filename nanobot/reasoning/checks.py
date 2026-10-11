@@ -115,6 +115,9 @@ def answer_omissions(case: ReasoningCase) -> list[str]:
     # A blank answer never passes, with or without a conclusion step (design 11).
     if not case.answer.strip():
         return [ANSWER_MISSING]
+    selection_gaps = selection_omissions(case)
+    if selection_gaps:
+        return selection_gaps
     if case.conclusion is None:
         if "conclusion" in case.step_states:
             return ["answer has no conclusion"]
@@ -124,6 +127,36 @@ def answer_omissions(case: ReasoningCase) -> list[str]:
         if not condition_covered(condition, case.answer):
             defects.append(f"answer omits condition: {condition}")
     return defects
+
+
+def selection_omissions(case: ReasoningCase) -> list[str]:
+    """A computed selection must be named, and every other candidate accounted for."""
+
+    selection = next(
+        (
+            output["selection"]
+            for output in case.step_outputs.values()
+            if isinstance(output.get("selection"), dict) and output["selection"].get("candidates")
+        ),
+        None,
+    )
+    if selection is None:
+        return []
+    defects = [
+        f"answer omits candidate: {candidate_id}"
+        for candidate_id in selection["candidates"]
+        if not _mentions(case.answer, candidate_id)
+    ]
+    selected = selection.get("selected")
+    if selected and not _mentions(case.answer, selected):
+        defects.insert(0, f"answer omits the selected candidate: {selected}")
+    return defects
+
+
+def _mentions(text: str, name: str) -> bool:
+    if re.fullmatch(r"[0-9A-Za-z]+", name):
+        return re.search(rf"(?<![0-9A-Za-z]){re.escape(name)}(?![0-9A-Za-z])", text) is not None
+    return name in text
 
 
 _TERM_RE = re.compile(r"[0-9A-Za-z가-힣]{2,}")

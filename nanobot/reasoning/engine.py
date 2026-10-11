@@ -21,6 +21,7 @@ from nanobot.reasoning.models import (
     Usage,
 )
 from nanobot.reasoning.registry import procedure as load_procedure
+from nanobot.reasoning.selection import CODE_OPS
 from nanobot.reasoning.z3check import check_entailment
 
 _ROLE_CHECKS = {
@@ -138,7 +139,12 @@ class ReasoningEngine:
             case.current_step = stage
             case.step_states[stage] = "running"
             step_calls[stage] = step_calls.get(stage, 0) + 1
-            payload = self.llm.complete(stage, self._payload(case, stage, repair.pop(stage, None)))
+            op_defects: list[str] = []
+            if self._step(procedure, stage).op != "llm":
+                # Code operations compute; no model call (design 8).
+                payload, op_defects = self._run_code_op(case, procedure, stage)
+            else:
+                payload = self.llm.complete(stage, self._payload(case, stage, repair.pop(stage, None)))
             if _result_revision(payload, procedure.revision) != case.execution_revision:
                 case.history.append({"event": "stale_result_ignored", "stage": stage})
                 stale_count = sum(
@@ -150,8 +156,9 @@ class ReasoningEngine:
                     self._stop(case, stage, "stale revision result repeated")
                     break
                 continue
-            self._record_usage(case, payload)
-            shape_defects = self._apply(case, stage, payload)
+            if self._step(procedure, stage).op == "llm":
+                self._record_usage(case, payload)
+            shape_defects = op_defects + self._apply(case, stage, payload)
             if "check" in self._step(procedure, stage).roles and case.procedure_id == "rule-judgment":
                 if self.z3_check:
                     self._check_rule_entailment(case)
@@ -225,6 +232,8 @@ class ReasoningEngine:
         return True
 
     def _retry_same_step(self, step, defects: list[str], calls: int, case: ReasoningCase) -> bool:
+        if step.op != "llm":
+            return False  # deterministic: the same inputs give the same result
         if calls >= step.budget.max_calls or case.revision_count >= self.max_revisions:
             return False
         # A step's own malformed or missing output is fixed at that step; judgment
@@ -287,6 +296,32 @@ class ReasoningEngine:
             case.answer = answer if isinstance(answer, str) else ""
         case.history.append({"event": "stage_result", "stage": stage, "role": role})
         return defects
+
+    def _run_code_op(
+        self,
+        case: ReasoningCase,
+        procedure: Procedure,
+        stage: str,
+    ) -> tuple[dict[str, Any], list[str]]:
+        step = self._step(procedure, stage)
+        operation = CODE_OPS.get(step.op)
+        if operation is None:
+            return {}, [f"unknown code operation: {step.op}"]
+        inputs: dict[str, Any] = {}
+        for ref in step.inputs:
+            inputs.update(case.step_outputs.get(ref, {}))
+        result, defects = operation(inputs)
+        case.checks.append(
+            CheckRecord(
+                id=f"check-{len(case.checks) + 1}",
+                target_version=f"{case.procedure_id}:{case.procedure_version}",
+                kind=step.op,
+                result="fail" if defects else "pass",
+                limit="deterministic over the extracted table; extraction itself is not verified",
+                defects=defects,
+            )
+        )
+        return result, defects
 
     @staticmethod
     def _apply_role(case: ReasoningCase, role: str, payload: dict[str, Any]) -> None:
@@ -619,6 +654,18 @@ _OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
         ]
     },
     "answer": {"answer": "사용자에게 보일 최종 답 2~4문장. open_issues가 있으면 미해결로 함께 밝힘"},
+    "extract": {
+        "table": {
+            "candidates": [
+                {"id": "A", "values": {"속성 이름": "숫자·true/false·문자열, 확인되지 않은 값은 null"}}
+            ],
+            "required": [
+                {"attr": "values의 속성 이름과 같게", "op": ">= | <= | > | < | == | !=", "value": "비교 값"}
+            ],
+            "objective": {"attr": "고를 때 비교할 속성", "direction": "max | min"},
+            "notes": ["단위 환산 등. 같은 속성은 모든 후보에서 같은 이름·단위의 숫자로. 정정된 값이 있으면 정정 값"],
+        }
+    },
 }
 
 

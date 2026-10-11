@@ -6,7 +6,7 @@ import pytest
 
 from nanobot.reasoning.engine import ReasoningEngine
 from nanobot.reasoning.llm import ScriptedStageLLM
-from nanobot.reasoning.registry import approved_procedures, procedure
+from nanobot.reasoning.registry import procedure, template_procedures
 
 
 def _scripts(goal: str) -> dict[str, dict]:
@@ -47,8 +47,8 @@ def _scripts(goal: str) -> dict[str, dict]:
     }
 
 
-@pytest.mark.parametrize("procedure_id", approved_procedures())
-def test_every_approved_procedure_completes(procedure_id: str) -> None:
+@pytest.mark.parametrize("procedure_id", template_procedures())
+def test_every_template_procedure_completes(procedure_id: str) -> None:
     loaded = procedure(procedure_id)
     case = ReasoningEngine(ScriptedStageLLM(_scripts(loaded.title))).run("요청", procedure_id=procedure_id)
 
