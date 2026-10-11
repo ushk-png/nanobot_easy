@@ -233,6 +233,7 @@ class AgentLoop:
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
         reasoning_effort: str | None = None,
+        stepwise_z3_check: bool = False,
         max_tool_result_chars: int | None = None,
         fail_on_tool_error: bool | None = None,
         provider_retry_mode: str = "standard",
@@ -294,6 +295,7 @@ class AgentLoop:
         )
         self.context_block_limit = context_block_limit
         self.reasoning_effort = reasoning_effort
+        self.stepwise_z3_check = stepwise_z3_check
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -490,6 +492,7 @@ class AgentLoop:
             context_window_tokens=context_window_tokens,
             context_block_limit=defaults.context_block_limit,
             reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
+            stepwise_z3_check=defaults.stepwise_z3_check,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -2062,6 +2065,7 @@ class AgentLoop:
             conversation=recent_conversation(ctx.initial_messages),
             sessions=self._stepwise_sessions(),
             session_key=ctx.session_key,
+            z3_check=getattr(self, "stepwise_z3_check", False),
         )
         if case.status == "direct":
             return False

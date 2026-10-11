@@ -31,7 +31,7 @@ def test_unsupported_reasoning_off_is_recorded_on_the_run(tmp_path: Path) -> Non
 
     record = json.loads((tmp_path / "memory" / "dynamic-reasoning.jsonl").read_text().splitlines()[-1])
     mode = record["reasoning_mode"]
-    assert mode["requested_effort"] == "none"
+    assert mode["requested_effort"] == "low"
     assert mode["disable_supported"] is False
     assert mode["status"].startswith("unsupported")
 
@@ -140,3 +140,76 @@ def test_notice_is_prefixed_when_the_channel_has_no_progress(monkeypatch) -> Non
 
     assert ctx.final_content.startswith("안내:")
     assert ctx.final_content.endswith("답입니다.")
+
+
+def test_stage_compose_and_review_calls_record_the_reasoning_actually_sent() -> None:
+    """The record shows the body's reasoning field when the provider reports it."""
+
+    from nanobot.reasoning.bridge import ProviderStageLLM
+
+    sent = {"summary": "concise", "effort": "low"}
+
+    class Provider:
+        def __init__(self) -> None:
+            self.efforts: list[Any] = []
+
+        async def chat_with_retry(self, **kwargs):
+            self.efforts.append(kwargs["reasoning_effort"])
+            return SimpleNamespace(
+                content="{}", usage={}, finish_reason="stop", request_options={"reasoning": sent}
+            )
+
+    provider = Provider()
+    llm = ProviderStageLLM(provider, "m")
+    for stage in ("procedure", "review", "S1"):
+        llm.complete(stage, {})
+
+    assert provider.efforts == ["low", "low", "low"]
+    assert [item["call_kind"] for item in llm.call_records] == ["compose", "review", "step"]
+    for record in llm.call_records:
+        assert record["reasoning_request"] == sent
+        assert record["reasoning_request_source"] == "request"
+
+
+def test_xai_response_reports_the_reasoning_field_from_the_final_body(monkeypatch) -> None:
+    bodies: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "nanobot.providers.xai_grok_provider.get_xai_oauth_token",
+        lambda **_kwargs: SimpleNamespace(access="t", account_id=None),
+    )
+
+    async def fake_request(_url, _headers, body, **_kwargs):
+        bodies.append(body)
+        return "{}", [], "stop", {}, None
+
+    monkeypatch.setattr("nanobot.providers.xai_grok_provider._request_xai", fake_request)
+    provider = XAIGrokProvider(default_model="xai-grok/grok-4.7", hosted_search=False)
+
+    low = asyncio.run(provider.chat([{"role": "user", "content": "hi"}], reasoning_effort="low"))
+    none = asyncio.run(provider.chat([{"role": "user", "content": "hi"}], reasoning_effort="none"))
+
+    assert low.request_options == {"reasoning": bodies[0]["reasoning"]}
+    assert bodies[0]["reasoning"]["effort"] == "low"
+    assert none.request_options == {"reasoning": None}
+
+
+def test_agent_loop_forwards_the_z3_setting(monkeypatch) -> None:
+    seen: dict[str, Any] = {}
+    loop = _loop_with(monkeypatch, [])
+
+    async def _capture(*_args, **kwargs):
+        from nanobot.reasoning.models import ReasoningCase
+
+        seen.update(kwargs)
+        return ReasoningCase(
+            id="c", request="r", procedure_id="p", procedure_version="3.1",
+            status="completed", answer="a",
+        )
+
+    monkeypatch.setattr("nanobot.agent.loop.run_reasoning_procedure", _capture)
+    asyncio.run(loop._state_run(_ctx(None)))
+    assert seen["z3_check"] is False
+
+    loop.stepwise_z3_check = True
+    asyncio.run(loop._state_run(_ctx(None, session_key="telegram:2")))
+    assert seen["z3_check"] is True

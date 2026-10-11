@@ -206,6 +206,7 @@ class XAIGrokProvider(LLMProvider):
                 finish_reason=finish_reason,
                 usage=usage,
                 reasoning_content=reasoning_content,
+                request_options={"reasoning": body.get("reasoning")},
             )
         except Exception as exc:
             response = _xai_error_response(exc)

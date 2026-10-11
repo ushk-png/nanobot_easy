@@ -69,8 +69,9 @@ def test_each_stage_call_records_duration_usage_and_payload(tmp_path: Path) -> N
         assert record["run_id"] == case.id
         assert isinstance(record["duration_ms"], int) and record["duration_ms"] >= 0
         assert record["model"] == "xai-grok/grok-4.7"
-        assert record["reasoning_effort"] == "none"
-        assert record["reasoning_request"] is None
+        assert record["reasoning_effort"] == "low"
+        assert record["reasoning_request"] == {"effort": "low"}
+        assert record["reasoning_request_source"] == "derived"
         assert record["input_tokens"] == 100
         assert record["output_tokens"] == 40
         assert record["reasoning_tokens"] == 30

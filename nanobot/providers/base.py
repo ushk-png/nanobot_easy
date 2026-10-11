@@ -184,6 +184,8 @@ class LLMResponse:
     error_code: str | None = None  # Provider/code semantic, e.g. rate_limit_exceeded.
     error_retry_after_s: float | None = None
     error_should_retry: bool | None = None
+    # Request fields a provider reports as actually sent (e.g. {"reasoning": ...}); None = not reported.
+    request_options: dict[str, Any] | None = None
 
     @property
     def has_tool_calls(self) -> bool:

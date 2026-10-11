@@ -44,6 +44,7 @@ class ReasoningEngine:
         max_revisions: int = 3,
         max_stage_calls: int = 64,
         on_stage: Callable[[str, str, str], None] | None = None,
+        z3_check: bool = False,
     ) -> None:
         self.llm = llm
         self.reasoning_effort = reasoning_effort
@@ -51,6 +52,8 @@ class ReasoningEngine:
         self.max_revisions = max_revisions
         self.max_stage_calls = max_stage_calls
         self.on_stage = on_stage
+        # Off until rules are actually formalized; a disabled check is recorded, never passed.
+        self.z3_check = z3_check
         self._procedure: Procedure | None = None
 
     def run(
@@ -147,7 +150,10 @@ class ReasoningEngine:
             self._record_usage(case, payload)
             shape_defects = self._apply(case, stage, payload)
             if self._step(procedure, stage).role == "check" and case.procedure_id == "rule-judgment":
-                self._check_rule_entailment(case)
+                if self.z3_check:
+                    self._check_rule_entailment(case)
+                else:
+                    self._record_z3_disabled(case)
             defects = shape_defects + check_stage(
                 case,
                 self._check_stage(procedure, stage),
@@ -392,6 +398,20 @@ class ReasoningEngine:
         case.usage.output_tokens += int(usage.get("output_tokens") or 0)
         case.usage.reasoning_tokens += int(usage.get("reasoning_tokens") or 0)
         case.usage.duration_ms += int(usage.get("duration_ms") or 0)
+
+    def _record_z3_disabled(self, case: ReasoningCase) -> None:
+        case.checks.append(
+            CheckRecord(
+                id=f"check-{len(case.checks) + 1}",
+                target_version=f"{case.procedure_id}:{case.procedure_version}",
+                kind="z3:entailment",
+                result="DISABLED",
+                limit=(
+                    "not run: rules are not formalized yet; "
+                    "enable with agents.defaults.stepwiseZ3Check"
+                ),
+            )
+        )
 
     def _check_rule_entailment(self, case: ReasoningCase) -> None:
         """Record solver status without treating SAT as proof of the claim."""

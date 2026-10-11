@@ -122,10 +122,30 @@ def test_repeated_stale_revision_stops_within_call_budget() -> None:
 
 
 def test_rule_judgment_records_z3_limit() -> None:
-    case = ReasoningEngine(ScriptedStageLLM(_scripts("규칙 판단"))).run("규정", procedure_id="rule-judgment")
+    case = ReasoningEngine(ScriptedStageLLM(_scripts("규칙 판단")), z3_check=True).run(
+        "규정", procedure_id="rule-judgment"
+    )
     z3_checks = [item for item in case.checks if item.kind == "z3:entailment"]
 
     assert case.status == "completed"
     assert len(z3_checks) == 1
     assert z3_checks[0].result == "UNDETERMINED"
     assert "not natural-language truth" in z3_checks[0].limit
+
+
+def test_z3_check_is_disabled_by_default_and_recorded_as_such() -> None:
+    case = ReasoningEngine(ScriptedStageLLM(_scripts("규칙 판단"))).run("규정", procedure_id="rule-judgment")
+    z3_checks = [item for item in case.checks if item.kind == "z3:entailment"]
+
+    assert case.status == "completed"
+    assert len(z3_checks) == 1
+    assert z3_checks[0].result == "DISABLED"
+    assert "stepwiseZ3Check" in z3_checks[0].limit
+
+
+def test_z3_setting_reaches_the_engine_from_config() -> None:
+    from nanobot.config.schema import Config
+
+    assert Config().agents.defaults.stepwise_z3_check is False
+    enabled = Config.model_validate({"agents": {"defaults": {"stepwiseZ3Check": True}}})
+    assert enabled.agents.defaults.stepwise_z3_check is True

@@ -60,7 +60,9 @@ def is_method_evaluation_request(content: str) -> bool:
     return select_procedure(content) == "method-evaluation"
 
 
-STAGE_REASONING_EFFORT = "none"
+# Stage, compose and review calls. grok-4.5/4.6/4.7 cannot turn reasoning off and
+# default to "high" when the field is omitted; "low" is the lowest documented value.
+STAGE_REASONING_EFFORT = "low"
 
 
 class ProviderStageLLM:
@@ -99,7 +101,7 @@ class ProviderStageLLM:
                 "duration_ms": duration_ms,
                 "model": self.model,
                 "reasoning_effort": self.reasoning_effort,
-                "reasoning_request": _reasoning_request(self.provider, self.reasoning_effort),
+                **_sent_reasoning(response, self.provider, self.reasoning_effort),
                 "input_tokens": input_tokens,
                 "output_tokens": output_tokens,
                 "reasoning_tokens": None if reasoning_tokens is None else int(reasoning_tokens),
@@ -168,6 +170,18 @@ def _call_kind(stage: str) -> str:
     return "step"
 
 
+def _sent_reasoning(response: Any, provider: Any, effort: str | None) -> dict[str, Any]:
+    """The reasoning field as sent (provider-reported), else as derived from the effort."""
+
+    options = getattr(response, "request_options", None)
+    if isinstance(options, dict) and "reasoning" in options:
+        return {"reasoning_request": options["reasoning"], "reasoning_request_source": "request"}
+    return {
+        "reasoning_request": _reasoning_request(provider, effort),
+        "reasoning_request_source": "derived",
+    }
+
+
 def _reasoning_request(provider: Any, effort: str | None) -> Any:
     """Report the reasoning field actually placed in the request body."""
 
@@ -227,6 +241,7 @@ async def run_reasoning_procedure(
     conversation: list[dict[str, str]] | None = None,
     sessions: ReasoningSessions | None = None,
     session_key: str | None = None,
+    z3_check: bool = False,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
     first call chooses direct / reuse / new, or resume / update for the session's
@@ -288,9 +303,10 @@ async def run_reasoning_procedure(
 
     engine = ReasoningEngine(
         llm,
-        reasoning_effort="none",
+        reasoning_effort=STAGE_REASONING_EFFORT,
         reasoning_disabled_guaranteed=False,
         on_stage=_on_stage,
+        z3_check=z3_check,
     )
     if proposal.path in {"resume", "update"} and prior is not None:
         previous_case, selected = prior
@@ -349,7 +365,8 @@ def reasoning_mode_notice(provider: Any, model: str | None) -> str | None:
         return None
     return (
         f"안내: {model} 모델은 추론을 끌 수 없어, 설정의 '추론 끄기'가 적용되지 않습니다. "
-        "단계별 절차는 이 모델의 기본 추론을 켠 상태로 실행되며 응답이 느릴 수 있습니다."
+        f"단계별 절차는 이 모델의 추론을 가장 낮은 강도({STAGE_REASONING_EFFORT})로 켠 채 "
+        "실행되며 응답이 느릴 수 있습니다."
     )
 
 
