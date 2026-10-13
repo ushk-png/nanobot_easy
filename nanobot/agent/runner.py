@@ -18,6 +18,7 @@ from nanobot.agent.context_governance import (
     ContextGovernor,
 )
 from nanobot.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
+from nanobot.agent.premature_final import CORRECTION, INCOMPLETE, is_premature_final
 from nanobot.agent.tools.registry import ToolRegistry, is_tool_error_result
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from nanobot.session.history_visibility import is_hidden_history_message
@@ -104,6 +105,8 @@ class AgentRunSpec:
     goal_active_predicate: Callable[[], bool] | None = None
     goal_continue_message: GoalContinueMessage | None = None
     finalize_on_max_iterations: bool = True
+    premature_final_guard: bool = False
+    premature_final_session_metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -361,6 +364,30 @@ class AgentRunner:
         had_injections = False
         injection_cycles = 0
         compacted_tool_call_ids: set[str] = set()
+        premature_final_corrections = 0
+
+        async def guard_final(clean, assistant_message, iteration, *, already_appended=False):
+            nonlocal premature_final_corrections, stop_reason
+            if not spec.premature_final_guard or not is_premature_final(
+                clean, messages, spec.tools, tool_events,
+                spec.premature_final_session_metadata,
+            ):
+                return clean, False
+            if premature_final_corrections == 0 and iteration + 1 < spec.max_iterations:
+                premature_final_corrections += 1
+                if not already_appended:
+                    messages.append(assistant_message)
+                await self._emit_checkpoint(spec, {
+                    "phase": "final_response", "iteration": iteration, "model": spec.model,
+                    "assistant_message": assistant_message,
+                    "completed_tool_results": [], "pending_tool_calls": [],
+                })
+                messages.append({"role": "user", "content": CORRECTION, "_hidden_history": True})
+                return clean, True
+            stop_reason = "incomplete"
+            assistant_message["content"] = INCOMPLETE
+            return INCOMPLETE, False
+
         governance_config = ContextGovernanceConfig(
             provider=self.provider,
             model=spec.model,
@@ -508,19 +535,38 @@ class AgentRunner:
                     break
                 if observability_final:
                     clean = hook.finalize_content(context, response.content)
-                    if hook.wants_streaming():
-                        await hook.on_stream_end(context, resuming=False)
-                    await self._emit_checkpoint(
-                        spec,
-                        {
-                            "phase": "tools_completed",
-                            "iteration": iteration,
-                            "model": spec.model,
-                            "assistant_message": assistant_message,
-                            "completed_tool_results": completed_tool_results,
-                            "pending_tool_calls": [],
-                        },
+                    await self._emit_checkpoint(spec, {
+                        "phase": "tools_completed", "iteration": iteration, "model": spec.model,
+                        "assistant_message": assistant_message,
+                        "completed_tool_results": completed_tool_results, "pending_tool_calls": [],
+                    })
+                    clean, guard_resume = await guard_final(
+                        clean, assistant_message, iteration, already_appended=True,
                     )
+                    if guard_resume:
+                        drained, injection_cycles = await self._try_drain_injections(
+                            spec, messages, None, injection_cycles, phase="after final correction",
+                        )
+                        had_injections = had_injections or drained
+                        if hook.wants_streaming():
+                            await hook.on_stream_end(context, resuming=True)
+                        await hook.after_iteration(context)
+                        continue
+                    # Match the ordinary final path's injection/goal behavior.
+                    should_continue, injection_cycles = await self._try_drain_injections(
+                        spec, messages, None, injection_cycles, phase="after observability final",
+                    )
+                    if not should_continue and stop_reason != "incomplete":
+                        predicate = spec.goal_active_predicate
+                        if predicate is not None and predicate():
+                            messages.append(self._build_goal_continue_message(spec))
+                            should_continue = True
+                    if hook.wants_streaming():
+                        await hook.on_stream_end(context, resuming=should_continue)
+                    if should_continue:
+                        had_injections = True
+                        await hook.after_iteration(context)
+                        continue
                     await self._emit_checkpoint(
                         spec,
                         {
@@ -629,6 +675,18 @@ class AgentRunner:
                     thinking_blocks=response.thinking_blocks,
                 )
 
+            if assistant_message is not None:
+                clean, guard_resume = await guard_final(clean, assistant_message, iteration)
+                if guard_resume:
+                    drained, injection_cycles = await self._try_drain_injections(
+                        spec, messages, None, injection_cycles, phase="after final correction",
+                    )
+                    had_injections = had_injections or drained
+                    if hook.wants_streaming():
+                        await hook.on_stream_end(context, resuming=True)
+                    await hook.after_iteration(context)
+                    continue
+
             # Check for mid-turn injections BEFORE signaling stream end.
             # If injections are found we keep the stream alive (resuming=True)
             # so streaming channels don't prematurely finalize the card.
@@ -636,7 +694,7 @@ class AgentRunner:
                 spec, messages, assistant_message, injection_cycles,
                 phase="after final response",
                 iteration=iteration,
-                allow_goal_continue=True,
+                allow_goal_continue=stop_reason != "incomplete",
             )
             if should_continue:
                 had_injections = True
@@ -730,6 +788,11 @@ class AgentRunner:
                 )
             if final_content is None:
                 final_content = self._max_iterations_fallback(spec)
+            if spec.premature_final_guard and is_premature_final(
+                final_content, messages, spec.tools, tool_events,
+                spec.premature_final_session_metadata,
+            ):
+                final_content = INCOMPLETE
             self._append_final_message(messages, final_content)
 
         return AgentRunResult(
