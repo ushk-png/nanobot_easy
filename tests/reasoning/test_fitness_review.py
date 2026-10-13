@@ -220,7 +220,7 @@ def test_agent_loop_tells_the_user_before_falling_back(monkeypatch) -> None:
         tools_used=None, all_messages=None, stop_reason=None, had_injections=None,
     )
 
-    asyncio.run(loop._state_run(ctx))
-
+    # Explicit legacy diagnostic adapter still announces fallback. Ordinary turns
+    # no longer invoke this adapter before the general loop (v3.4).
+    assert asyncio.run(loop._run_stepwise(ctx)) is False
     assert FALLBACK_NOTICE in notes
-    assert ctx.final_content == "일반 답"

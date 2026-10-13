@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import re
 import time
@@ -26,6 +27,7 @@ from nanobot.reasoning.llm import BudgetExceededError, RunBudget
 from nanobot.reasoning.models import Procedure, ReasoningCase
 from nanobot.reasoning.registry import approved_procedures
 from nanobot.reasoning.registry import procedure as approved_procedure
+from nanobot.utils.helpers import _write_text_atomic
 
 _PROCEDURE_MARKERS: dict[str, tuple[str, ...]] = {
     "cause-analysis": ("원인분석", "원인 분석", "왜 이런", "왜 발생", "원인이"),
@@ -186,10 +188,9 @@ def _stage_prompt(stage: str) -> str:
         "output_shape가 있으면 그 키와 형태를 그대로 따른다. "
         "defects에는 결론을 바꾸거나 규칙(필수 조건 상쇄, 미확인의 충족 승격, 근거 없는 판단, "
         "판단과 결론 불일치)을 어기는 결함만 적는다. 표현 다듬기나 허용된 미확인 표시는 결함이 아니다. "
-        "이 단계는 검증용 짧은 판단이다. 설명, 배경, 장문 근거는 쓰지 않는다. "
-        "각 문장은 40자 안팎의 한 문장으로 하고, 항목은 필요한 최소 개수만 둔다. "
+        "이 단계의 작업과 필요한 근거만 작성한다. 불필요한 배경 설명은 피한다. "
         "expected_outputs에 answer가 있는 단계에서만 사용자에게 보일 최종 답을 "
-        "2~4문장으로 answer에 쓴다. 그 외 단계의 answer는 비운다. "
+        "사용자가 요구한 길이와 형식에 맞춰 answer에 쓴다. 그 외 단계의 answer는 비운다. "
         "repair_defects가 있으면 그 결함만 고친다. 검증 상태나 다음 단계 지시는 포함하지 않는다."
     )
 
@@ -229,28 +230,97 @@ def _reasoning_request(provider: Any, effort: str | None) -> Any:
 class ReasoningSessions:
     """Last stepwise case per session, kept so a follow-up can resume or update it."""
 
-    def __init__(self, ttl_s: float = 30 * 60, max_items: int = 256) -> None:
+    def __init__(
+        self, ttl_s: float = 30 * 60, max_items: int = 256, *, workspace: Path | None = None
+    ) -> None:
         self.ttl_s = ttl_s
         self.max_items = max_items
+        self.workspace = workspace.resolve() if workspace is not None else None
         self._items: dict[str, tuple[float, ReasoningCase, Procedure]] = {}
+
+    def bind(self, workspace: Path | None) -> None:
+        if workspace is not None and workspace.resolve() != self.workspace:
+            self.workspace = workspace.resolve()
+            self._items.clear()  # Never reuse another workspace's cases.
+
+    def _path(self, key: str) -> Path | None:
+        if self.workspace is None:
+            return None
+        # Session keys are not paths and must not escape the workspace.
+        digest = hashlib.sha256(key.encode("utf-8")).hexdigest()
+        return self.workspace / "memory" / "reasoning-sessions" / f"{digest}.json"
 
     def get(self, key: str) -> tuple[ReasoningCase, Procedure] | None:
         item = self._items.get(key)
+        path = self._path(key)
+        if item is None and path is not None and path.exists():
+            try:
+                saved = json.loads(path.read_text(encoding="utf-8"))
+                if saved["session_key"] != key:
+                    return None
+                item = (
+                    float(saved["stored_at"]),
+                    ReasoningCase.model_validate(saved["case"]),
+                    Procedure.model_validate(saved["procedure"]),
+                )
+                self._items[key] = item
+            except (ValueError, KeyError, TypeError, OSError) as exc:
+                logger.warning("Cannot load reasoning session: {}", exc)
+                return None
         if item is None:
             return None
         stored_at, case, procedure = item
-        if time.monotonic() - stored_at > self.ttl_s:
-            self._items.pop(key, None)
+        # Unfinished work must survive restart and long gaps; normal follow-ups keep their TTL.
+        if case.status != "incomplete" and time.time() - stored_at > self.ttl_s:
+            self.drop(key)
             return None
         return case, procedure
 
     def put(self, key: str, case: ReasoningCase, procedure: Procedure) -> None:
-        self._items[key] = (time.monotonic(), case, procedure)
+        stored_at = time.time()
+        self._items[key] = (stored_at, case, procedure)
+        path = self._path(key)
+        if path is not None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            _write_text_atomic(path, json.dumps({
+                "session_key": key, "stored_at": stored_at,
+                "case": case.model_dump(mode="json"),
+                "procedure": procedure.model_dump(mode="json"),
+            }, ensure_ascii=False))
         while len(self._items) > self.max_items:
             self._items.pop(next(iter(self._items)))
 
     def drop(self, key: str) -> None:
         self._items.pop(key, None)
+        path = self._path(key)
+        if path is not None:
+            path.unlink(missing_ok=True)
+
+
+def is_explicit_continuation(request: str) -> bool:
+    """Only standalone continuation commands, never a new topic containing 'continue'."""
+
+    return bool(re.fullmatch(
+        r"(?:계속(?:\s*(?:작업|진행))?(?:\s*해\s*줘|\s*해주세요)?|"
+        r"이어서(?:\s*(?:작업|진행))?(?:\s*해\s*줘|\s*해주세요)?|"
+        r"continue(?:\s+(?:working|please))?|resume(?:\s+please)?)\s*[.!?]*",
+        request.strip(), re.IGNORECASE,
+    ))
+
+
+def investigation_requires_tools(request: str) -> bool:
+    """Explicit evidence acquisition, not the mere presence of a cause question."""
+
+    action = re.search(
+        r"직접\s*(?:조사|확인|분석)|(?:읽|찾|실행|조회|검사|확인|조사)(?:해|하|어)|"
+        r"\b(?:inspect|execute|search|read|investigate)\b", request, re.IGNORECASE,
+    )
+    target = re.search(
+        r"로그|파일|코드|서버|프로세스|게이트웨이|나노봇|지니|nanobot|gateway|reason-[a-f0-9]+|"
+        r"https?://|/[\w.-]+/|\b(?:logs?|files?|repository|process|server)\b",
+        request, re.IGNORECASE,
+    )
+    return bool(action and target)
 
 
 @dataclass
@@ -284,6 +354,9 @@ async def run_reasoning_procedure(
     procedures: tuple[str, ...] | list[str] | None = None,
     prefill: bool | None = None,
     fallback_direct: bool = True,
+    extracted: dict[str, Any] | None = None,
+    supplied_procedure: Procedure | None = None,
+    shared_budget: RunBudget | None = None,
 ) -> ReasoningCase:
     """Run one request. ``procedure_id`` is an explicit selection; otherwise the
     first call chooses direct / reuse / new, or resume / update for the session's
@@ -291,7 +364,7 @@ async def run_reasoning_procedure(
 
     llm = ProviderStageLLM(provider, model)
     # One budget for routing, steps, review and retries (design 9, 12).
-    llm.budget = RunBudget(seconds=time_budget_s, max_calls=call_budget)
+    llm.budget = shared_budget or RunBudget(seconds=time_budget_s, max_calls=call_budget)
     conversation = list(conversation or [])
     mode = _reasoning_mode(provider, model)
     if mode["disable_supported"] is False:
@@ -302,7 +375,20 @@ async def run_reasoning_procedure(
             model,
             STAGE_REASONING_EFFORT,
         )
+    if sessions is not None:
+        sessions.bind(workspace)
     prior = sessions.get(session_key) if sessions is not None and session_key else None
+    continuing = prior is not None and is_explicit_continuation(request)
+    original_request = prior[0].request if continuing else request
+    if investigation_requires_tools(original_request):
+        case = _fallback_case(original_request, "tools_required")
+        case.path = "direct"
+        case.stop_reason = ""
+        if sessions is not None and session_key:
+            sessions.drop(session_key)
+        _finish_calls(case, llm, None)
+        _record_execution(case, None, workspace, [])
+        return case
     granularity = procedure_granularity(provider, model, layout)
     # The routing call also does the first step's extraction in the two-call layout.
     prefill_enabled = granularity == "two_call" if prefill is None else prefill
@@ -314,8 +400,13 @@ async def run_reasoning_procedure(
             loaded.review_policy = "required"
         return loaded
 
-    selected = load(procedure_id) if procedure_id else None
+    selected = supplied_procedure or (load(procedure_id) if procedure_id else None)
     proposal = _Proposal(selected, [], [], "explicit")
+    if selected is not None and extracted:
+        proposal.prefill = {selected.steps[0].id: extracted}
+    if selected is None and continuing and prior[0].status == "incomplete":
+        proposal = _Proposal(prior[1], [], [{"mode": "resume", "explicit": True}], "resume")
+        selected = prior[1]
     if selected is None:
         await _emit_progress(on_progress, "절차를 구성하고 있습니다.")
         try:
@@ -353,7 +444,7 @@ async def run_reasoning_procedure(
             # Chat, simple lookups and tool work go to the normal agent loop.
             case = ReasoningCase(
                 id=f"direct-{uuid4().hex[:12]}",
-                request=request,
+                request=original_request,
                 procedure_id="direct",
                 procedure_version="-",
                 status="direct",
@@ -422,12 +513,12 @@ async def run_reasoning_procedure(
         case.status = "failed_empty_answer"
     if case.status == "failed_empty_answer":
         case.stop_reason = _empty_answer_status(selected)
+    _finish_calls(case, llm, selected)
     if sessions is not None and session_key:
-        if case.status in {"waiting_info", "completed"}:
+        if case.status in {"waiting_info", "completed", "incomplete"}:
             sessions.put(session_key, case, selected)
         else:
             sessions.drop(session_key)
-    _finish_calls(case, llm, selected)
     _record_execution(case, selected, workspace, [], proposal.trace)
     return case
 
@@ -575,11 +666,13 @@ async def _propose_dynamic_procedure(
                 break
             continue
         mode = str(proposal.pop("mode", "") or "").strip().lower()
-        if mode == "direct":
-            trace.append({"attempt": attempt, "mode": "direct"})
+        if mode == "direct" or proposal.get("requires_tools") is True:
+            trace.append({"attempt": attempt, "mode": "direct", "requires_tools": proposal.get("requires_tools") is True})
             return _Proposal(None, [], trace, "direct")
         if mode in {"resume", "update"}:
             follow_defects, facts = _follow_up_defects(mode, proposal, prior)
+            if mode == "resume" and prior is not None and prior[0].status == "incomplete" and not is_explicit_continuation(request):
+                follow_defects = ["resume_invalid: incomplete work requires an explicit continuation"]
             trace.append({"attempt": attempt, "mode": mode, "defects": follow_defects})
             if not follow_defects:
                 # Same task and unchanged procedure: no regeneration or review (design 10).
@@ -648,6 +741,8 @@ async def _propose_dynamic_procedure(
 def _previous_summary(case: ReasoningCase, procedure: Procedure) -> dict[str, Any]:
     return {
         "status": case.status,
+        "request": case.request,
+        "unfinished_steps": [key for key, state in case.step_states.items() if state not in {"passed", "conditionally_passed"}],
         "procedure_id": procedure.id,
         "goal": case.goal,
         "questions": case.questions,
@@ -674,8 +769,8 @@ def _follow_up_defects(
         return [f"{mode}_invalid at mode: expected a previous case; observed none"], []
     case, procedure = prior
     if mode == "resume":
-        if case.status != "waiting_info":
-            return [f"resume_invalid at mode: expected waiting_info; observed {case.status}"], []
+        if case.status not in {"waiting_info", "incomplete"}:
+            return [f"resume_invalid at mode: expected waiting_info or incomplete; observed {case.status}"], []
         return [], []
     if case.status != "completed" or not _has_role(procedure, "facts"):
         return ["update_invalid at mode: previous case has no facts step to update"], []
@@ -687,7 +782,7 @@ def _follow_up_defects(
         fact_id = str(raw.get("id") or "").strip()
         if not fact_id:
             fact_id = f"u{len(known) + index + 1}"
-        status = str(raw.get("status") or "confirmed")
+        status = str(raw.get("status") or "unknown")
         facts.append(
             {
                 "id": fact_id,
@@ -890,7 +985,8 @@ def _incomplete_reply(case: ReasoningCase) -> str:
             label = criteria.get(judgment.criterion_id, judgment.criterion_id)
             lines.append(f"- {label}: {results.get(judgment.result, judgment.result)}")
     elif case.answer.strip():
-        lines.append(f"점검을 마치지 못한 답변: {case.answer.strip()}")
+        lines.append("점검을 마치지 못한 답변:")
+        lines.append(case.answer.strip())
     unfinished = [step for step, state in case.step_states.items() if state not in {"passed"}]
     if len(lines) == 1 and unfinished and len(unfinished) == len(case.step_states):
         lines.append("판단 단계를 시작하기 전에 예산을 다 써서, 확인된 결과가 없습니다.")
@@ -1033,7 +1129,9 @@ _PROCEDURE_PROMPT = (
     "함께 낸다(대화에 정정된 값이 있으면 정정 값). "
     "목적·필수 조건·평가 기준이 바뀌는 메시지는 update가 아니라 reuse로 처음부터 다시 한다. "
     "new: 그 밖에 판단이 필요한 요청은 mode new와 함께 절차를 반환한다. "
-    "previous_case가 있을 때: 이 메시지가 그 questions에 대한 답이면 {\"mode\": \"resume\"}. "
+    "previous_case가 있을 때: 이 메시지가 그 questions에 대한 답이거나 미완료 작업의 계속 요청이면 "
+    "{\"mode\": \"resume\"}. 이전 request의 로그·파일·프로세스 등 근거를 실제로 조사해야 하면 "
+    "로그를 사용자에게 요청하는 절차 대신 {\"mode\": \"direct\", \"requires_tools\": true}를 반환한다. "
     "이전 결과에 대한 새 사실이나 정정이고 can_update_facts가 true이면 "
     "{\"mode\": \"update\", \"facts\": [{\"id\": \"고치는 사실의 id, 새 사실이면 생략\", "
     "\"proposition\": \"한 문장\", \"status\": \"confirmed|estimated|unknown\"}]}. "

@@ -142,8 +142,11 @@ def test_known_goal_fills_missing_purpose_without_overwrite() -> None:
         known_goal="일정 조정 순서를 판단한다.",
     )
 
-    assert conflict is None
-    assert "purpose_conflict" in conflict_defects[0]
+    # Structural checking cannot decide semantic purpose equivalence. The separate
+    # mandatory fitness review owns rejection of a genuinely different purpose.
+    assert conflict is not None
+    assert conflict.purpose == "다른 목적"
+    assert conflict_defects == []
 
 
 def test_missing_purpose_without_known_goal_is_not_invented() -> None:
@@ -310,7 +313,7 @@ def test_requirement_identifier_alone_is_not_coverage() -> None:
     assert "requirement_unlinked" in defects[0]
 
 
-def test_structured_requirement_must_reach_judgment_and_selection() -> None:
+def test_requirement_reaches_answer_without_forcing_selection() -> None:
     procedure, defects = validate_dynamic_procedure(
         {
             "purpose": "보고서 분석 도구를 선정한다.",
@@ -323,8 +326,10 @@ def test_structured_requirement_must_reach_judgment_and_selection() -> None:
         request=REPORT_TOOL_REQUEST,
     )
 
-    assert procedure is None
-    assert "requirement_unjudged" in defects[0]
+    # Requirement linkage is valid. Whether reporting alone fulfills this request
+    # is a fitness-review question, not a reason to force selection on every task.
+    assert procedure is not None
+    assert defects == []
 
 
 def test_conflicting_wrappers_are_not_silently_selected() -> None:

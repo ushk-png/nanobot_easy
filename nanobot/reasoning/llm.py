@@ -45,6 +45,15 @@ class RunBudget:
         self.calls += 1
         return remaining
 
+    def can_spend(self, seconds: float) -> bool:
+        """Whether another model call of about ``seconds`` still fits. Does not count a call."""
+
+        if self.max_calls is not None and self.calls >= self.max_calls:
+            return False
+        if self.seconds is None:
+            return True
+        return self.seconds - self.elapsed() >= seconds
+
 
 class StageLLM(Protocol):
     def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:

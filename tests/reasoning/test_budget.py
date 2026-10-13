@@ -62,6 +62,38 @@ def test_engine_keeps_confirmed_results_when_the_budget_runs_out() -> None:
     assert "미완료 단계" in reply and "S5" in reply
 
 
+def test_retry_is_not_started_when_the_time_budget_cannot_finish_it() -> None:
+    outputs = dict(STAGE_OUTPUTS)
+    outputs["S2"] = {
+        "facts": [{"id": "f1", "proposition": "두 일정이 겹침", "source": "request", "status": "unknown"}]
+    }
+
+    class Once:
+        def __init__(self) -> None:
+            self.calls: list[str] = []
+            self.budget = RunBudget(seconds=30, max_calls=8)
+            self.budget.started -= 15  # 15s left, below the 20s repair floor
+
+        def complete(self, stage: str, payload: dict[str, Any]) -> dict[str, Any]:
+            self.calls.append(stage)
+            return dict(outputs[stage])
+
+    llm = Once()
+    case = ReasoningEngine(llm).run("평가")
+
+    assert llm.calls == ["S1", "S2", "S3", "S4"]
+    assert case.status == "incomplete"
+    assert case.stop_reason == "budget:time"
+    assert any(
+        item.get("event") == "budget_blocked_retry" and item.get("stage") == "S4"
+        for item in case.history
+    )
+    reply = user_reply(case)
+    assert "시간 예산" in reply
+    assert "충족" in reply
+    assert "미완료 단계" in reply and "S4" in reply
+
+
 def test_routing_call_over_budget_is_incomplete(tmp_path) -> None:
     class Provider:
         async def chat_with_retry(self, **_kwargs):

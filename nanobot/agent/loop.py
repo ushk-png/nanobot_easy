@@ -2055,7 +2055,7 @@ class AgentLoop:
     def _stepwise_sessions(self) -> ReasoningSessions:
         sessions = getattr(self, "_reasoning_sessions", None)
         if sessions is None:
-            sessions = ReasoningSessions()
+            sessions = ReasoningSessions(workspace=self.workspace)
             self._reasoning_sessions = sessions
         return sessions
 
@@ -2097,6 +2097,13 @@ class AgentLoop:
             review_required=tuple(getattr(self, "stepwise_review_required", ())),
         )
         if case.status == "direct":
+            if case.request != ctx.msg.content:
+                # The normal tool loop otherwise sees only 'continue', losing the concrete target.
+                ctx.initial_messages = list(ctx.initial_messages)
+                ctx.initial_messages.append({
+                    "role": "user",
+                    "content": f"[계속할 원래 요청]\n{case.request}\n\n[현재 요청]\n{ctx.msg.content}",
+                })
             if case.path == "fallback" and ctx.on_progress is not None and case.stop_reason:
                 await ctx.on_progress(case.stop_reason, tool_hint=False)
             return False
@@ -2114,12 +2121,25 @@ class AgentLoop:
         return True
 
     async def _state_run(self, ctx: TurnContext) -> str:
-        if (
-            self._stepwise_enabled()
-            and not self._is_direct_request(ctx.msg.content)
-            and await self._run_stepwise(ctx)
-        ):
-            return "ok"
+        if self._stepwise_enabled():
+            from nanobot.reasoning.agent_tool import ReasoningAssistTool
+            from nanobot.reasoning.bridge import is_explicit_continuation
+
+            # Restore only an explicitly continued unfinished task; no routing call.
+            prior = self._stepwise_sessions().get(ctx.session_key)
+            if prior is not None and is_explicit_continuation(ctx.msg.content):
+                ctx.initial_messages = list(ctx.initial_messages) + [{
+                    "role": "user",
+                    "content": f"[계속할 원래 요청]\n{prior[0].request}\n\n[현재 요청]\n{ctx.msg.content}",
+                }]
+            # Turn-local registry: do not widen disabled agents or caller tool allowlists.
+            if ctx.tools is None:
+                tools = ToolRegistry()
+                base_tools = getattr(self, "tools", None)
+                for name in base_tools.tool_names if base_tools is not None else ():
+                    tools.register(base_tools.get(name))
+                tools.register(ReasoningAssistTool(self, ctx, time.monotonic()))
+                ctx.tools = tools
         if ctx.visible_run_started_at is None:
             ctx.visible_run_started_at = time.time()
         await self._runtime_events().run_status_changed(

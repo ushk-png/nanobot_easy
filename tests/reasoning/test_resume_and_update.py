@@ -189,8 +189,9 @@ def test_agent_loop_keeps_one_session_store_across_turns(monkeypatch) -> None:
         )
 
     first, second = ctx(), ctx()
-    asyncio.run(loop._state_run(first))
-    asyncio.run(loop._state_run(second))
+    # Exercise the preserved explicit legacy adapter, not the general-first entry.
+    asyncio.run(loop._run_stepwise(first))
+    asyncio.run(loop._run_stepwise(second))
 
     assert seen[0][0] is seen[1][0]
     assert seen[0][1] == KEY

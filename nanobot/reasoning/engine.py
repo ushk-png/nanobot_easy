@@ -101,14 +101,24 @@ class ReasoningEngine:
         return self._execute(case, procedure)
 
     def resume(self, case: ReasoningCase, procedure: Procedure, reply: str) -> ReasoningCase:
-        """Continue a case that waited for information, from the waiting step (design 6.2, 7)."""
+        """Resume waiting input or unfinished execution without promoting unchecked output."""
 
         self._procedure = procedure
-        waiting = [item for item, state in case.step_states.items() if state == "waiting_info"]
-        start = waiting[0] if waiting else self._first_role("goal")
-        asked = " / ".join(case.questions)
-        case.request = f"{case.request}\n\n[질문] {asked}\n[사용자 답변] {reply.strip()}"
-        case.questions = []
+        if case.status == "incomplete":
+            unfinished = [
+                item for item in self._execution_order(procedure)
+                if case.step_states.get(item) not in {"passed", "conditionally_passed"}
+            ]
+            if not unfinished:
+                raise ValueError("Incomplete case has no unfinished stage")
+            start = unfinished[0]
+            # A continuation is not a new fact or an answer to a question.
+        else:
+            waiting = [item for item, state in case.step_states.items() if state == "waiting_info"]
+            start = waiting[0] if waiting else self._first_role("goal")
+            asked = " / ".join(case.questions)
+            case.request = f"{case.request}\n\n[질문] {asked}\n[사용자 답변] {reply.strip()}"
+            case.questions = []
         self._invalidate_from(case, start)
         case.revision_count = 0
         case.history.append({"event": "resumed", "from": start})
@@ -218,6 +228,10 @@ class ReasoningEngine:
                     )
                 ]
                 defects += self._structured_answer_defects(case, procedure, stage, payload)
+            if defects and self._budget_blocks_retry(stage):
+                # A repair call would be cut off. Keep the answer already produced.
+                self._keep_unconfirmed(case, stage, defects, "time")
+                break
             if defects and self._accept_open_issues(case, stage, defects):
                 # A check that already sent the run back once: remaining model findings
                 # are not passed as clean; see _accept_open_issues (design 6.2, 9).
@@ -501,6 +515,34 @@ class ReasoningEngine:
             )
         )
 
+    def _budget_blocks_retry(self, stage: str) -> bool:
+        """A same-step repair needs enough time left to finish; otherwise do not start it."""
+
+        budget = getattr(self.llm, "budget", None)
+        if budget is None or not hasattr(budget, "can_spend"):
+            return False
+        # grok-4.7 low-effort answer calls have taken about 25–60s. 20s is the floor
+        # below which a repair is cut off and the finished answer is discarded.
+        return not budget.can_spend(20)
+
+    def _keep_unconfirmed(
+        self, case: ReasoningCase, stage: str, defects: list[str], kind: str
+    ) -> None:
+        """Stop before a doomed retry and label the answer that did not pass its check."""
+
+        case.status = "incomplete"
+        case.step_states[stage] = "stopped"
+        case.stop_reason = f"budget:{kind}"
+        case.history.append(
+            {
+                "event": "budget_blocked_retry",
+                "stage": stage,
+                "kind": kind,
+                "defects": defects,
+            }
+        )
+        self._notify_stage(stage, "stopped")
+
     def _accept_open_issues(self, case: ReasoningCase, stage: str, defects: list[str]) -> bool:
         step = self._step(self._require_procedure(), stage)
         if "check" not in step.roles or not all(item.startswith("semantic: ") for item in defects):
@@ -556,16 +598,23 @@ class ReasoningEngine:
             self._procedure = load_procedure(case.procedure_id)
         by_id = {item.id: item for item in case.facts}
         changed: set[str] = set()
+        added = False
         for raw in facts:
             fact = Fact.model_validate(raw)
             previous = by_id.get(fact.id)
+            if previous is not None and (fact.proposition, fact.source, fact.status) == (
+                previous.proposition, previous.source, previous.status
+            ):
+                continue
+            added = added or previous is None
             fact.version = 1 if previous is None else previous.version + 1
             by_id[fact.id] = fact
             changed.add(fact.id)
         case.facts = list(by_id.values())
         if changed:
             case.judgments = [
-                item for item in case.judgments if not set(item.evidence_ids) & changed
+                item for item in case.judgments
+                if not added and item.evidence_ids and not set(item.evidence_ids) & changed
             ]
             # Unaffected judgments are reused; only the others are judged again.
             case.kept_judgments = [item.id for item in case.judgments]
@@ -574,8 +623,53 @@ class ReasoningEngine:
             self._invalidate_from(case, self._first_role("judgments"))
             case.current_step = self._first_role("judgments")
             case.status = "running"
-            case.history.append({"event": "facts_updated", "fact_ids": sorted(changed)})
+            case.history.append({"event": "facts_updated", "fact_ids": sorted(changed),
+                                 "new_evidence_requires_reassessment": added})
         return case
+
+    def continue_with_contract(
+        self, case: ReasoningCase, procedure: Procedure,
+        criteria: list[dict[str, Any]], goal: str | None = None,
+    ) -> ReasoningCase:
+        """Replace only specified criteria; preserve facts and unaffected judgments.
+
+        Goal changes conservatively invalidate criteria and their dependents because
+        relevance cannot be inferred from word overlap. No fact acquisition is repeated.
+        """
+        self._procedure = procedure
+        by_id = {item.id: item for item in case.criteria}
+        changed: set[str] = set()
+        for raw in criteria:
+            criterion = Criterion.model_validate(raw)
+            previous = by_id.get(criterion.id)
+            if previous is not None and (
+                criterion.statement, criterion.kind, criterion.method, criterion.linked_goal
+            ) == (previous.statement, previous.kind, previous.method, previous.linked_goal):
+                continue
+            criterion.version = 1 if previous is None else previous.version + 1
+            by_id[criterion.id] = criterion
+            changed.add(criterion.id)
+        case.criteria = list(by_id.values())
+        goal_changed = goal is not None and goal != case.goal
+        if goal_changed:
+            case.goal = goal
+            case.kept_judgments = []
+            case.judgments = []
+            start = self._first_role("criteria")
+        elif changed:
+            case.judgments = [j for j in case.judgments if j.criterion_id not in changed]
+            case.kept_judgments = [j.id for j in case.judgments]
+            start = self._first_role("judgments")
+        else:
+            return case
+        case.conclusion = None
+        case.answer = ""
+        self._invalidate_from(case, start)
+        case.current_step = start
+        case.revision_count = 0
+        case.history.append({"event": "contract_updated", "criterion_ids": sorted(changed),
+                             "goal_changed": goal_changed})
+        return self._execute(case, procedure)
 
     def _apply(
         self,
@@ -700,6 +794,7 @@ class ReasoningEngine:
         affected = self._downstream(stage)
         for item in affected:
             case.step_states[item] = "invalidated"
+            case.step_outputs.pop(item, None)
         # An invalidated step's result must not survive as the current result.
         steps = [procedure.step(item) for item in affected]
         if any("conclusion" in step.roles for step in steps):
@@ -1004,7 +1099,7 @@ _OUTPUT_SHAPES: dict[str, dict[str, Any]] = {
             }
         ]
     },
-    "answer": {"answer": "사용자에게 보일 최종 답 2~4문장. open_issues가 있으면 미해결로 함께 밝힘"},
+    "answer": {"answer": "사용자 요청에 맞는 길이와 형식의 최종 답. open_issues가 있으면 미해결로 함께 밝힘"},
     "extract": {
         "table": {
             "candidates": [

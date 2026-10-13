@@ -150,18 +150,6 @@ def normalize_procedure(
     if not purpose and goal:
         normalized["purpose"] = goal
         record.filled.append("purpose")
-    elif purpose and goal and purpose != goal:
-        record.conflicts.append("purpose")
-        record.after_keys = sorted(str(key) for key in normalized)
-        return None, record, [
-            ContractDefect(
-                "purpose_conflict",
-                "procedure.purpose",
-                "confirmed goal or empty purpose",
-                "different purpose",
-                True,
-            )
-        ]
     normalized["schema_version"] = SCHEMA_VERSION
     normalized["revision"] = revision
     record.after_keys = sorted(str(key) for key in normalized)
@@ -190,10 +178,6 @@ def validate_normalized_procedure(
     purpose = str(payload.get("purpose") or "").strip()
     if not purpose:
         defects.append(ContractDefect("purpose_missing", "procedure.purpose", "confirmed goal", "missing", True))
-    elif not _purpose_fits(request, purpose) and not _purpose_fits(known_goal, purpose):
-        defects.append(
-            ContractDefect("purpose_unfit", "procedure.purpose", "terms from the request", purpose, True)
-        )
 
     raw_steps = payload.get("steps")
     if not isinstance(raw_steps, list) or not raw_steps:
@@ -310,7 +294,8 @@ def _requirement_defects(requirements: list[dict[str, str]], steps: list[Procedu
     for item in requirements:
         requirement_id = str(item["id"])
         handlers = [step for step in steps if requirement_id in step.inputs]
-        judgments = [step for step in handlers if _is_judgment_step(step)]
+        selection_task = any(_is_selection_step(step) for step in steps)
+        judgments = [step for step in handlers if not selection_task or _is_judgment_step(step)]
         if not judgments:
             defects.append(
                 ContractDefect(
@@ -323,7 +308,19 @@ def _requirement_defects(requirements: list[dict[str, str]], steps: list[Procedu
             )
             continue
         judgment_ids = {step.id for step in judgments}
-        if not any(set(step.inputs) & judgment_ids and _is_selection_step(step) for step in steps):
+        def consumes_handler(step: ProcedureStep, seen: set[str] | None = None) -> bool:
+            visited = set(seen or ())
+            if step.id in visited:
+                return False
+            visited.add(step.id)
+            if set(step.inputs) & judgment_ids:
+                return True
+            return any(consumes_handler(parent, visited) for parent in steps if parent.id in step.inputs)
+
+        destinations = [step for step in steps if _is_selection_step(step)] if selection_task else [
+            step for step in steps if "answer" in step.outputs
+        ]
+        if not any(step.id in judgment_ids or consumes_handler(step) for step in destinations):
             defects.append(
                 ContractDefect(
                     "requirement_unjudged",
