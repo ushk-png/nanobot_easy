@@ -1117,6 +1117,8 @@ class AgentLoop:
         try:
             result = await self.runner.run(AgentRunSpec(
                 initial_messages=initial_messages,
+                premature_final_guard=True,
+                premature_final_session_metadata=session_metadata,
                 tools=tools or self.tools,
                 model=self.model,
                 max_iterations=self.max_iterations,
