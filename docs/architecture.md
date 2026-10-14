@@ -51,7 +51,11 @@ Main files:
 - feeds tool results back into the model;
 - stops when a final answer is produced or runtime limits are hit.
 
-Keep this split in mind when debugging. If a problem is about channel routing, session keys, workspace selection, or outbound delivery, start in `agent/loop.py`. If it is about provider calls, tool calls, streaming, or iteration limits, start in `agent/runner.py`.
+The channel-facing loop enables a conservative premature-final guard in `nanobot/agent/premature_final.py`. It applies only when the latest user request asks for work and the draft final unconditionally promises remaining execution. Explanation-only requests, explicit plan-only or do-not-execute restrictions, optional offers, and a stated blocker pass through. A short approval such as “proceed” is grounded only in earlier conversation text; conversation-focus metadata never grants permission.
+
+The guard does not treat successful tools, routing, `skill_decision`, or goal recording as proof that the whole task is done. On the first match it appends one hidden correction and continues within the remaining iteration budget. If the next final still promises unfinished work, the runner replaces it with an incomplete result and sets `stop_reason` to `incomplete`. The correction and incomplete text grant no new approval and do not move a staged workflow forward. The same replacement applies to a max-iteration fallback. Subagent runs leave the guard disabled.
+
+Keep this split in mind when debugging. If a problem is about channel routing, session keys, workspace selection, or outbound delivery, start in `agent/loop.py`. If it is about provider calls, tool calls, streaming, iteration limits, or a promised action that ended without tool execution, start in `agent/runner.py` and `agent/premature_final.py`.
 
 ## Providers
 
