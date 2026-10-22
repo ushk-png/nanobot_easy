@@ -137,6 +137,18 @@ class ContextBuilder:
 
         return "\n\n---\n\n".join(parts)
 
+    def build_selected_system_prompt(self, skill_names: list[str] | None = None,
+                                     channel: str | None = None,
+                                     workspace: Path | None = None) -> str:
+        """Mandatory rules plus explicitly selected skills, without ambient memory."""
+        root = workspace or self.workspace
+        parts = [self._get_identity(channel=channel, workspace=root),
+                 self._load_bootstrap_files(root), render_template("agent/tool_contract.md"),
+                 MEMORY_TOOL_GUIDANCE]
+        if skill_names:
+            parts.append(self.skills.load_skills_for_context(skill_names))
+        return "\n\n---\n\n".join(part for part in parts if part)
+
     def _build_recent_memory_context(
         self,
         *,

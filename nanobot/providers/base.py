@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager, suppress
@@ -644,12 +645,23 @@ class LLMProvider(ABC):
 
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
         """Call chat() and convert unexpected exceptions to error responses."""
+        from nanobot.agent.context_trace import active_context_trace
+        trace = active_context_trace.get()
+        started = time.monotonic()
         try:
-            return await self.chat(**kwargs)
+            response = await self.chat(**kwargs)
+            if trace:
+                trace.record(kwargs, response, time.monotonic() - started)
+            return response
         except asyncio.CancelledError:
+            if trace:
+                trace.record(kwargs, LLMResponse(content=None, finish_reason="error"), time.monotonic() - started)
             raise
         except Exception as exc:
-            return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            if trace:
+                trace.record(kwargs, response, time.monotonic() - started)
+            return response
 
     async def chat_stream(
         self,
@@ -688,12 +700,23 @@ class LLMProvider(ABC):
 
     async def _safe_chat_stream(self, **kwargs: Any) -> LLMResponse:
         """Call chat_stream() and convert unexpected exceptions to error responses."""
+        from nanobot.agent.context_trace import active_context_trace
+        trace = active_context_trace.get()
+        started = time.monotonic()
         try:
-            return await self.chat_stream(**kwargs)
+            response = await self.chat_stream(**kwargs)
+            if trace:
+                trace.record(kwargs, response, time.monotonic() - started)
+            return response
         except asyncio.CancelledError:
+            if trace:
+                trace.record(kwargs, LLMResponse(content=None, finish_reason="error"), time.monotonic() - started)
             raise
         except Exception as exc:
-            return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            if trace:
+                trace.record(kwargs, response, time.monotonic() - started)
+            return response
 
     async def chat_stream_with_retry(
         self,
@@ -890,6 +913,13 @@ class LLMProvider(ABC):
             await asyncio.sleep(chunk)
             remaining -= chunk
 
+    @staticmethod
+    def _retry_log_preview(response: LLMResponse) -> str:
+        from nanobot.agent.context_trace import active_context_trace
+        if active_context_trace.get() is not None:
+            return "[provider error text omitted for context selection privacy]"
+        return (response.content or "")[:120].lower()
+
     async def _run_with_retry(
         self,
         call: Callable[..., Awaitable[LLMResponse]],
@@ -964,7 +994,7 @@ class LLMProvider(ABC):
                 logger.warning(
                     "Stopping persistent retry after {} identical transient errors: {}",
                     identical_error_count,
-                    (response.content or "")[:120].lower(),
+                    self._retry_log_preview(response),
                 )
                 if on_retry_wait:
                     await on_retry_wait(
@@ -976,7 +1006,7 @@ class LLMProvider(ABC):
                 logger.warning(
                     "LLM request failed after {} retries, giving up: {}",
                     attempt,
-                    (response.content or "")[:120].lower(),
+                    self._retry_log_preview(response),
                 )
                 if on_retry_wait:
                     await on_retry_wait(
@@ -994,7 +1024,7 @@ class LLMProvider(ABC):
                 attempt,
                 "+" if persistent and attempt > len(delays) else f"/{len(delays)}",
                 int(round(delay)),
-                (response.content or "")[:120].lower(),
+                self._retry_log_preview(response),
             )
             await self._sleep_with_heartbeat(
                 delay,

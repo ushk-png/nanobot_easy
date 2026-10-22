@@ -17,6 +17,7 @@ from nanobot.agent.context_governance import (
     ContextGovernanceConfig,
     ContextGovernor,
 )
+from nanobot.agent.context_selection import ContextCapacityError
 from nanobot.agent.hook import AgentHook, AgentHookContext, AgentRunHookContext
 from nanobot.agent.premature_final import CORRECTION, INCOMPLETE, is_premature_final
 from nanobot.agent.tools.registry import ToolRegistry, is_tool_error_result
@@ -105,6 +106,8 @@ class AgentRunSpec:
     goal_active_predicate: Callable[[], bool] | None = None
     goal_continue_message: GoalContinueMessage | None = None
     finalize_on_max_iterations: bool = True
+    selected_context: Any | None = None
+    selection_target_tokens: int = 16000
     premature_final_guard: bool = False
     premature_final_session_metadata: dict[str, Any] | None = None
 
@@ -284,6 +287,9 @@ class AgentRunner:
                 len(injected_messages), _MAX_INJECTIONS_PER_TURN, dropped,
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
+        if spec.selected_context and injected_messages:
+            spec.selected_context.completion_reports.clear()
+            spec.selected_context.trace.count("redesigns", "new_user_instruction_executor_reconciliation")
         return injected_messages
 
     @staticmethod
@@ -368,6 +374,19 @@ class AgentRunner:
 
         async def guard_final(clean, assistant_message, iteration, *, already_appended=False):
             nonlocal premature_final_corrections, stop_reason
+            if spec.selected_context and spec.selected_context.missing:
+                stop_reason = "incomplete"
+                clean = "필수 근거를 확보하지 못해 완료하지 못했습니다: " + ", ".join(
+                    spec.selected_context.missing)
+                assistant_message["content"] = clean
+                return clean, False
+            if (spec.selected_context and spec.selected_context.design
+                    and spec.selected_context.design.route in {"execute", "retrieve"}
+                    and not spec.selected_context.completion_supported()):
+                stop_reason = "incomplete"
+                clean = str(clean or "") + "\n\n완료 조건의 실행·검증 근거가 아직 기록되지 않았습니다."
+                assistant_message["content"] = clean
+                return clean, False
             if not spec.premature_final_guard or not is_premature_final(
                 clean, messages, spec.tools, tool_events,
                 spec.premature_final_session_metadata,
@@ -407,12 +426,28 @@ class AgentRunner:
                 # may repair or compact historical messages for the model, but
                 # those synthetic edits must not shift the append boundary used
                 # later when the caller saves only the new turn.
-                messages_for_model = self.context_governor.prepare_for_model(
-                    governance_config,
-                    messages,
-                    compacted_tool_call_ids,
-                )
+                if spec.selected_context:
+                    from nanobot.agent.context_selection import prepare_selected_loop
+                    messages_for_model = prepare_selected_loop(spec, messages, self.provider)
+                else:
+                    messages_for_model = self.context_governor.prepare_for_model(
+                        governance_config, messages, compacted_tool_call_ids,
+                    )
+            except ContextCapacityError:
+                if spec.selected_context:
+                    final_content = ("필수 문맥이 모델 입력 한도를 초과했습니다. 원본을 보존한 채 "
+                                     "작업 분할 또는 명시적인 입력 한도 확장이 필요합니다.")
+                    stop_reason = "incomplete"
+                    self._append_final_message(messages, final_content)
+                    break
+                raise
             except Exception:
+                if spec.selected_context:
+                    spec.selected_context.trace.count("recovery", "selection_loop_validation_failed")
+                    final_content = "문맥 선택 검증에 실패해 실행을 중단했습니다. 원본은 보존됩니다."
+                    stop_reason = "incomplete"
+                    self._append_final_message(messages, final_content)
+                    break
                 logger.exception(
                     "Context governance failed on turn {} for {}; applying minimal repair",
                     iteration,
@@ -501,19 +536,40 @@ class AgentRunner:
                 )
                 context.tool_results = list(results)
                 context.tool_events = list(new_events)
+                if spec.selected_context and hasattr(spec.tools, "resolver"):
+                    for call, event, observed_result in zip(response.tool_calls, new_events, results):
+                        tool = spec.tools.get(call.name)
+                        if call.name not in {"discover_context_capabilities", "resolve_context_need",
+                                              "record_context_completion", "revise_context_requirements", "skill_decision",
+                                              "skill_search", "skill_registry"}:
+                            spec.selected_context.observations[call.id] = {
+                                "name": call.name, "status": event.get("status"),
+                                "read_only": bool(tool and tool.read_only)}
+                        if call.name in {"search_memory", "read_memory_events"}:
+                            spec.selected_context.trace.count("additional_searches", "executor_plan_revision")
+                        spec.tools.resolver.observed[call.id] = bool(
+                            tool and tool.read_only and event.get("status") == "ok"
+                            and str(observed_result).strip()
+                            and not str(observed_result).lower().startswith(("no scoped", "no memory", "error:"))
+                            and call.name not in {"discover_context_capabilities", "resolve_context_need",
+                                                  "record_context_completion", "revise_context_requirements", "skill_decision", "skill_search", "skill_registry"})
                 completed_tool_results: list[dict[str, Any]] = []
                 for tool_call, result in zip(response.tool_calls, results):
                     tool_message = {
                         "role": "tool",
                         "tool_call_id": tool_call.id,
                         "name": tool_call.name,
-                        "content": self.context_governor.normalize_tool_result(
+                        "content": result if spec.selected_context else self.context_governor.normalize_tool_result(
                             governance_config,
                             tool_call.id,
                             tool_call.name,
                             result,
                         ),
                     }
+                    if spec.selected_context:
+                        observation = spec.selected_context.observations.get(tool_call.id, {})
+                        tool_message["execution_status"] = observation.get("status", "unknown")
+                        tool_message["read_only"] = observation.get("read_only", True)
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
                 if fatal_error is not None:

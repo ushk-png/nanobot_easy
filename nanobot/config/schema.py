@@ -145,6 +145,18 @@ class StepwiseConfig(Base):
     z3_check: bool = False  # Z3 entailment in rule judgments; off until rules are formalized
 
 
+class ContextSelectionConfig(Base):
+    """Experimental intent-first context path; no additional calls unless enabled."""
+
+    enabled: bool = False
+    failure_mode: Literal["block", "legacy"] = "block"
+    recent_messages: int = Field(default=8, ge=2, le=40)
+    search_tokens: int = Field(default=4000, ge=500, le=20000)
+    design_max_tokens: int = Field(default=3000, ge=512, le=12000)
+    design_timeout_seconds: int = Field(default=90, ge=1, le=300)
+    execution_target_tokens: int = Field(default=16000, ge=2000)
+
+
 class AgentDefaults(Base):
     """Default agent configuration."""
 
@@ -157,6 +169,7 @@ class AgentDefaults(Base):
     max_tokens: int = 8192
     context_window_tokens: int = 200_000
     context_block_limit: int | None = None
+    context_selection: ContextSelectionConfig = Field(default_factory=ContextSelectionConfig)
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200

@@ -121,9 +121,13 @@ class AgentProgressHook(AgentHook):
                 tool_hint=True,
                 tool_events=tool_events,
             )
+        from nanobot.agent.context_trace import active_context_trace
         for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
-            logger.info("Tool call: {}({})", tc.name, args_str[:200])
+            if active_context_trace.get() is not None:
+                logger.info("Tool call: {} (arguments omitted for context selection privacy)", tc.name)
+            else:
+                args_str = json.dumps(tc.arguments, ensure_ascii=False)
+                logger.info("Tool call: {}({})", tc.name, args_str[:200])
         if self._set_tool_context:
             self._set_tool_context(
                 self._channel,
