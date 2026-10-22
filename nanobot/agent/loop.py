@@ -662,6 +662,17 @@ class AgentLoop:
             )
             registered.append("my")
 
+        testy_root = Path(self.workspace)
+        if testy_root.name == "workspace-testy":
+            import sys
+
+            if str(testy_root) not in sys.path:
+                sys.path.append(str(testy_root))
+            from japanese_recall.tool import JapaneseRecallTool
+
+            self.tools.register(JapaneseRecallTool())
+            registered.append("testy_japanese_recall")
+
         logger.info("Registered {} tools: {}", len(registered), registered)
 
     async def _connect_mcp(self) -> None:
@@ -1113,12 +1124,24 @@ class AgentLoop:
             )
 
         session_metadata = session.metadata if session is not None else None
+        # Only a reply that can reach the user is guarded. Subagent runs and
+        # internal continuations share this loop but must not inherit it:
+        # Genie-only behavior stays in the Genie config, not in this default.
+        user_facing = (
+            not ephemeral
+            and channel not in {"system", "subagent"}
+            and session is not None
+            and not (
+                isinstance(metadata, dict)
+                and metadata.get("internal_continuation")
+            )
+        )
         clear_workflow_turn_delivery()
         try:
             result = await self.runner.run(AgentRunSpec(
                 initial_messages=initial_messages,
-                premature_final_guard=True,
-                premature_final_session_metadata=session_metadata,
+                premature_final_guard=user_facing,
+                premature_final_session_metadata=session_metadata if user_facing else None,
                 tools=tools or self.tools,
                 model=self.model,
                 max_iterations=self.max_iterations,

@@ -146,6 +146,60 @@ async def test_loop_stream_filter_hides_complete_trailing_think_tag(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_premature_final_guard_only_on_user_facing_reply(tmp_path):
+    """A promise is corrected only when the reply can reach the user.
+
+    Subagent runs, system turns, and internal continuations share this loop
+    and must not inherit the guard. A direct call with no session is not a
+    user-facing turn either.
+    """
+    from nanobot.agent.premature_final import CORRECTION, INCOMPLETE
+    from nanobot.session.manager import Session
+
+    promise = "회귀 테스트를 실행하겠습니다."
+    done = "테스트 3개 통과했습니다."
+
+    async def exercise(**kwargs):
+        loop = _make_loop(tmp_path)
+        calls = {"n": 0}
+
+        async def chat_with_retry(**_kwargs):
+            calls["n"] += 1
+            text = promise if calls["n"] == 1 else done
+            return LLMResponse(content=text, tool_calls=[], usage={})
+
+        loop.provider.chat_with_retry = chat_with_retry
+        final, _, _, _, _ = await loop._run_agent_loop(
+            [{"role": "user", "content": "테스트 실행해 줘"}],
+            **kwargs,
+        )
+        return final, calls["n"]
+
+    session = Session(key="telegram:1")
+    guarded, guarded_calls = await exercise(session=session, channel="telegram")
+    assert guarded == done
+    assert guarded_calls == 2
+
+    for kwargs in (
+        {},
+        {"session": session, "channel": "system"},
+        {"session": session, "channel": "subagent"},
+        {"session": session, "channel": "telegram", "ephemeral": True},
+        {
+            "session": session,
+            "channel": "telegram",
+            "metadata": {"internal_continuation": True},
+        },
+    ):
+        final, calls = await exercise(**kwargs)
+        assert final == promise
+        assert calls == 1
+
+    assert CORRECTION
+    assert INCOMPLETE
+
+
+@pytest.mark.asyncio
 async def test_loop_retries_think_only_final_response(tmp_path):
     loop = _make_loop(tmp_path)
     call_count = {"n": 0}
