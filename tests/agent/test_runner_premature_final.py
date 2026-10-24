@@ -188,3 +188,46 @@ async def test_korean_current_work_with_later_approval_boundary(user):
     ], user=user)
     assert calls.await_count == 2
     assert result.final_content.startswith("테스트 3개 통과")
+
+
+# Representative seven-card body; the reported incident's closing line is verbatim.
+JAPANESE_CARDS = "\n".join([
+    "1. 今日はいい天気ですね。", "2. 駅まで歩いて行きます。",
+    "3. コーヒーを一杯ください。", "4. 日本語を勉強しています。",
+    "5. 明日は何をしますか？", "6. もう一度お願いします。",
+    "7. お会いできてうれしいです。",
+])
+
+
+@pytest.mark.parametrize("streaming", [False, True])
+@pytest.mark.parametrize("user", ["오늘 학습문장 보여줘", "오늘 학습문장 확인해 줘"])
+async def test_japanese_cards_with_conditional_next_step_are_final(streaming, user):
+    text = JAPANESE_CARDS + "\n확인하신 뒤 **다음**을 입력하시면 한국어 뜻만 보여 드리겠습니다."
+    result, calls, hook, checkpoints = await run([response(text)], user=user, streaming=streaming)
+    assert calls.await_count == 1
+    assert result.final_content == text
+    assert not any(m.get("content") == CORRECTION for m in result.messages)
+    assert checkpoints[-1]["assistant_message"]["content"] == text
+    if streaming:
+        assert hook.ends == [False]
+
+
+@pytest.mark.parametrize("condition", [
+    "입력하시면", "입력하면", "입력해 주시면", "선택하시면",
+    "응답하시면", "답장해주면", "요청하시면", "말씀해 주시면",
+])
+def test_conditional_user_steps_do_not_promise_current_work(condition):
+    text = f"확인하신 뒤 다음을 {condition} 한국어 뜻을 보여 드리겠습니다."
+    assert not is_premature_final(text, [{"role": "user", "content": "학습문장 확인해 줘"}], Tools(), [])
+
+
+@pytest.mark.parametrize("text", [
+    "확인하고 한국어 뜻을 보여 드리겠습니다.",
+    "테스트가 끝나면 결과를 확인하겠습니다.",
+    "다음을 입력하시면 뜻을 보여 드리겠습니다. 지금 파일을 확인하겠습니다.",
+    "다음을 입력하시면 뜻을 보여 드리겠습니다。지금 파일을 확인하겠습니다。",
+    "다음을 입력하시면 뜻을 보여 드리겠습니다！테스트를 실행하겠습니다！",
+    "다음을 입력하시면 뜻을 보여 드리겠습니다？파일을 검증하겠습니다？",
+])
+def test_true_promises_still_detected_after_conditional_user_step(text):
+    assert is_premature_final(text, [{"role": "user", "content": "학습문장 확인해 줘"}], Tools(), [])

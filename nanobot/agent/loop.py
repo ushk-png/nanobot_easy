@@ -174,6 +174,7 @@ class TurnContext:
     turn_latency_ms: int | None = None
 
     selected_context: Any | None = None
+    task_note_run_id: str | None = None
 
     trace: list[StateTraceEntry] = field(default_factory=list)
 
@@ -246,6 +247,7 @@ class AgentLoop:
         stepwise_z3_check: bool = False,
         stepwise_layout: str = "auto",
         stepwise_review_required: list[str] | None = None,
+        stepwise_lightweight: bool = False,
         max_tool_result_chars: int | None = None,
         fail_on_tool_error: bool | None = None,
         provider_retry_mode: str = "standard",
@@ -315,6 +317,9 @@ class AgentLoop:
         self.stepwise_z3_check = stepwise_z3_check
         self.stepwise_layout = stepwise_layout
         self.stepwise_review_required = list(stepwise_review_required or [])
+        self.stepwise_lightweight = stepwise_lightweight
+        if stepwise_lightweight:
+            logger.info("Lightweight task evidence enabled for workspace {}", workspace)
         if stepwise_enabled:
             logger.info(
                 "Stepwise reasoning (Genie method) is applied to this agent "
@@ -529,6 +534,7 @@ class AgentLoop:
             stepwise_z3_check=defaults.stepwise.z3_check,
             stepwise_layout=defaults.stepwise.layout,
             stepwise_review_required=defaults.stepwise.review_required,
+            stepwise_lightweight=defaults.stepwise.lightweight,
             max_tool_result_chars=defaults.max_tool_result_chars,
             fail_on_tool_error=defaults.fail_on_tool_error,
             provider_retry_mode=defaults.provider_retry_mode,
@@ -680,7 +686,7 @@ class AgentLoop:
                 sys.path.append(str(testy_root))
             from japanese_recall.tool import JapaneseRecallTool
 
-            self.tools.register(JapaneseRecallTool())
+            self.tools.register(JapaneseRecallTool(send_callback=self.bus.publish_outbound))
             registered.append("testy_japanese_recall")
 
         logger.info("Registered {} tools: {}", len(registered), registered)
@@ -1172,6 +1178,9 @@ class AgentLoop:
                 selection_target_tokens=getattr(
                     getattr(self, "context_selection_config", None), "execution_target_tokens", 16000),
                 premature_final_guard=user_facing,
+                task_note_enabled=bool(getattr(self, "stepwise_lightweight", False)) and user_facing,
+                task_note_metadata=session_metadata,
+                task_note_persist_callback=(lambda: self.sessions.save(session)) if session else None,
                 premature_final_session_metadata=session_metadata if user_facing else None,
                 tools=tools or self.tools,
                 model=self.model,
@@ -2310,6 +2319,16 @@ class AgentLoop:
             "running",
             started_at=ctx.visible_run_started_at,
         )
+        if (getattr(self, "stepwise_lightweight", False) and not ctx.ephemeral
+                and ctx.msg.channel not in {"system", "subagent"}
+                and not ctx.msg.metadata.get("internal_continuation")):
+            from nanobot.agent.task_note import needs_note
+
+            if needs_note(ctx.initial_messages):
+                # Only the checked final is delivered; candidate completion text stays private.
+                ctx.on_stream = None
+                ctx.on_stream_end = None
+        previous_note_run = ctx.session.metadata.get("task_note", {}).get("run_id")
         result = await self._run_agent_loop(
             ctx.initial_messages,
             on_progress=ctx.on_progress,
@@ -2335,6 +2354,9 @@ class AgentLoop:
         ctx.all_messages = all_msgs
         ctx.stop_reason = stop_reason
         ctx.had_injections = had_injections
+        current_note_run = ctx.session.metadata.get("task_note", {}).get("run_id")
+        if current_note_run and current_note_run != previous_note_run:
+            ctx.task_note_run_id = current_note_run
         await turn_continuation.maybe_continue_turn(ctx)
         return "ok"
 
@@ -2398,6 +2420,12 @@ class AgentLoop:
         )
         if ctx.ephemeral and ctx.outbound is not None:
             ctx.outbound.metadata["_stop_reason"] = ctx.stop_reason
+        if (getattr(self, "stepwise_lightweight", False) and not ctx.ephemeral
+                and ctx.outbound is not None):
+            if ctx.task_note_run_id:
+                ctx.outbound.metadata["_task_delivery"] = {
+                    "session_key": ctx.session.key, "run_id": ctx.task_note_run_id,
+                }
         return "ok"
 
     def _sanitize_persisted_blocks(
@@ -2466,6 +2494,8 @@ class AgentLoop:
         memory_start_index = len(session.messages)
         last_assistant_idx: int | None = None
         for m in messages[skip:]:
+            if m.get("_answer_delivery_feedback"):
+                continue  # Runtime feedback is not a new human instruction or durable memory.
             entry = dict(m)
             role, content = entry.get("role"), entry.get("content")
             if role == "assistant" and not content and not entry.get("tool_calls"):

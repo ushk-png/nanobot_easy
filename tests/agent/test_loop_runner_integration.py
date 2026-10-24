@@ -200,6 +200,55 @@ async def test_premature_final_guard_only_on_user_facing_reply(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_genie_checked_response_reaches_outbound_with_delivery_identity(tmp_path):
+    from nanobot.agent.loop import TurnContext, TurnState
+    from nanobot.agent.task_note import active_task_note
+    from nanobot.agent.tools.filesystem import ReadFileTool
+    from nanobot.agent.tools.registry import ToolRegistry
+    from nanobot.bus.events import InboundMessage
+    from nanobot.session.manager import Session
+
+    (tmp_path / "a.md").write_text("real source", encoding="utf-8")
+    loop = _make_loop(tmp_path)
+    loop.stepwise_lightweight = True
+    loop.tools = ToolRegistry()
+    loop.tools.register(ReadFileTool(workspace=tmp_path))
+    calls = 0
+
+    async def chat_with_retry(**kwargs):
+        nonlocal calls
+        calls += 1
+        note = active_task_note.get()
+        if calls == 1:
+            return LLMResponse(content="", tool_calls=[ToolCallRequest(
+                id="read", name="read_file", arguments={"path": "a.md"})])
+        return LLMResponse(content="검토 결과입니다.", tool_calls=[ToolCallRequest(
+            id="status", name="update_task", arguments={
+                "request_id": note.request_id, "intent": "new", "goal": "a.md 검토",
+                "targets": [{"path": "a.md", "selection_reason": "user selected this file"}],
+                "source": "files", "analysis_complete": True, "status": "completed",
+                "explanation": "source analyzed", "result_refs": [], "final_answer": "검토 결과입니다.",
+            })])
+
+    loop.provider.chat_with_retry = chat_with_retry
+    session = Session(key="telegram:isolated")
+    msg = InboundMessage(channel="telegram", chat_id="isolated", sender_id="test",
+                         content="a.md 파일을 검토해 줘")
+    stream = AsyncMock()
+    ctx = TurnContext(msg=msg, session_key=session.key, state=TurnState.RUN,
+                      turn_id="test", session=session,
+                      initial_messages=[{"role": "user", "content": msg.content}],
+                      on_stream=stream, on_stream_end=AsyncMock())
+    await loop._state_run(ctx)
+    await loop._state_respond(ctx)
+    assert ctx.stop_reason == "completed"
+    assert ctx.outbound.content == "검토 결과입니다."
+    assert ctx.outbound.event is None
+    assert ctx.outbound.metadata["_task_delivery"]["run_id"] == session.metadata["task_note"]["run_id"]
+    stream.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_loop_retries_think_only_final_response(tmp_path):
     loop = _make_loop(tmp_path)
     call_count = {"n": 0}

@@ -311,7 +311,7 @@ class ReadFileTool(_FsTool):
 
             raw = fp.read_bytes()
             if not raw:
-                return f"(Empty file: {path})"
+                return self._with_read_evidence(f"(Empty file: {path})", fp, "lines", 1, 0, 0)
 
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if mime and mime.startswith("image/"):
@@ -398,7 +398,7 @@ class ReadFileTool(_FsTool):
             else:
                 result += f"\n\n(End of file — {total} lines total)"
             self._file_states.record_read(fp, offset=offset, limit=limit)
-            return result
+            return self._with_read_evidence(result, fp, "lines", offset, end, total)
         except PermissionError as e:
             return ToolResult.error(f"Error: {e}")
         except Exception as e:
@@ -433,11 +433,14 @@ class ReadFileTool(_FsTool):
             end = start + self._MAX_PDF_PAGES - 1
 
         parts: list[str] = []
+        extraction_ok = True
         for i in range(start, end + 1):
             page = doc[i]
             text = page.get_text().strip()
             if text:
                 parts.append(f"--- Page {i + 1} ---\n{text}")
+            else:
+                extraction_ok = False
         doc.close()
 
         if not parts:
@@ -448,7 +451,23 @@ class ReadFileTool(_FsTool):
             result += f"\n\n(Showing pages {start + 1}-{end + 1} of {total_pages}. Use pages='{end + 2}-{min(end + 1 + self._MAX_PDF_PAGES, total_pages)}' to continue.)"
         if len(result) > self._MAX_CHARS:
             result = result[:self._MAX_CHARS] + "\n\n(PDF text truncated at ~128K chars)"
-        return result
+            extraction_ok = False
+        return self._with_read_evidence(
+            result, fp, "pages", start + 1, end + 1, total_pages, extraction_ok,
+        )
+
+    @staticmethod
+    def _with_read_evidence(result, fp, unit, start, end, total, extraction_ok=True):
+        from nanobot.agent.task_note import active_task_note, file_version
+
+        if active_task_note.get() is None:
+            return result
+        output = ToolResult(result)
+        output.read_evidence = {
+            "target": str(fp.resolve()), "unit": unit, "start": start, "end": end,
+            "total": total, "extraction_ok": extraction_ok, "version": file_version(str(fp)),
+        }
+        return output
 
     def _read_office_doc(self, fp: Path) -> str:
         from nanobot.utils.document import extract_text

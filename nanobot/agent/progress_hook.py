@@ -108,8 +108,11 @@ class AgentProgressHook(AgentHook):
         )
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
+        from nanobot.agent.task_note import active_task_note
+
         if self._on_progress:
-            if not self._on_stream and not context.streamed_content:
+            if (not self._on_stream and not context.streamed_content
+                    and active_task_note.get() is None):
                 thought = self._strip_think(context.response.content if context.response else None)
                 if thought:
                     await self._on_progress(thought)

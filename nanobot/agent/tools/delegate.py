@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from contextvars import ContextVar
 import time
+from contextvars import ContextVar
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
@@ -127,7 +128,7 @@ class DelegateTool(Tool, ContextAware):
         def record(result: str, *, gate_result: str | None = None) -> None:
             if not self._workspace:
                 return
-            SkillStore(self._workspace).record_trace(
+            SkillStore(Path(self._workspace)).record_trace(
                 trace_id=f"delegate:{uuid4().hex}",
                 session_key=self._session_key.get(),
                 selected_skill=None,

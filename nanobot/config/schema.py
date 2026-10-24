@@ -143,6 +143,7 @@ class StepwiseConfig(Base):
     layout: Literal["auto", "two_call", "compact", "fine"] = "auto"  # auto follows the model's reasoning
     review_required: list[str] = Field(default_factory=list)  # procedure ids whose S6 model review always runs
     z3_check: bool = False  # Z3 entailment in rule judgments; off until rules are formalized
+    lightweight: bool = False  # Explicit per-gateway opt-in; independent of stepwise.enabled.
 
 
 class ContextSelectionConfig(Base):

@@ -23,10 +23,17 @@ _EXPLAIN = re.compile(
 _PROMISE = re.compile(
     r"\b(?:I(?:'ll| will| am going to)|we(?:'ll| will))\s+(?:now\s+)?"
     r"(?:run|test|check|inspect|read|search|fetch|fix|implement|edit|create|execute|verify|continue|start)\b"
-    r"|(?:확인|검증|테스트|실행|수정|구현|진행|읽|찾|작업|착수)[^.!?\n]{0,35}"
+    r"|(?:확인|검증|테스트|실행|수정|구현|진행|읽|찾|작업|착수)[^.!?。！？\n]{0,35}"
     r"(?:하겠습니다|할게요|하겠어요|하겠|해보겠습니다|겠습니다)", re.I,
 )
 _OPTIONAL = re.compile(r"\b(?:if you|would you|could|can also|next stage|later stage)\b|원하시면|필요하면|다음\s*단계", re.I)
+# A future user step is not a promise to execute in this turn. Keep this
+# restricted to user-interaction verbs: "테스트가 끝나면 확인하겠습니다"
+# still promises unfinished work, rather than asking the user for input.
+_USER_CONDITION = re.compile(
+    r"(?:입력|선택|응답|답장|요청|말씀)(?:하시면|하면|해\s*주시면|해주면|주시면)"
+)
+_SENTENCE_BREAK = r"[.!?。！？\n]+|(?<=[다요])\s+(?=(?:지금|이제|먼저|다음으로)\s)"
 _BLOCKER = re.compile(
     r"\b(?:blocked|cannot|can't|unable|failed|error|need your approval|awaiting approval|waiting for approval|incomplete)\b"
     r"|승인.*(?:대기|필요|전까지)|권한.*필요|실패|오류|불가|할 수 없|미완료", re.I,
@@ -90,9 +97,9 @@ def is_premature_final(
         request, re.I,
     ):
         return False
-    clauses = re.split(r"[.!?\n]+", content)
+    clauses = re.split(_SENTENCE_BREAK, content)
     promises = [c for c in clauses if _PROMISE.search(c) and not _OPTIONAL.search(c)
-                and not _BLOCKER.search(c)]
+                and not _USER_CONDITION.search(c) and not _BLOCKER.search(c)]
     if not promises:
         return False
     if any(_BLOCKER.search(c) and not _OPTIONAL.search(c) for c in clauses):
