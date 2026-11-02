@@ -1,0 +1,26 @@
+{
+  "agents": {
+    "defaults": {
+      "model": "xai-grok/grok-4.7",
+      "provider": "xai_grok",
+      "modelPreset": "grok-4-7",
+      "maxTokens": 8192,
+      "temperature": 0.1,
+      "reasoningEffort": null,
+      "maxToolIterations": 200,
+      "skills": [],
+      "preloadAlwaysSkills": false,
+      "onDemandSkills": [
+        "testy-japanese-recall",
+        "testy-voice"
+      ],
+      "disabledSkills": [],
+      "contextSelection": {
+        "enabled": false,
+        "failureMode": "block",
+        "designTimeoutSeconds": 40,
+        "timeAllocationContractEnabled": true
+      }
+    }
+  }
+}
