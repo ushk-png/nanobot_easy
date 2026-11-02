@@ -1,6 +1,7 @@
 """File system tools: read, write, edit, list."""
 
 import difflib
+import hashlib
 import mimetypes
 import os
 from dataclasses import dataclass
@@ -311,7 +312,8 @@ class ReadFileTool(_FsTool):
 
             raw = fp.read_bytes()
             if not raw:
-                return self._with_read_evidence(f"(Empty file: {path})", fp, "lines", 1, 0, 0)
+                return self._with_read_evidence(f"(Empty file: {path})", fp, "lines", 1, 0, 0,
+                                                expected_hash=hashlib.sha256(raw).hexdigest())
 
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if mime and mime.startswith("image/"):
@@ -398,7 +400,8 @@ class ReadFileTool(_FsTool):
             else:
                 result += f"\n\n(End of file — {total} lines total)"
             self._file_states.record_read(fp, offset=offset, limit=limit)
-            return self._with_read_evidence(result, fp, "lines", offset, end, total)
+            return self._with_read_evidence(result, fp, "lines", offset, end, total,
+                                            expected_hash=hashlib.sha256(raw).hexdigest())
         except PermissionError as e:
             return ToolResult.error(f"Error: {e}")
         except Exception as e:
@@ -457,15 +460,19 @@ class ReadFileTool(_FsTool):
         )
 
     @staticmethod
-    def _with_read_evidence(result, fp, unit, start, end, total, extraction_ok=True):
+    def _with_read_evidence(result, fp, unit, start, end, total, extraction_ok=True, expected_hash=None):
+        from nanobot.agent.context_evidence import active_evidence_capture, fingerprint
         from nanobot.agent.task_note import active_task_note, file_version
 
-        if active_task_note.get() is None:
+        if active_task_note.get() is None and not active_evidence_capture.get():
             return result
+        version = fingerprint(fp) if active_evidence_capture.get() else file_version(str(fp))
+        if active_evidence_capture.get() and expected_hash is not None and (version or {}).get("sha256") != expected_hash:
+            extraction_ok = False
         output = ToolResult(result)
         output.read_evidence = {
             "target": str(fp.resolve()), "unit": unit, "start": start, "end": end,
-            "total": total, "extraction_ok": extraction_ok, "version": file_version(str(fp)),
+            "total": total, "extraction_ok": extraction_ok, "version": version,
         }
         return output
 

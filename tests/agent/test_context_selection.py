@@ -49,8 +49,20 @@ class ReadTool(Tool):
     parameters = {"type": "object", "properties": {}}
     read_only = True
 
+    def __init__(self, workspace=None):
+        self.workspace = workspace
+        self.resource_identity = str(workspace / "current-test-config.txt") if workspace else None
+
     async def execute(self, **kwargs):
-        return "current config: version=2; deprecated method excluded"
+        from nanobot.agent.context_evidence import fingerprint
+        from nanobot.agent.tools.base import ToolResult
+
+        result = ToolResult("current config: version=2; deprecated method excluded")
+        if self.workspace:
+            target = self.workspace / "current-test-config.txt"
+            result.read_evidence = {"target": str(target.resolve()), "unit": "lines", "start": 1,
+                "end": 1, "total": 1, "extraction_ok": True, "version": fingerprint(target)}
+        return result
 
 
 class ChangeTool(Tool):
@@ -92,7 +104,8 @@ def env(tmp_path):
     store = ConversationEventStore(tmp_path)
     scope = MemoryScope.from_runtime(owner_id="owner", workspace_id=str(tmp_path), agent_id=None)
     registry = ToolRegistry()
-    registry.register(ReadTool())
+    (tmp_path / "current-test-config.txt").write_text("current config: version=2; deprecated method excluded")
+    registry.register(ReadTool(tmp_path))
     registry.register(ChangeTool())
     return store, scope, registry, SkillsLoader(tmp_path)
 
@@ -291,6 +304,15 @@ def test_long_results_keep_facts_errors_and_open_tool_pairs_without_mutating_raw
             "content": json.dumps({"context_summary": {"facts": ["version=2"], "status": "failed",
                 "error": "permission denied; do not repeat", "verification": "not performed"},
                 "details": "x" * 30000})})
+    # This fixture models a trusted structured producer, not a JSON document field.
+    producer = ReadTool()
+    producer.trusted_context_summary = True
+    for n in range(5):
+        original = messages[3 + 2 * n]["content"]
+        with patch("nanobot.memory.event_store.extract_entities", return_value=[]):
+            source = event(env, original, actor="tool", kind="TOOL_RESULT")
+        spec.selected_context.register_summary(f"c{n}", source, producer,
+                                               json.loads(original)["context_summary"])
     messages.append({"role": "assistant", "tool_calls": [{"id": "pending", "type": "function",
         "function": {"name": "read_file", "arguments": "{}"}}]})
     raw = copy.deepcopy(messages)
@@ -673,3 +695,334 @@ def test_old_explicit_user_constraint_reaches_designer_even_outside_recent_dialo
     assert "재시작하지" in preserved["content"]
     assert preserved["excerpt_only"] is True
     assert payload["task_state_status"] == "missing"
+
+
+@pytest.mark.asyncio
+async def test_numbered_comparison_and_followup_use_one_design_call_each(tmp_path):
+    from nanobot.agent.loop import AgentLoop
+    from nanobot.bus.events import InboundMessage
+    from nanobot.bus.queue import MessageBus
+
+    request = ("무료, 오프라인, 회원가입 불필수 조건으로 답해줘.\n"
+               "Q1. 텍스트의 장단점은?\nQ2. 마크다운의 장단점은?\n"
+               "Q3. 혼합 폴더 구성은?\n앱 설치나 파일 생성은 하지 마.")
+    answer = "Q1. 텍스트는 단순합니다.\nQ2. 마크다운은 제목과 목록이 편합니다.\nQ3. inbox, notes, archive로 구분합니다."
+    provider = FakeProvider([response(plan(request_type="compare", answer=answer))])
+    loop = AgentLoop(bus=MessageBus(), provider=provider, workspace=tmp_path,
+                     context_selection=ContextSelectionConfig(enabled=True))
+    first = InboundMessage(channel="cli", sender_id="owner", chat_id="s", content=request)
+    session = loop.sessions.get_or_create("cli:s")
+    with patch.object(session, "get_history", side_effect=AssertionError("no full replay")):
+        out = await loop._process_message(first)
+        assert out.content == answer
+        scope = loop._memory_scope_for_message(first)
+        task = TaskContextStore(loop.conversation_memory).list(scope, "cli:s")[0]
+        provider.responses = iter([response(plan(
+            task_relation="continue", task_id=task["task_id"],
+            answer="Q2. # 제목과 - 목록을 사용합니다.\nQ3. inbox는 초안, notes는 정리, archive는 보관입니다."))])
+        followup = InboundMessage(channel="cli", sender_id="owner", chat_id="s",
+                                 content="Q2,, Q3만 더 구체적으로 설명해줘. 처음 조건은 그대로 유지해.")
+        out = await loop._process_message(followup)
+    assert "Q2." in out.content and "Q3." in out.content
+    assert "완료 조건의 실행" not in out.content
+    assert len(provider.requests) == 2
+    payload = json.loads(provider.requests[-1]["messages"][1]["content"])
+    assert payload["references"]["questions"]["status"] == "candidate"
+    assert any("무료, 오프라인" in s["content"] for s in payload["sources"])
+    assert any(answer == s["content"] for s in payload["sources"])
+    assert TaskContextStore(loop.conversation_memory).list(scope, "cli:s")[0]["status"] == "DONE"
+
+
+@pytest.mark.asyncio
+async def test_known_dialogue_originals_do_not_search_or_require_tool_completion(env):
+    original = event(env, "무료, 오프라인. Q2. 마크다운은? Q3. 폴더는? 생성하지 마.")
+    previous = event(env, "Q2. 제목과 목록. Q3. inbox, notes, archive.", actor="assistant")
+    request = "Q2,, Q3만 더 구체적으로 설명해줘. 처음 조건은 그대로 유지해."
+    event(env, request)
+    design = plan(route="retrieve", answer=None, information_needs=[need(
+        query="Q2 Q3 원문", source_ids=[original.event_id, previous.event_id])])
+    with patch("nanobot.agent.context_selection.MemorySearcher.search",
+               side_effect=AssertionError("known originals must be read without search")):
+        selector, _, selected = await select(env, design, request=request)
+    assert not selected.missing
+    provider = FakeProvider([LLMResponse(content="Q2. 제목은 #, 목록은 -로 적습니다. Q3. 초안과 정리본을 구분합니다.")])
+    result = await AgentRunner(provider).run(AgentRunSpec(
+        initial_messages=[{"role": "user", "content": request}], tools=selected.tools,
+        model="offline", max_iterations=2, max_tool_result_chars=1000, selected_context=selected))
+    assert result.stop_reason == "completed"
+    assert len(provider.requests) == 1
+    assert not result.tools_used
+    selector.finish(selected, result.messages, stop_reason=result.stop_reason, had_injections=False)
+    task = TaskContextStore(env[0]).list(env[1], "s")[0]
+    assert task["status"] == "DONE"
+    assert task["completed"][-1]["verification"] == "delivery_only; semantic_quality_unverified"
+    assert selected.trace.counters["completion_tool_supported"] == 0
+
+
+def test_unresolved_question_reference_still_rejects_direct(env):
+    from nanobot.agent.context_selection import validate_meaning
+
+    request = "Q2,, Q3를 설명해줘"
+    event(env, request)
+    selector = ContextSelector(env[0], ContextSelectionConfig())
+    payload = selector.minimal_input(request, env[1], "s", env[2], env[3])
+    assert payload["references"]["questions"]["status"] == "unresolved"
+    assert "unsafe_direct" in validate_meaning(plan(), payload)
+
+
+@pytest.mark.asyncio
+async def test_runtime_feedback_is_never_reinterpreted_as_a_user_decision(env):
+    from nanobot.agent.premature_final import CORRECTION
+
+    control = event(env, CORRECTION)
+    event(env, "앱 설치하지 마. Q1. 텍스트는? Q2. 마크다운은?")
+    selector, _, selected = await select(env, plan(request_type="compare"), request="비교해줘")
+    payload = selector.minimal_input("비교해줘", env[1], "s", env[2], env[3])
+    assert control.event_id not in {s["event_id"] for s in payload["sources"]}
+    assert all(c["event_id"] != control.event_id for c in selected.state["user_constraints"])
+    assert env[0].get_events(env[1], [control.event_id])[0].content == CORRECTION
+
+
+@pytest.mark.asyncio
+async def test_new_topic_does_not_bootstrap_unrelated_dialogue_as_task_constraints(env):
+    unrelated = event(env, "일본어 학습을 시작해줘")
+    current = event(env, "2+2?")
+    _, _, selected = await select(env, plan())
+    ids = {c["event_id"] for c in selected.state["user_constraints"]}
+    assert ids == {current.event_id}
+    assert unrelated.event_id in {e["event_id"] for e in selected.recent}
+
+
+@pytest.mark.asyncio
+async def test_answering_followup_does_not_complete_unfinished_execution(env):
+    event(env, "파일을 수정해줘")
+    selector, _, first = await select(env, plan(
+        route="execute", request_type="modify", answer=None, completion_checks=["File modified"]))
+    event(env, "변경 방법을 설명해줘")
+    followup = plan(task_relation="continue", task_id=first.state["task_id"],
+                    completion_checks=["Explanation supplied"], answer="검토 후 수정하고 다시 읽어 검증합니다.")
+    _, _, selected = await select(env, followup, request="변경 방법을 설명해줘")
+    selector.finish(selected, [{"role": "assistant", "content": followup.answer}],
+                    stop_reason="completed", had_injections=False)
+    task = TaskContextStore(env[0]).list(env[1], "s")[0]
+    assert task["status"] == "IN_PROGRESS"
+    assert "File modified" in task["unfinished"]
+    assert "Explanation supplied" not in task["unfinished"]
+
+
+@pytest.mark.asyncio
+async def test_wrong_read_id_exposes_actual_ids_without_repeating_successful_read(env):
+    event(env, "파일을 확인해줘")
+    _, _, selected = await select(env, plan(route="execute", answer=None,
+        information_needs=[need(source_kind="file")]))
+    selected.tools.resolver.observed["actual-read-id"] = True
+    result = await selected.tools.resolver.execute("n1", "invented-id", "확인했습니다")
+    assert "actual-read-id" in result
+    assert selected.missing == ["n1"]
+
+
+@pytest.mark.asyncio
+async def test_design_usage_survives_interruption_before_executor_finish(env):
+    event(env, "2+2?")
+    _, _, selected = await select(env, plan())
+    with env[0].connect() as conn:
+        row = conn.execute("SELECT metrics FROM context_selection_runs WHERE request_id=?",
+                           (selected.trace.request_id,)).fetchone()
+    metrics = json.loads(row[0])
+    assert metrics["provider_total_tokens"] == 120
+    assert len(metrics["calls"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_mislabeled_execution_cannot_use_prose_completion_exemption(env):
+    event(env, "파일 수정해줘")
+    _, _, selected = await select(env, plan(route="retrieve", answer=None), request="파일 수정해줘")
+    assert not selected.answer_only()
+    assert not selected.completion_supported()
+
+
+@pytest.mark.asyncio
+async def test_related_history_need_still_searches_when_id_is_only_a_clue(env):
+    current = event(env, "이전 메모 결정이 있는지 조사해줘")
+    from nanobot.memory.search import MemorySearcher
+
+    with patch("nanobot.agent.context_selection.MemorySearcher.search",
+               autospec=True, side_effect=MemorySearcher.search) as search:
+        await select(env, plan(route="retrieve", request_type="investigate", answer=None,
+            information_needs=[need(scope="related_history", source_ids=[current.event_id])]),
+            request=current.content)
+    assert search.call_count == 1
+
+
+@pytest.mark.asyncio
+async def test_direct_preamble_is_repaired_before_delivery(env):
+    request = "마크다운 장단점을 자세히 설명해줘"
+    event(env, request)
+    _, provider, selected = await select(env, plan(answer="프랭크, 핵심을 정리합니다."),
+        request=request, responses=[response(plan(answer="프랭크, 핵심을 정리합니다.")),
+                                   response(plan(answer="# 제목과 - 목록을 쓰면 구조를 쉽게 표현합니다."))])
+    assert len(provider.requests) == 2
+    assert "answer_body_missing" in provider.requests[-1]["messages"][-1]["content"]
+    assert "핵심을 정리합니다" in provider.requests[-1]["messages"][-2]["content"]
+    assert selected.design.answer.startswith("# 제목")
+
+
+
+def test_executor_can_see_exact_runtime_ids_without_changing_original_protocol(env):
+    from nanobot.providers.openai_responses import convert_messages
+
+    spec = loop_spec(env)
+    cid = "runtime-call|provider-item"
+    spec.selected_context.observations[cid] = {
+        "name": "read_file", "status": "ok", "read_only": True}
+    messages = [{"role": "system", "content": "Preserve user constraints"},
+                {"role": "assistant", "tool_calls": [{"id": cid, "type": "function",
+                 "function": {"name": "read_file", "arguments": "{}"}}]},
+                {"role": "tool", "tool_call_id": cid, "name": "read_file", "content": "version=2"}]
+    original = copy.deepcopy(messages)
+    model = prepare_selected_loop(spec, messages, FakeProvider([]))
+    assert cid in model[0]["content"]
+    assert messages == original
+    assert model[-1] == original[-1]
+    converted = convert_messages(model)
+    assert cid in json.dumps(converted)
+
+
+
+@pytest.mark.asyncio
+async def test_design_deadline_never_starts_second_slow_call(env):
+    import asyncio
+
+    from nanobot.providers.base import hosted_tools_enabled
+
+    event(env, "2+2?")
+    timeout = asyncio.timeout
+    attempts = []
+    cancelled = []
+
+    class SlowProvider(FakeProvider):
+        async def chat(self, messages, **kwargs):
+            attempts.append(hosted_tools_enabled())
+            try:
+                await asyncio.sleep(10)
+            finally:
+                cancelled.append(True)
+
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    with patch("nanobot.agent.context_selection.asyncio.timeout",
+               side_effect=lambda seconds: timeout(0.03)) as deadline:
+        selected = await selector.select(provider=SlowProvider([]), model="offline", request="2+2?",
+            scope=env[1], session_id="s", registry=env[2], skills=env[3],
+            rules="Mandatory policy", request_id="timeout")
+    assert attempts == [False]
+    assert cancelled == [True]
+    deadline.assert_called_once_with(20)
+    assert selected.blocked == "design_timeout"
+    assert selected.trace.counters["design_timeouts"] == 1
+    assert "design_recoveries" not in selected.trace.counters
+    assert selected.trace.report()["provider_usage_status"] == "unavailable"
+    assert hosted_tools_enabled()
+
+
+@pytest.mark.asyncio
+async def test_format_repair_shares_one_design_deadline_and_low_effort(env):
+    import asyncio
+
+    from nanobot.providers.base import hosted_tools_enabled
+
+    event(env, "2+2?")
+    timeout = asyncio.timeout
+    settings = []
+
+    class InvalidThenSlow(FakeProvider):
+        async def chat(self, messages, **kwargs):
+            settings.append((kwargs["reasoning_effort"], hosted_tools_enabled()))
+            if len(settings) == 1:
+                return LLMResponse(content="bad json")
+            await asyncio.sleep(10)
+
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    with patch("nanobot.agent.context_selection.asyncio.timeout",
+               side_effect=lambda seconds: timeout(0.04)) as deadline:
+        selected = await selector.select(provider=InvalidThenSlow([]), model="offline", request="2+2?",
+            scope=env[1], session_id="s", registry=env[2], skills=env[3],
+            rules="Mandatory policy", request_id="repair-timeout")
+    assert settings == [("low", False), ("low", False)]
+    deadline.assert_called_once_with(20)
+    assert selected.blocked == "design_timeout"
+    assert selected.trace.counters["design_recoveries"] == 1
+    assert selected.trace.report()["provider_usage_status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_design_provider_error_does_not_trigger_json_repair(env):
+    event(env, "2+2?")
+    _, provider, selected = await select(env, plan(), responses=[
+        LLMResponse(content="Synthetic non-retryable provider failure", finish_reason="error")])
+    assert len(provider.requests) == 1
+    assert selected.blocked == "design_provider_error"
+    assert "design_recoveries" not in selected.trace.counters
+
+
+def test_designer_retains_all_bootstrap_and_permission_rules_without_tool_tutorials(tmp_path):
+    from nanobot.agent.context import ContextBuilder
+
+    policies = {"AGENTS.md": "Do not restart services. Await explicit stage approval.",
+                "SOUL.md": "Report verified results only.", "USER.md": "Always answer in Korean."}
+    for name, text in policies.items():
+        (tmp_path / name).write_text(text)
+    builder = ContextBuilder(tmp_path)
+    designer = builder.build_design_system_prompt(channel="telegram")
+    executor = builder.build_selected_system_prompt(channel="telegram")
+    for text in policies.values():
+        assert text in designer and text in executor
+    assert "Explicit Permission Gates" in designer
+    assert "General Tool Contract" not in designer
+    assert "General Tool Contract" in executor
+    assert len(designer) < len(executor)
+
+
+def test_design_timeout_and_effort_are_explicit_config_and_execution_unchanged():
+    defaults = AgentDefaults()
+    assert defaults.context_selection.design_timeout_seconds == 20
+    assert defaults.context_selection.design_reasoning_effort == "low"
+    config = AgentDefaults.model_validate({"reasoningEffort": "high", "contextSelection": {
+        "designTimeoutSeconds": 15, "designReasoningEffort": "medium"}})
+    assert config.reasoning_effort == "high"
+    assert config.context_selection.design_reasoning_effort == "medium"
+    assert config.model_dump(by_alias=True)["contextSelection"]["designTimeoutSeconds"] == 15
+
+
+
+@pytest.mark.asyncio
+async def test_user_stop_cancels_designer_without_repair_and_retains_partial_trace(env):
+    import asyncio
+
+    from nanobot.providers.base import hosted_tools_enabled
+
+    event(env, "2+2?")
+    entered = asyncio.Event()
+    calls = []
+
+    class WaitingProvider(FakeProvider):
+        async def chat(self, messages, **kwargs):
+            calls.append(True)
+            entered.set()
+            await asyncio.sleep(10)
+
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    pending = asyncio.create_task(selector.select(provider=WaitingProvider([]), model="offline",
+        request="2+2?", scope=env[1], session_id="s", registry=env[2], skills=env[3],
+        rules="Keep permissions", request_id="user-stop"))
+    await asyncio.wait_for(entered.wait(), timeout=1)
+    pending.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pending
+    with env[0].connect() as conn:
+        metrics = json.loads(conn.execute(
+            "SELECT metrics FROM context_selection_runs WHERE request_id='user-stop'").fetchone()[0])
+    assert len(calls) == 1
+    assert metrics["counters"]["cancelled"] == 1
+    assert "design_recoveries" not in metrics["counters"]
+    assert metrics["provider_usage_status"] == "unavailable"
+    assert hosted_tools_enabled()

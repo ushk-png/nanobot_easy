@@ -644,24 +644,34 @@ class LLMProvider(ABC):
         return found
 
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
-        """Call chat() and convert unexpected exceptions to error responses."""
+        """Journal the attempt before sending, independently of turn completion."""
         from nanobot.agent.context_trace import active_context_trace
-        trace = active_context_trace.get()
+        trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
+        attempt = trace.begin(kwargs) if trace else None
+        from functools import partial
+
+        from nanobot.providers.call_observation import observe, observer
+        observation_token = observer.set(partial(trace.mark, attempt=attempt) if trace else None)
         started = time.monotonic()
         try:
+            observe("provider_call_started", provider=type(self).__name__, model=kwargs.get("model"),
+                    reasoning_effort=kwargs.get("reasoning_effort"),
+                    max_output_tokens=kwargs.get("max_tokens"), tool_choice=kwargs.get("tool_choice"),
+                    tool_count=len(kwargs.get("tools") or []))
             response = await self.chat(**kwargs)
-            if trace:
-                trace.record(kwargs, response, time.monotonic() - started)
-            return response
         except asyncio.CancelledError:
+            observe("cancellation_received")
             if trace:
-                trace.record(kwargs, LLMResponse(content=None, finish_reason="error"), time.monotonic() - started)
+                trace.end(attempt, None, time.monotonic() - started, "cancelled")
             raise
         except Exception as exc:
             response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
-            if trace:
-                trace.record(kwargs, response, time.monotonic() - started)
-            return response
+        finally:
+            observe("provider_call_returned")
+            observer.reset(observation_token)
+        if trace:
+            trace.end(attempt, response, time.monotonic() - started)
+        return response
 
     async def chat_stream(
         self,
@@ -699,24 +709,34 @@ class LLMProvider(ABC):
         return response
 
     async def _safe_chat_stream(self, **kwargs: Any) -> LLMResponse:
-        """Call chat_stream() and convert unexpected exceptions to error responses."""
+        """Journal the attempt before sending, independently of turn completion."""
         from nanobot.agent.context_trace import active_context_trace
-        trace = active_context_trace.get()
+        trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
+        attempt = trace.begin(kwargs) if trace else None
+        from functools import partial
+
+        from nanobot.providers.call_observation import observe, observer
+        observation_token = observer.set(partial(trace.mark, attempt=attempt) if trace else None)
         started = time.monotonic()
         try:
+            observe("provider_call_started", provider=type(self).__name__, model=kwargs.get("model"),
+                    reasoning_effort=kwargs.get("reasoning_effort"),
+                    max_output_tokens=kwargs.get("max_tokens"), stream=True,
+                    tool_choice=kwargs.get("tool_choice"), tool_count=len(kwargs.get("tools") or []))
             response = await self.chat_stream(**kwargs)
-            if trace:
-                trace.record(kwargs, response, time.monotonic() - started)
-            return response
         except asyncio.CancelledError:
+            observe("cancellation_received")
             if trace:
-                trace.record(kwargs, LLMResponse(content=None, finish_reason="error"), time.monotonic() - started)
+                trace.end(attempt, None, time.monotonic() - started, "cancelled")
             raise
         except Exception as exc:
             response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
-            if trace:
-                trace.record(kwargs, response, time.monotonic() - started)
-            return response
+        finally:
+            observe("provider_call_returned")
+            observer.reset(observation_token)
+        if trace:
+            trace.end(attempt, response, time.monotonic() - started)
+        return response
 
     async def chat_stream_with_retry(
         self,
@@ -1026,12 +1046,19 @@ class LLMProvider(ABC):
                 int(round(delay)),
                 self._retry_log_preview(response),
             )
+            from nanobot.agent.context_trace import active_context_trace
+            trace = active_context_trace.get()
+            if trace and trace.calls:
+                trace.mark("retry_wait_started", attempt=trace.calls[-1]["attempt_id"],
+                           delay_ms=round(delay * 1000))
             await self._sleep_with_heartbeat(
                 delay,
                 attempt=attempt,
                 persistent=persistent,
                 on_retry_wait=on_retry_wait,
             )
+            if trace and trace.calls:
+                trace.mark("retry_wait_finished", attempt=trace.calls[-1]["attempt_id"])
 
         return last_response if last_response is not None else await call(**kw)
 

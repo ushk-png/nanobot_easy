@@ -7,6 +7,15 @@ from typing import Any
 
 from nanobot.memory.event_store import ConversationEventStore
 from nanobot.memory.models import MemoryScope, RawEvent
+from nanobot.session.history_visibility import is_hidden_history_message
+
+
+def _runtime_feedback(text: str) -> bool:
+    # Older releases persisted this exact internal instruction without a hidden marker.
+    # Filter only the exact known control message, never human wording or quoted excerpts.
+    from nanobot.agent.premature_final import CORRECTION
+
+    return text == CORRECTION
 
 
 class TaskContextStore:
@@ -50,7 +59,10 @@ class TaskContextStore:
             params.append(tail)
         with self.store.connect() as conn:
             rows = conn.execute(sql, params).fetchall()
-        return [self.store._row_to_event(row) for row in reversed(rows)]
+        events = [self.store._row_to_event(row) for row in reversed(rows)]
+        return [e for e in events if not is_hidden_history_message(
+            self.store._metadata_obj(e.metadata_json)) and not (
+                e.actor == "user" and _runtime_feedback(e.content or ""))]
 
     def list(self, scope: MemoryScope, session_id: str) -> list[dict[str, Any]]:
         agent_sql, agent_params = self.store._agent_scope_sql(scope)
@@ -61,7 +73,12 @@ class TaskContextStore:
                     SELECT MAX(version) FROM task_context_versions WHERE task_id=v.task_id)
                 ORDER BY rowid DESC""",
                 [scope.owner_id, *scope.workspace_ids, *agent_params, session_id]).fetchall()
-        return [json.loads(row[0]) for row in rows]
+        states = [json.loads(row[0]) for row in rows]
+        for state in states:
+            for key in ("user_constraints", "decisions"):
+                state[key] = [item for item in state.get(key, [])
+                              if not _runtime_feedback(item.get("text", ""))]
+        return states
 
     def create(self, scope: MemoryScope, session_id: str, event: RawEvent,
                goal: str, checks: list[str]) -> dict[str, Any]:

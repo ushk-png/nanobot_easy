@@ -214,6 +214,8 @@ class ExecTool(Tool):
         self.allowed_env_keys = allowed_env_keys or []
         self._session_manager = session_manager or DEFAULT_EXEC_SESSION_MANAGER
 
+    supports_cancellation = True
+
     @property
     def name(self) -> str:
         return "exec"
@@ -328,6 +330,18 @@ class ExecTool(Tool):
                     + result[-half:]
                 )
 
+            from nanobot.agent.context_evidence import active_evidence_capture, test_command
+            if active_evidence_capture.get():
+                output = ToolResult(result, is_error=process.returncode != 0)
+                evidence_text = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+                passed = re.search(r"\b(\d+) passed\b", evidence_text)
+                unittest_count = re.search(r"Ran (\d+) tests?", evidence_text)
+                count = int(passed[1]) if passed else int(unittest_count[1]) if unittest_count else 0
+                ran = test_command(command) and count > 0
+                output.execution_evidence = {"exit_code": process.returncode,
+                    "result_kind": "test_result" if ran else "execution_result",
+                    "tests_executed": ran, "test_counts": {"observed_executed": count}}
+                return output
             return result
 
         except Exception as e:

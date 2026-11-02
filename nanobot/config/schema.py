@@ -154,7 +154,8 @@ class ContextSelectionConfig(Base):
     recent_messages: int = Field(default=8, ge=2, le=40)
     search_tokens: int = Field(default=4000, ge=500, le=20000)
     design_max_tokens: int = Field(default=3000, ge=512, le=12000)
-    design_timeout_seconds: int = Field(default=90, ge=1, le=300)
+    design_timeout_seconds: int = Field(default=20, ge=1, le=300)  # Entire design, including repair.
+    design_reasoning_effort: Literal["low", "medium", "high"] | None = "low"
     execution_target_tokens: int = Field(default=16000, ge=2000)
 
 

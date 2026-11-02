@@ -112,7 +112,7 @@ async def test_codex_request_honors_stream_idle_timeout_env(monkeypatch) -> None
     seen: dict[str, int] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, request=request)
+        return httpx.Response(200, request=request, content='data: {"type":"response.completed","response":{"status":"completed"}}\n\n')
 
     def fake_client(
         *,
@@ -137,7 +137,7 @@ async def test_codex_request_uses_configured_proxy(monkeypatch) -> None:
     proxy = "http://127.0.0.1:23458"
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, request=request)
+        return httpx.Response(200, request=request, content='data: {"type":"response.completed","response":{"status":"completed"}}\n\n')
 
     def fake_client(
         *,

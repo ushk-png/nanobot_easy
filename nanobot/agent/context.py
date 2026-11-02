@@ -137,6 +137,14 @@ class ContextBuilder:
 
         return "\n\n---\n\n".join(parts)
 
+    def build_design_system_prompt(self, channel: str | None = None,
+                                   workspace: Path | None = None) -> str:
+        """Preserve identity/permission/user rules without execution tool tutorials."""
+        root = workspace or self.workspace
+        return "\n\n---\n\n".join(part for part in (
+            self._get_identity(channel=channel, workspace=root, design=True), self._load_bootstrap_files(root),
+        ) if part)
+
     def build_selected_system_prompt(self, skill_names: list[str] | None = None,
                                      channel: str | None = None,
                                      workspace: Path | None = None) -> str:
@@ -175,7 +183,8 @@ class ContextBuilder:
             + self._RECENT_MEMORY_END
         )
 
-    def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
+    def _get_identity(self, channel: str | None = None, workspace: Path | None = None,
+                      *, design: bool = False) -> str:
         """Get the core identity section."""
         root = workspace or self.workspace
         workspace_path = str(root.expanduser().resolve())
@@ -183,7 +192,7 @@ class ContextBuilder:
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
         return render_template(
-            "agent/identity.md",
+            "agent/design_identity.md" if design else "agent/identity.md",
             workspace_path=workspace_path,
             runtime=runtime,
             platform_policy=render_template("agent/platform_policy.md", system=system),

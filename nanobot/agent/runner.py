@@ -252,7 +252,7 @@ class AgentRunner:
                 custom = None
         return build_goal_continue_message(custom)
 
-    async def _drain_injections(self, spec: AgentRunSpec) -> list[dict[str, Any]]:
+    async def _drain_injections(self, spec: AgentRunSpec, *, wait: bool = True) -> list[dict[str, Any]]:
         """Drain pending user messages via the injection callback.
 
         Returns normalized user messages (capped by
@@ -271,10 +271,10 @@ class AgentRunner:
                     for parameter in signature.parameters.values()
                 )
             )
-            if accepts_limit:
-                items = await spec.injection_callback(limit=_MAX_INJECTIONS_PER_TURN)
-            else:
-                items = await spec.injection_callback()
+            options = {"limit": _MAX_INJECTIONS_PER_TURN} if accepts_limit else {}
+            if "wait" in signature.parameters:
+                options["wait"] = wait
+            items = await spec.injection_callback(**options)
         except Exception:
             logger.exception("injection_callback failed")
             return []
@@ -301,6 +301,8 @@ class AgentRunner:
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
         if spec.selected_context and injected_messages:
+            if spec.selected_context.control:
+                spec.selected_context.control.ingest_messages(injected_messages)
             spec.selected_context.completion_reports.clear()
             spec.selected_context.trace.count("redesigns", "new_user_instruction_executor_reconciliation")
         if spec.task_state is not None and injected_messages:
@@ -319,6 +321,16 @@ class AgentRunner:
         return True
 
     async def run(self, spec: AgentRunSpec) -> AgentRunResult:
+        from nanobot.agent.context_control import TaskControl
+        from nanobot.agent.context_evidence import active_evidence_capture
+        from nanobot.agent.context_trace import active_context_trace
+
+        capture_token = active_evidence_capture.set(bool(spec.selected_context))
+        trace_token = active_context_trace.set(spec.selected_context.trace if spec.selected_context else active_context_trace.get())
+        if spec.selected_context:
+            spec.selected_context.trace.stage = "legacy_fallback" if spec.selected_context.legacy_fallback else "execute"
+            if spec.selected_context.control is None:
+                spec.selected_context.control = TaskControl(spec.selected_context)
         from nanobot.agent.task_note import TaskNote, TaskTools, active_task_note, needs_note
 
         task_token = None
@@ -339,6 +351,9 @@ class AgentRunner:
         except asyncio.CancelledError as exc:
             if spec.task_state is not None:
                 spec.task_state.persist("cancelled")
+            if spec.selected_context and spec.selected_context.control:
+                spec.selected_context.control.save(lambda state: state.update(
+                    instruction_status="CANCELLED", status="CANCELLED"))
             context.messages = deepcopy(messages)
             context.stop_reason = "cancelled"
             context.error = None
@@ -354,6 +369,10 @@ class AgentRunner:
             await hook.on_error(context)
             raise
         else:
+            if spec.selected_context and not spec.selected_context.legacy_fallback:
+                result.final_content, result.stop_reason = spec.selected_context.verdict(result.final_content, result.stop_reason)
+                if result.messages and result.messages[-1].get("role") == "assistant":
+                    result.messages[-1]["content"] = result.final_content
             if spec.task_state is not None:
                 spec.task_state.persist(result.stop_reason)
                 spec.task_state.metadata["task_note"]["metrics"] = {
@@ -376,6 +395,10 @@ class AgentRunner:
             await hook.after_run(context)
             return result
         finally:
+            if spec.selected_context:
+                spec.selected_context.trace.persist()
+            active_context_trace.reset(trace_token)
+            active_evidence_capture.reset(capture_token)
             if task_token is not None:
                 active_task_note.reset(task_token)
             context.messages = deepcopy(messages)
@@ -470,19 +493,13 @@ class AgentRunner:
                     return clean, False
                 clean = spec.task_state.update.final_answer.strip()
                 assistant_message["content"] = clean
-            if spec.selected_context and spec.selected_context.missing:
-                stop_reason = "incomplete"
-                clean = "필수 근거를 확보하지 못해 완료하지 못했습니다: " + ", ".join(
-                    spec.selected_context.missing)
-                assistant_message["content"] = clean
-                return clean, False
-            if (spec.selected_context and spec.selected_context.design
-                    and spec.selected_context.design.route in {"execute", "retrieve"}
-                    and not spec.selected_context.completion_supported()):
-                stop_reason = "incomplete"
-                clean = str(clean or "") + "\n\n완료 조건의 실행·검증 근거가 아직 기록되지 않았습니다."
-                assistant_message["content"] = clean
-                return clean, False
+            if spec.selected_context and not spec.selected_context.legacy_fallback:
+                checked, checked_status = spec.selected_context.verdict(clean)
+                if checked_status != "completed":
+                    stop_reason = checked_status
+                    assistant_message["unverified_content"] = clean
+                    assistant_message["content"] = checked
+                    return checked, False
             if spec.premature_final_guard and needs_answer_body(clean, messages):
                 if answer_body_corrections < 2 and iteration + 1 < spec.max_iterations:
                     answer_body_corrections += 1
@@ -541,6 +558,12 @@ class AgentRunner:
         )
 
         for iteration in range(spec.max_iterations):
+            if spec.selected_context and not spec.selected_context.legacy_fallback:
+                spec.selected_context.control.refresh()
+                if spec.selected_context.control.cancelled:
+                    final_content, stop_reason = spec.selected_context.verdict(None, "cancelled")
+                    self._append_final_message(messages, final_content)
+                    break
             try:
                 # Keep the persisted conversation untouched. Context governance
                 # may repair or compact historical messages for the model, but
@@ -647,8 +670,8 @@ class AgentRunner:
 
                 await hook.before_execute_tools(context)
                 pending_before_tools = []
-                if spec.task_state is not None:
-                    pending_before_tools = await self._drain_injections(spec)
+                if spec.task_state is not None or spec.selected_context:
+                    pending_before_tools = await self._drain_injections(spec, wait=not bool(spec.selected_context))
                 if pending_before_tools:
                     # Complete the old tool protocol without executing a now-stale action.
                     results = ["Superseded by a new user instruction; reinterpret before execution."
@@ -667,6 +690,10 @@ class AgentRunner:
                         spec.task_state.pending_messages = []
                         had_injections = True
                         injection_cycles += 1
+                if spec.selected_context and spec.selected_context.control.pending:
+                    pending_before_tools.extend(spec.selected_context.control.pending)
+                    spec.selected_context.control.pending = []
+                    had_injections = True
                 tool_events.extend(new_events)
                 tools_used.extend(
                     tool_call.name
@@ -681,9 +708,7 @@ class AgentRunner:
                         if call.name not in {"discover_context_capabilities", "resolve_context_need",
                                               "record_context_completion", "revise_context_requirements", "skill_decision",
                                               "skill_search", "skill_registry"}:
-                            spec.selected_context.observations[call.id] = {
-                                "name": call.name, "status": event.get("status"),
-                                "read_only": bool(tool and tool.read_only)}
+                            spec.selected_context.capture(call, observed_result, event.get("status"), tool)
                         if call.name in {"search_memory", "read_memory_events"}:
                             spec.selected_context.trace.count("additional_searches", "executor_plan_revision")
                         spec.tools.resolver.observed[call.id] = bool(
@@ -709,6 +734,8 @@ class AgentRunner:
                         observation = spec.selected_context.observations.get(tool_call.id, {})
                         tool_message["execution_status"] = observation.get("status", "unknown")
                         tool_message["read_only"] = observation.get("read_only", True)
+                        if observation.get("source_event_id"):
+                            tool_message["memory_event_id"] = observation["source_event_id"]
                     messages.append(tool_message)
                     completed_tool_results.append(tool_message)
                 if pending_before_tools:
@@ -986,7 +1013,7 @@ class AgentRunner:
             if (spec.task_state is not None and not spec.task_state.defects()
                     and spec.task_state.update.status == "completed"):
                 final_content = spec.task_state.update.final_answer.strip()
-            if final_content is None and spec.finalize_on_max_iterations:
+            if final_content is None and spec.finalize_on_max_iterations and not spec.selected_context:
                 final_content = await self._try_finalize_after_max_iterations(
                     spec,
                     hook,
@@ -1013,6 +1040,8 @@ class AgentRunner:
                 final_content = str(final_content or "") + "\n\n" + ANSWER_BODY_INCOMPLETE
                 if stop_reason == "completed":
                     stop_reason = "incomplete"
+            if spec.selected_context and not spec.selected_context.legacy_fallback:
+                final_content, stop_reason = spec.selected_context.verdict(final_content, "max_iterations")
             self._append_final_message(messages, final_content)
 
         return AgentRunResult(
@@ -1093,9 +1122,14 @@ class AgentRunner:
             messages,
             tools=spec.tools.get_definitions(),
         )
-        wants_streaming = hook.wants_streaming()
+        # Selected execution must validate every final candidate before delivery.
+        # Content deltas could otherwise publish an unsupported success claim
+        # even when verdict() subsequently rejects the final response.
+        gate_delivery = bool(spec.selected_context and not spec.selected_context.legacy_fallback)
+        wants_streaming = hook.wants_streaming() and not gate_delivery
         wants_progress_streaming = (
             not wants_streaming
+            and not gate_delivery
             and spec.stream_progress_deltas
             and spec.progress_callback is not None
             and getattr(self.provider, "supports_progress_deltas", False) is True
@@ -1205,6 +1239,8 @@ class AgentRunner:
                     "Tool call did not complete.",
                 )
         except asyncio.TimeoutError:
+            if spec.selected_context:
+                spec.selected_context.trace.mark_timeout()
             if outer_timeout_s is None:
                 return LLMResponse(
                     content="Error calling LLM: stream stalled",
@@ -1511,7 +1547,17 @@ class AgentRunner:
                 fatal_error = error
         return results, events, fatal_error
 
-    async def _run_tool(
+    async def _run_tool(self, spec, tool_call, external_lookup_counts, workspace_violation_counts):
+        tool = spec.tools.get(tool_call.name)
+        async def operation():
+            return await self._run_tool_with_task_note(
+                spec, tool_call, external_lookup_counts, workspace_violation_counts)
+        if spec.selected_context and tool is not None and not tool.read_only:
+            return await spec.selected_context.control.run_mutation(
+                tool_call, tool, operation, lambda: self._drain_injections(spec, wait=False))
+        return await operation()
+
+    async def _run_tool_with_task_note(
         self,
         spec: AgentRunSpec,
         tool_call: ToolCallRequest,
@@ -1565,6 +1611,8 @@ class AgentRunner:
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
     ) -> tuple[Any, dict[str, str], BaseException | None]:
+        from nanobot.agent.tools.base import ToolResult
+
         hint = "\n\n[Analyze the error above and try a different approach.]"
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
@@ -1630,7 +1678,17 @@ class AgentRunner:
                 ) for file_edit_tracker in file_edit_trackers],
             )
         try:
+            checked_versions = spec.selected_context.watched_versions() if spec.selected_context else {}
             if tool is not None:
+                if spec.selected_context and not tool.read_only:
+                    latest = await self._drain_injections(spec, wait=False)
+                    spec.selected_context.control.pending.extend(latest)
+                    error = spec.selected_context.control.authorize(tool_call.name)
+                    if error or latest:
+                        return ToolResult.error(error or "Prepared action superseded"), {
+                            "name": tool_call.name, "status": "blocked"}, None
+                    spec.selected_context.control.active = tool_call.id
+                    spec.selected_context.control.execution(tool_call, "running")
                 from nanobot.agent.tools.search import FindFilesTool, GrepTool
 
                 if spec.task_state is not None and type(tool) in {FindFilesTool, GrepTool}:
@@ -1641,6 +1699,9 @@ class AgentRunner:
                     result = await tool.execute(**params)
             else:
                 result = await spec.tools.execute(tool_call.name, params)
+            execution = getattr(result, "execution_evidence", None)
+            if spec.selected_context and isinstance(execution, dict):
+                execution["checked_versions"] = checked_versions
         except asyncio.CancelledError:
             raise
         except BaseException as exc:
