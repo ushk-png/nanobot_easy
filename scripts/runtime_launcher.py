@@ -131,6 +131,7 @@ def verify_config(profile: dict) -> dict:
 
 def gateway_args(profile: dict) -> list[str]:
     return ["gateway", "--config", str(Path(profile["config"]).resolve()),
+            "--workspace", str(Path(profile["workspace"]).resolve()),
             "--port", str(profile["port"]), "--foreground"]
 
 

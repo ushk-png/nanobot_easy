@@ -47,6 +47,34 @@ def test_record_status_detects_missing_stale_and_current(tmp_path: Path) -> None
     assert launcher.record_status(profile)["record"] == "commit_differs_from_profile"
 
 
+def test_gateway_workspace_preserves_skill_identity_and_approval(tmp_path: Path, monkeypatch) -> None:
+    from nanobot.skill_store import SkillStore
+
+    workspace = tmp_path / "ws"
+    skill = workspace / "skills" / "custom" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: custom\ndescription: local test\n---\nTest method.\n")
+    empty_builtins = tmp_path / "empty-builtins"
+    empty_builtins.mkdir()
+    store = SkillStore(workspace)
+    store.reindex(builtin_dir=empty_builtins)
+    store.approve_draft("custom")
+    store.record_skill_outcome("custom", gate_result="ok")
+    before = dict(store.get_skill("custom"))
+
+    monkeypatch.chdir(tmp_path)
+    # A config can contain a relative workspace; the profile's verified absolute
+    # workspace must reach the gateway instead of deriving different skill IDs.
+    args = launcher.gateway_args(_profile(tmp_path))
+    child_workspace = Path(args[args.index("--workspace") + 1])
+    assert child_workspace.is_absolute()
+    child = SkillStore(child_workspace)
+    child.reindex(builtin_dir=empty_builtins)
+    after = dict(child.get_skill("custom"))
+    for key in ("id", "status", "usage_count", "success_count"):
+        assert after[key] == before[key]
+
+
 def _select(script: Path, config: Path, workspace: Path, profiles: Path, env: dict) -> subprocess.CompletedProcess:
     # Extract select_runtime_profile from the script and call it in isolation.
     text = script.read_text()
