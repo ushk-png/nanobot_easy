@@ -272,10 +272,16 @@ async def test_internal_clarification_runs_search_without_extra_model(env):
 
 
 @pytest.mark.asyncio
-async def test_wrong_first_plan_can_discover_read_and_resolve_in_executor(env):
-    event(env, "현재 설정을 수정해줘")
+@pytest.mark.parametrize("user_request, change_calls, stop_reason", [
+    ("현재 설정을 수정해줘", 0, "awaiting_confirmation"),
+    ("current-test-config.txt 파일의 version을 3으로 수정해줘", 1, "incomplete"),
+])
+async def test_wrong_first_plan_can_discover_read_and_resolve_in_executor(
+    env, user_request, change_calls, stop_reason,
+):
+    event(env, user_request)
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
-        information_needs=[need(source_kind="file", query="current config")]), request="현재 설정을 수정해줘")
+        information_needs=[need(source_kind="file", query="current config")]), request=user_request)
     assert not selected.tools.has("change_test_file")
     await selected.tools.execute("discover_context_capabilities", {"names": ["change_test_file"]})
     assert selected.tools.has("change_test_file")
@@ -287,13 +293,21 @@ async def test_wrong_first_plan_can_discover_read_and_resolve_in_executor(env):
         LLMResponse(content="Modification checked against current version 2."),
     ])
     result = await AgentRunner(provider).run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "update current file"}],
+        initial_messages=[{"role": "user", "content": user_request}],
         tools=selected.tools, model="offline", max_iterations=5,
         max_tool_result_chars=1000, selected_context=selected))
-    assert result.tools_used == ["read_file", "resolve_context_need", "change_test_file"]
+    assert result.tools_used == ["read_file", "resolve_context_need"] + (
+        ["change_test_file"] if change_calls else []
+    )
     assert selected.missing == []
-    assert env[2].get("change_test_file").calls == 1
+    assert env[2].get("change_test_file").calls == change_calls
     assert len(provider.requests) == 4  # no per-tool designer or summarizer call
+    # Finding a read capability does not identify which configuration the user
+    # authorized changing. A named target can run, but the fake change tool does
+    # not verify final contents and therefore cannot establish completion.
+    assert result.stop_reason == stop_reason
+    if not change_calls:
+        assert any(c["code"] == "target_unresolved" for c in selected.unresolved_conditions())
 
 
 def loop_spec(env):

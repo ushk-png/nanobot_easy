@@ -314,3 +314,17 @@ async def test_relay_non_stream_keeps_total_deadline(tmp_path, aiohttp_client, m
     resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=False, timeout=0.2)
     assert resp.status == 504
     assert provider.cancelled is True
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_client_disconnect_cancels_active_provider(tmp_path, aiohttp_client, monkeypatch):
+    import asyncio
+
+    provider = PacedProvider(gap=0.01, steps=1000)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=True, timeout=5)
+    assert await resp.content.readline()  # A real stream was established.
+    resp.close()
+    async with asyncio.timeout(1):
+        while not provider.cancelled:
+            await asyncio.sleep(0.01)
