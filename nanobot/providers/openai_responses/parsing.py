@@ -12,7 +12,12 @@ import httpx
 from loguru import logger
 
 from nanobot.providers.base import LLMResponse, ToolCallRequest, parse_tool_arguments
-from nanobot.providers.call_observation import observe, observe_stream_event, schedule_cleanup
+from nanobot.providers.call_observation import (
+    observe,
+    observe_stream_event,
+    schedule_cleanup,
+    stream_event_log,
+)
 
 FINISH_REASON_MAP = {
     "completed": "stop",
@@ -136,6 +141,28 @@ async def consume_sse_with_reasoning(
 
 
 async def _consume_response_events(events, on_content_delta=None, on_tool_call_delta=None, on_reasoning_delta=None):
+    # Diagnostics only: one content-free stream_event_log milestone per stream,
+    # emitted on every exit (including a deadline cancellation). Never affects results.
+    log = stream_event_log()
+    if log is None:
+        return await _consume_events(events, on_content_delta, on_tool_call_delta, on_reasoning_delta)
+    status = "error"
+    try:
+        result = await _consume_events(events, on_content_delta, on_tool_call_delta, on_reasoning_delta, log)
+        status = "completed"
+        return result
+    except asyncio.CancelledError:
+        status = "cancelled"
+        raise
+    except RuntimeError as exc:
+        status = "eof" if "missing_terminal_event" in str(exc) else "failed"
+        raise
+    finally:
+        log.emit(status)
+
+
+async def _consume_events(events, on_content_delta=None, on_tool_call_delta=None, on_reasoning_delta=None,
+                          log=None):
     content = ""
     tool_calls = []
     tool_call_buffers = {}
@@ -160,6 +187,8 @@ async def _consume_response_events(events, on_content_delta=None, on_tool_call_d
             raise
         observe("stream_receive_wait_finished", event_sequence=seen_events + 1, status="received")
         seen_events += 1
+        if log is not None:
+            log.record(event)
         with observe_stream_event(event, seen_events):
             if seen_events == 1:
                 observe("first_event", event_type=event.get("type"), bytes=len(json.dumps(event).encode()))

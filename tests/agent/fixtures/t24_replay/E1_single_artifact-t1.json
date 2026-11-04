@@ -1,0 +1,124 @@
+{
+ "case": "E1_single_artifact",
+ "turn": 1,
+ "request": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+ "design": {
+  "goal": "t24_todo.md 파일을 새로 만들고 오늘 할 일 세 개를 적어 둔다.",
+  "request_type": "execute",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "execute",
+  "constraints": [
+   {
+    "text": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+    "source_ids": [
+     "E15c28f435a2b4637a0441f0043fe385a"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [
+   "write_file"
+  ],
+  "completion_checks": [
+   "Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다."
+  ],
+  "unresolved": [],
+  "answer": null,
+  "completion_specs": [
+   {
+    "check": "Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.",
+    "result_kind": "file_content",
+    "target": "t24_todo.md",
+    "expected_values": {
+     "item_count": 3
+    }
+   }
+  ],
+  "obligations": {
+   "target": "external_resource",
+   "lookup": "unneeded",
+   "external_change": "required",
+   "source_span": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "required",
+     "source_span": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+     "target_ref": "t24_todo.md",
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "write",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘",
+   "target_ref": "t24_todo.md",
+   "origin": "parser",
+   "bound_id": "t24_todo.md",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [
+  {
+   "name": "skill_decision",
+   "params": {
+    "decision": "hot",
+    "rationale": "전용 Testy 게이트웨이의 일반 요청이며, 파일 생성은 사용자 지시에 따른 실행이다. testy-agent 페르소나를 유지한다.",
+    "skill_name": "testy-agent",
+    "intent_summary": "워크스페이스에 t24_todo.md를 만들고 오늘 할 일 세 개를 적는다."
+   },
+   "mutating": true,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "write_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md",
+    "content": "# 오늘 할 일\n\n1. 오늘 일정과 우선순위를 확인한다.\n2. 가장 중요한 업무 하나를 끝까지 처리한다.\n3. 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.\n"
+   },
+   "mutating": true,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "read_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  }
+ ],
+ "reply": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n이미 완료된 실행(취소로 되돌리지 않음): skill_decision [call-7cbe0dfb-707a-49ea-af8c-91e3112b7689-0|fc_4933cbf0-6777-9a52-be2b-cb39863bc38b_0], write_file [call-7cbe0dfb-707a-49ea-af8c-91e3112b7689-1|fc_4933cbf0-6777-9a52-be2b-cb39863bc38b_1]\n남은 조건: Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.\n부분 응답(미검증): 프랭크, `t24_todo.md`를 만들어 오늘 할 일 세 개를 적어 두었습니다.\n\n1. 오늘 일정과 우선순위를 확인한다.\n2. 가장 중요한 업무 하나를 끝까지 처리한다.\n3. 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.\n\n내용은 지정되지 않아 일반적인 하루 할 일로 적었습니다. 바꾸실 내용이 있으면 말씀해 주십시오.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "execute",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"t24_todo.md 파일을 새로 만들고 오늘 할 일 세 개를 적어 둔다.\", \"request_type\": \"execute\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"execute\", \"constraints\": [{\"text\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"]}], \"information_needs\": [], \"capabilities_needed\": [\"write_file\"], \"completion_checks\": [\"Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.\", \"result_kind\": \"file_content\", \"target\": \"t24_todo.md\", \"expected_values\": {\"item_count\": 3}}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"unneeded\", \"external_change\": \"required\", \"source_span\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"target_ref\": \"t24_todo.md\", \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"t24_todo.md 파일을 새로 만들고 오늘 할 일 세 개를 적어 둔다.\", \"request_type\": \"execute\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"execute\", \"constraints\": [{\"text\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"]}], \"information_needs\": [], \"capabilities_needed\": [\"write_file\"], \"completion_checks\": [\"Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"Workspace에 t24_todo.md가 생성되어 있고 오늘 할 일이 정확히 세 개 적혀 있다.\", \"result_kind\": \"file_content\", \"target\": \"t24_todo.md\", \"expected_values\": {\"item_count\": 3}}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"unneeded\", \"external_change\": \"required\", \"source_span\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"target_ref\": \"t24_todo.md\", \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "execute",
+ "stop_reason": "incomplete",
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

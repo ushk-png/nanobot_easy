@@ -653,8 +653,12 @@ class MemoryStore:
             if not message.get("content"):
                 continue
             tools = f" [tools: {', '.join(message['tools_used'])}]" if message.get("tools_used") else ""
+            fix = message.get("correction")
+            content = message["content"]
+            if isinstance(fix, dict) and fix.get("answer"):
+                content = "[corrected: " + str(fix.get("status", "corrected_complete")) + "] " + fix["answer"]
             lines.append(
-                f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {message['content']}"
+                f"[{message.get('timestamp', '?')[:16]}] {message['role'].upper()}{tools}: {content}"
             )
         return "\n".join(lines)
 

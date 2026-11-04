@@ -1,0 +1,484 @@
+{
+ "case": "D1_museum_web",
+ "turn": 1,
+ "request": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+ "design": {
+  "goal": "국립중앙박물관의 오늘(2026-10-28) 관람 시간과 휴관 여부를 공식 정보로 확인해 알려준다.",
+  "request_type": "investigate",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "retrieve",
+  "constraints": [
+   {
+    "text": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+    "source_ids": [
+     "E26e87d06b1b94b49a92b3aa514fb6c10"
+    ]
+   }
+  ],
+  "information_needs": [
+   {
+    "id": "hours_closure",
+    "required": true,
+    "question": "2026-10-28 기준 국립중앙박물관의 관람 시간과 휴관 여부는 무엇인가?",
+    "source_kind": "tool",
+    "scope": "current_task",
+    "query": "국립중앙박물관 관람시간 휴관일 2026-10-28",
+    "source_ids": [
+     "E26e87d06b1b94b49a92b3aa514fb6c10"
+    ],
+    "acceptance": "공식 사이트 또는 동등한 1차 출처에서 오늘 날짜의 개관/휴관과 관람 시간(또는 정기 휴관 규칙이 오늘에 적용되는지)이 확인된다.",
+    "target": null,
+    "required_range": null,
+    "result_kind": null,
+    "expected_values": {}
+   }
+  ],
+  "capabilities_needed": [
+   "web_search",
+   "web_fetch",
+   "research-brief"
+  ],
+  "completion_checks": [
+   "오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+   "출처가 없거나 오늘 적용이 불명확하면 그 한계를 밝힌다."
+  ],
+  "unresolved": [],
+  "answer": null,
+  "completion_specs": [
+   {
+    "check": "오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+    "result_kind": "sourced",
+    "target": "국립중앙박물관 공식 관람 안내",
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "required",
+   "external_change": "none",
+   "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "lookup",
+     "target": "web",
+     "necessity": "required",
+     "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "알려줘",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "inspect",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘",
+   "origin": "parser",
+   "resolved": true
+  },
+  {
+   "action": "lookup",
+   "target": "web",
+   "necessity": "required",
+   "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+   "origin": "model",
+   "resolved": true
+  },
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "required",
+   "source_span": "알려줘",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 관람시간 휴관일 site:museum.go.kr",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 2026년 10월 28일 휴관 관람안내",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.museum.go.kr/MUSEUM/contents/M0101000000.do"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 관람안내 정기휴관일 2026 site:museum.go.kr",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.museum.go.kr/MUSEUM/contents/M0101000000.do",
+    "extractMode": "text",
+    "maxChars": 20000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "\"국립중앙박물관\" \"정기 휴관\" 2026 3월 6월 9월 12월 첫째 월요일",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 오늘 관람 시간 9:30 17:30 휴관일 site:museum.go.kr",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 관람안내 휴관일 \"3월, 6월, 9월, 12월\"",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "site:museum.go.kr 관람 안내 오늘 관람 시간 입장마감",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.museum.go.kr/site/main/content/major_facilities"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 2026년 10월 28일 임시휴관 OR 휴관 안내",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "\"국립중앙박물관\" \"10월 28일\" 2026 휴관 OR 개관",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.museum.go.kr/"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 공식 관람시간 월요일 개관 \"3, 6, 9, 12월\"",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "\"오늘 관람 시간\" 국립중앙박물관 9:30 17:30 휴관",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://goldmenfire.com/entry/%EA%B5%AD%EB%A6%BD%EC%A4%91%EC%95%99%EB%B0%95%EB%AC%BC%EA%B4%80-2026%EF%BD%9C%EA%B4%80%EB%9E%8C%EC%8B%9C%EA%B0%84%C2%B7%EC%9E%85%EC%9E%A5%EB%A3%8C%C2%B7%EC%A3%BC%EC%B0%A8%C2%B7%EA%B0%80%EB%8A%94%EB%B2%95%C2%B7%EC%A0%84%EC%8B%9C-%EC%B4%9D%EC%A0%95%EB%A6%AC"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 관람시간 월화수목 10시 금토일 18시 휴관 첫째 월요일",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "National Museum of Korea hours closed first Monday March June September December 2026",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://kkom-review.tistory.com/entry/%EA%B5%AD%EB%A6%BD%EC%A4%91%EC%95%99%EB%B0%95%EB%AC%BC%EA%B4%80-%EC%9E%85%EC%9E%A5%EB%A3%8C%EC%99%80-%EA%B4%80%EB%9E%8C%EC%8B%9C%EA%B0%84%C2%B7%EC%98%88%EC%95%BD-%EC%A0%95%EB%A6%AC-2026%EB%85%84-9%EC%9B%94-%EA%B8%B0%EC%A4%80"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://vcm.museum.go.kr/ENG/contents/E0101010000.do",
+    "extractMode": "text",
+    "maxChars": 15000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.museum.go.kr/MUSEUM/main/index.do",
+    "extractMode": "text",
+    "maxChars": 15000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://www.chosun.com/english/travel-food-en/2026/02/04/O46KAVUJTRCALKFCAHVYMQPZ2U/",
+    "extractMode": "text",
+    "maxChars": 8000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 관람시간 변경 2026년 3월 16일 10시 18시 21시 휴관",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "site:museum.go.kr 관람시간 월/화/목/금/일 수/토 09:30 17:30 21:00",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://hanokdays.com/posts/national-museum-korea/",
+    "extractMode": "text",
+    "maxChars": 12000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 2026년 정기휴관일 6월 1일 9월 7일 12월 7일 3월 휴관 없음",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_fetch",
+   "params": {
+    "url": "https://koreaatlas.com/national-museum-of-korea-guide/",
+    "extractMode": "text",
+    "maxChars": 8000
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 어린이박물관 2026년 10월 28일 예약 휴관",
+    "count": 3
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "\"2026년 정기 휴관일\" 국립중앙박물관 6월 1일 9월 7일 12월 7일",
+    "count": 5
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "web_search",
+   "params": {
+    "query": "국립중앙박물관 오늘 관람 시간 수요일 9:30 21:00 site:museum.go.kr",
+    "count": 3
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "resolve_context_need",
+   "params": {
+    "need_id": "hours_closure",
+    "finding": "2026-10-28은 수요일이며 2026년 정기 휴관일(6월 1일, 9월 7일, 12월 7일)과 1월 1일·설·추석 당일에 해당하지 않는다. 공식 사이트 스니펫의 수요일 관람시간은 09:30–21:00, 입장 마감은 폐관 30분 전이다. 당일 임시휴관 공지는 검색에서 확인되지 않았다.",
+    "tool_call_id": "call-d00eb8ce-ffd6-4543-b3ad-f4a4056517c3-30|fc_5beebafa-5725-966b-af64-c56db614e21d_0"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "record_context_completion",
+   "params": {
+    "check": "오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+    "finding": "2026-10-28 수요일은 정기 휴관일이 아니며, 공식 사이트 기준 관람시간은 09:30–21:00, 입장 마감은 20:30이다. 야외전시장은 07:00–22:00. 임시휴관 공지는 확인되지 않았다.",
+    "status": "passed",
+    "tool_call_ids": [
+     "call-d00eb8ce-ffd6-4543-b3ad-f4a4056517c3-30|fc_5beebafa-5725-966b-af64-c56db614e21d_0",
+     "call-1194a3b7-37a0-40fd-9175-2f28b147fe30-24|fc_3dadf246-ca1e-9cb7-abb9-f482729145ae_0",
+     "call-381986ef-06f8-475f-b388-4e6e5db4223c-18|fc_1890baad-a548-94af-bb33-cf1f8e38dcd1_0"
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "record_context_completion",
+   "params": {
+    "check": "출처가 없거나 오늘 적용이 불명확하면 그 한계를 밝힌다.",
+    "finding": "공식 페이지 본문 fetch는 비어 스니펫과 박물관 SNS·블로그 재게시로 확인했다. 당일 임시휴관은 검색상 없었으나 출발 전 공식 공지 재확인이 필요하다.",
+    "status": "passed",
+    "tool_call_ids": [
+     "call-b16caee4-6883-446c-9bf7-00d809283ecf-4|fc_5c44c32a-a8b0-9986-9ac1-dc688519d4e7_0",
+     "call-d00eb8ce-ffd6-4543-b3ad-f4a4056517c3-30|fc_5beebafa-5725-966b-af64-c56db614e21d_0"
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  }
+ ],
+ "reply": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n남은 조건: hours_closure, information_missing:hours_closure, 오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다., 출처가 없거나 오늘 적용이 불명확하면 그 한계를 밝힌다.\n부분 응답(미검증): 프랭크, 오늘(2026년 10월 28일, 수요일) 국립중앙박물관은 정기 휴관일이 아닙니다. 상설전시관 기준 관람 시간은 09:30–21:00이고, 입장 마감은 폐관 30분 전인 20:30입니다.\n\n근거는 다음과 같습니다.\n\n- 공식 사이트(museum.go.kr) 관람 안내: 월·화·목·금·일 09:30–17:30, 수·토 09:30–21:00. 입장 마감은 폐관 30분 전, 폐관 유도는 10분 전부터입니다. 옥외 전시장(정원)은 07:00–22:00입니다.\n- 2026년 정기 휴관(휴실)일은 6월 1일, 9월 7일, 12월 7일입니다. 이날은 상설전시관과 특별전시실 1·2만 쉬고 야외전시장은 열립니다. 3월 휴관은 2026년에는 없습니다. 전관 휴관은 1월 1일, 설날 당일, 추석 당일입니다. 오늘은 이 날짜에 해당하지 않습니다.\n\n한계: 공식 페이지 본문은 직접 열리지 않아, 검색에 잡힌 공식 페이지 문구와 박물관 공식 계정·블로그의 2026년 휴관 안내로 확인했습니다. 오늘자 임시 휴관 공지는 검색에서 나오지 않았습니다. 출발 전에 공식 관람 안내를 한 번 더 보시면 안전합니다.\n\nhttps://www.museum.go.kr/MUSEUM/contents/M0101000000.do",
+ "unmet_reasons": [
+  "information_missing:hours_closure"
+ ],
+ "unresolved_conditions": [
+  {
+   "kind": "evidence",
+   "code": "evidence_unresolved",
+   "detail": "required evidence unresolved: hours_closure"
+  }
+ ],
+ "validations": [
+  {
+   "route": "retrieve",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\":\"국립중앙박물관의 오늘(2026-10-28) 관람 시간과 휴관 여부를 공식 정보로 확인해 알려준다.\",\"request_type\":\"investigate\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"retrieve\",\"constraints\":[{\"text\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"source_ids\":[\"E26e87d06b1b94b49a92b3aa514fb6c10\"]}],\"information_needs\":[{\"id\":\"hours_closure\",\"required\":true,\"question\":\"2026-10-28 기준 국립중앙박물관의 관람 시간과 휴관 여부는 무엇인가?\",\"source_kind\":\"tool\",\"scope\":\"current_task\",\"query\":\"국립중앙박물관 관람시간 휴관일 2026-10-28\",\"source_ids\":[\"E26e87d06b1b94b49a92b3aa514fb6c10\"],\"acceptance\":\"공식 사이트 또는 동등한 1차 출처에서 오늘 날짜의 개관/휴관과 관람 시간(또는 정기 휴관 규칙이 오늘에 적용되는지)이 확인된다.\"}],\"capabilities_needed\":[\"web_search\",\"web_fetch\",\"research-brief\"],\"completion_checks\":[\"오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.\",\"출처가 없거나 오늘 적용이 불명확하면 그 한계를 밝힌다.\"],\"unresolved\":[],\"answer\":null,\"completion_specs\":[{\"check\":\"오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.\",\"result_kind\":\"sourced\",\"target\":\"국립중앙박물관 공식 관람 안내\"}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"required\",\"external_change\":\"none\",\"source_span\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"keep_constraints\":[],\"change_constraints\":[],\"relations\":[{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"required\",\"source_span\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"target_ref\":null,\"condition\":null},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"알려줘\",\"target_ref\":null,\"condition\":null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\":\"국립중앙박물관의 오늘(2026-10-28) 관람 시간과 휴관 여부를 공식 정보로 확인해 알려준다.\",\"request_type\":\"investigate\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"retrieve\",\"constraints\":[{\"text\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"source_ids\":[\"E26e87d06b1b94b49a92b3aa514fb6c10\"]}],\"information_needs\":[{\"id\":\"hours_closure\",\"required\":true,\"question\":\"2026-10-28 기준 국립중앙박물관의 관람 시간과 휴관 여부는 무엇인가?\",\"source_kind\":\"tool\",\"scope\":\"current_task\",\"query\":\"국립중앙박물관 관람시간 휴관일 2026-10-28\",\"source_ids\":[\"E26e87d06b1b94b49a92b3aa514fb6c10\"],\"acceptance\":\"공식 사이트 또는 동등한 1차 출처에서 오늘 날짜의 개관/휴관과 관람 시간(또는 정기 휴관 규칙이 오늘에 적용되는지)이 확인된다.\"}],\"capabilities_needed\":[\"web_search\",\"web_fetch\",\"research-brief\"],\"completion_checks\":[\"오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.\",\"출처가 없거나 오늘 적용이 불명확하면 그 한계를 밝힌다.\"],\"unresolved\":[],\"answer\":null,\"completion_specs\":[{\"check\":\"오늘 날짜 기준으로 관람 시간과 휴관 여부를 출처와 함께 답한다.\",\"result_kind\":\"sourced\",\"target\":\"국립중앙박물관 공식 관람 안내\"}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"required\",\"external_change\":\"none\",\"source_span\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"keep_constraints\":[],\"change_constraints\":[],\"relations\":[{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"required\",\"source_span\":\"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\",\"target_ref\":null,\"condition\":null},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"알려줘\",\"target_ref\":null,\"condition\":null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "retrieve",
+ "stop_reason": "incomplete",
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

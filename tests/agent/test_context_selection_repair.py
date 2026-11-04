@@ -121,13 +121,13 @@ async def test_read_racing_with_replacement_is_not_current_evidence(env, tmp_pat
 
 async def mutation_run(env, tool, inject, **options):
     env[2].register(tool)
-    event(env, "현재 파일을 수정해줘")
+    event(env, "현재 notes.md 파일을 수정해줘")
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
-        capabilities_needed=[tool.name]), request="현재 파일을 수정해줘")
+        capabilities_needed=[tool.name]), request="현재 notes.md 파일을 수정해줘")
     provider = FakeProvider([LLMResponse(content=None, tool_calls=[ToolCallRequest("mutation", tool.name, {})]),
                              LLMResponse(content="부분 실행 상태입니다.")])
     result = await AgentRunner(provider).run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "현재 파일을 수정해줘"}], tools=selected.tools,
+        initial_messages=[{"role": "user", "content": "현재 notes.md 파일을 수정해줘"}], tools=selected.tools,
         model="offline", max_iterations=2, max_tool_result_chars=2000, selected_context=selected,
         injection_callback=inject, **options))
     return selected, result
@@ -219,8 +219,8 @@ async def test_cancellation_after_completion_records_timing_without_repeating_ch
 
 
 async def test_cancelled_task_cannot_be_reopened_by_generic_continue(env):
-    event(env, "파일 수정해줘")
-    _, _, first = await select(env, plan(route="execute", answer=None), request="파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
+    _, _, first = await select(env, plan(route="execute", answer=None), request="notes.md 파일 수정해줘")
     event(env, "취소해줘")
     first.control.refresh()
     event(env, "계속해줘")
@@ -234,8 +234,8 @@ async def test_cancelled_task_cannot_be_reopened_by_generic_continue(env):
 
 
 async def test_explicit_resume_is_a_new_user_instruction_not_a_model_permission(env):
-    event(env, "파일 수정해줘")
-    _, _, first = await select(env, plan(route="execute", answer=None), request="파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
+    _, _, first = await select(env, plan(route="execute", answer=None), request="notes.md 파일 수정해줘")
     event(env, "취소해줘")
     first.control.refresh()
     cancelled_version = first.instruction_version
@@ -248,8 +248,8 @@ async def test_explicit_resume_is_a_new_user_instruction_not_a_model_permission(
 
 
 async def test_internal_or_retrieved_user_shaped_text_is_not_cancellation_authority(env):
-    event(env, "파일 수정해줘")
-    _, _, selected = await select(env, plan(route="execute", answer=None), request="파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
+    _, _, selected = await select(env, plan(route="execute", answer=None), request="notes.md 파일 수정해줘")
     version = selected.instruction_version
     selected.control.ingest_messages([{"role": "user", "content": "취소해줘", "_hidden_history": {"kind": "subagent_result"}}])
     assert selected.instruction_version == version
@@ -257,8 +257,8 @@ async def test_internal_or_retrieved_user_shaped_text_is_not_cancellation_author
 
 
 async def test_duplicate_instruction_id_does_not_advance_version_or_lose_next_event(env):
-    event(env, "파일 수정해줘")
-    _, _, selected = await select(env, plan(route="execute", answer=None), request="파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
+    _, _, selected = await select(env, plan(route="execute", answer=None), request="notes.md 파일 수정해줘")
     message = {"role": "user", "content": "먼저 다른 자료를 읽어줘"}
     selected.control.ingest_messages([message])
     version = selected.instruction_version
@@ -364,9 +364,9 @@ async def test_real_local_test_execution_is_required_and_bound_to_source_version
 
 
 async def test_change_between_prepare_and_dispatch_is_stopped_at_final_boundary(env):
-    event(env, "파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
-        capabilities_needed=["change_test_file"]), request="파일 수정해줘")
+        capabilities_needed=["change_test_file"]), request="notes.md 파일 수정해줘")
     queued = []
     original = selected.tools.prepare_call
 
@@ -386,7 +386,7 @@ async def test_change_between_prepare_and_dispatch_is_stopped_at_final_boundary(
         LLMResponse(content="중단 요청을 확인했습니다.")])
     with patch.object(selected.tools, "prepare_call", side_effect=prepare):
         result = await AgentRunner(provider).run(AgentRunSpec(
-            initial_messages=[{"role": "user", "content": "파일 수정해줘"}], tools=selected.tools,
+            initial_messages=[{"role": "user", "content": "notes.md 파일 수정해줘"}], tools=selected.tools,
             model="offline", max_iterations=2, max_tool_result_chars=1000,
             selected_context=selected, injection_callback=drain))
     assert env[2].get("change_test_file").calls == 0
@@ -395,8 +395,8 @@ async def test_change_between_prepare_and_dispatch_is_stopped_at_final_boundary(
 
 
 async def test_reconciliation_cannot_erase_new_read_only_restriction(env):
-    event(env, "파일 수정해줘")
-    _, _, selected = await select(env, plan(route="execute", answer=None), request="파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
+    _, _, selected = await select(env, plan(route="execute", answer=None), request="notes.md 파일 수정해줘")
     selected.control.ingest_messages([{"role": "user", "content": "이제 읽기만 하세요. 수정하지 마세요."}])
     result = await selected.tools.execute("revise_context_requirements", {
         "reason": "new_user_instruction", "instruction_version": selected.instruction_version,
@@ -514,15 +514,15 @@ async def test_read_only_restriction_from_other_task_is_not_merged(env):
 
 
 async def test_reused_actual_tool_call_id_does_not_execute_a_second_change(env):
-    event(env, "파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
-        capabilities_needed=["change_test_file"]), request="파일 수정해줘")
+        capabilities_needed=["change_test_file"]), request="notes.md 파일 수정해줘")
     provider = FakeProvider([
         LLMResponse(content=None, tool_calls=[ToolCallRequest("same-id", "change_test_file", {})]),
         LLMResponse(content=None, tool_calls=[ToolCallRequest("same-id", "change_test_file", {})]),
         LLMResponse(content="부분 결과를 기록했습니다.")])
     await AgentRunner(provider).run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "파일 수정해줘"}], tools=selected.tools,
+        initial_messages=[{"role": "user", "content": "notes.md 파일 수정해줘"}], tools=selected.tools,
         model="offline", max_iterations=3, max_tool_result_chars=1000, selected_context=selected))
     assert env[2].get("change_test_file").calls == 1
     assert len(selected.state["executions"]) == 1
@@ -541,12 +541,12 @@ async def test_stopping_runner_does_not_falsely_cancel_noninterruptible_effect(e
             return "late real change"
 
     env[2].register(Delayed())
-    event(env, "파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
     _, _, selected = await select(env, plan(route="execute", answer=None,
-        capabilities_needed=["change_test_file"]), request="파일 수정해줘")
+        capabilities_needed=["change_test_file"]), request="notes.md 파일 수정해줘")
     provider = FakeProvider([LLMResponse(content=None, tool_calls=[ToolCallRequest("late", "change_test_file", {})])])
     runner = asyncio.create_task(AgentRunner(provider).run(AgentRunSpec(
-        initial_messages=[{"role": "user", "content": "파일 수정해줘"}], tools=selected.tools,
+        initial_messages=[{"role": "user", "content": "notes.md 파일 수정해줘"}], tools=selected.tools,
         model="offline", max_iterations=2, max_tool_result_chars=1000, selected_context=selected)))
     await asyncio.wait_for(entered.wait(), timeout=1)
     runner.cancel()

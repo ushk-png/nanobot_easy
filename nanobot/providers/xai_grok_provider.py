@@ -158,6 +158,13 @@ class XAIGrokProvider(LLMProvider):
                         "stream_tool_calls": True,
                     }
                 )
+                # The restricted designer has exactly one valid delivery function.
+                # Select it explicitly instead of allowing message text before a later call.
+                if (tool_choice == "required" and len(converted_tools) == 1
+                        and converted_tools[0].get("type") == "function"
+                        and converted_tools[0].get("name") == "submit_context_design"):
+                    body["tool_choice"] = {"type": "function", "name": "submit_context_design"}
+                    body["parallel_tool_calls"] = False
             # Without tools, xAI rejects tool_choice ("no tools were specified", HTTP 400).
             reasoning = _build_reasoning_options(reasoning_effort)
             if reasoning:

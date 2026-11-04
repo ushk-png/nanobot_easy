@@ -1,0 +1,79 @@
+{
+ "source": "t65 real run, S3_upper turn 1 (/workspace/t65/run/LIVE-new-S3_upper-t1.json): user raw text and the adopted design function arguments only (no auth data)",
+ "request": "45분 이내로 퍼팅, 어프로치, 아이언 연습 계획을 짜 주세요. 퍼팅 15분, 어프로치 10분, 아이언 10분이고 남는 시간은 여유로 두세요.",
+ "design_arguments": {
+  "goal": "45분 이내 퍼팅 15분·어프로치 10분·아이언 10분 연습 계획을 짜고 남는 시간은 여유로 둔다.",
+  "answer": "45분 세션으로 잡되, 지정 연습은 35분이고 남는 10분은 여유입니다. 여유 시간에는 추가 드릴을 넣지 않습니다.\n\n1. 퍼팅 15분 (0–15분)\n- 0–5분: 1–2m 짧은 퍼트, 같은 라인으로 방향만 맞추기 (10–12개).\n- 5–10분: 3–5m, 거리감 위주로 홀을 지나치거나 짧게 남기지 않기 (8–10개).\n- 10–15분: 짧은 퍼트 2개 + 중간 거리 1개를 한 세트로 3세트. 미스해도 다음 세트로 넘어갑니다.\n\n2. 어프로치 10분 (15–25분)\n- 15–20분: 20–40m, 한 클럽(예: 56° 또는 PW)으로 캐리 거리만 세 단계로 나누기.\n- 20–25분: 같은 거리에서 착지점 하나를 정해 8–10구. 그린 주변 이동은 서두르지 않습니다.\n\n3. 아이언 10분 (25–35분)\n- 25–30분: 7번 또는 8번 아이언 하프 스윙으로 접촉만 확인 (8–10구).\n- 30–35분: 같은 클럽 풀 스윙, 타깃 방향과 탄도만 보고 6–8구. 클럽을 바꾸지 않습니다.\n\n4. 여유 10분 (35–45분)\n- 이동, 스트레칭, 물, 정리. 샷을 더 치지 않습니다. 앞 구간이 늦어지면 이 10분에서 흡수하고, 세션은 45분을 넘기지 않습니다.",
+  "capabilities_needed": [
+   "answer-howto"
+  ],
+  "constraints": [
+   {
+    "text": "45분 이내로",
+    "source_ids": [
+     "E53e314699a4f485c9f9b184b4b0091f0"
+    ]
+   },
+   {
+    "text": "퍼팅 15분, 어프로치 10분, 아이언 10분",
+    "source_ids": [
+     "E53e314699a4f485c9f9b184b4b0091f0"
+    ]
+   },
+   {
+    "text": "남는 시간은 여유로 두세요",
+    "source_ids": [
+     "E53e314699a4f485c9f9b184b4b0091f0"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "unresolved": [],
+  "completion_specs": [],
+  "quantity_relations": [
+   {
+    "kind": "upper_bound",
+    "kind_span": "45분 이내"
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "45분 이내로 퍼팅, 어프로치, 아이언 연습 계획을 짜 주세요.",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "45분 이내로 퍼팅, 어프로치, 아이언 연습 계획을 짜 주세요.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "남는 시간은 여유로 두세요.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  },
+  "reference": {
+   "relation": "new",
+   "task_id": null,
+   "response_id": null,
+   "artifact_ids": [],
+   "changed_conditions": [],
+   "kept_conditions": [],
+   "needed_sources": [],
+   "basis_span": null
+  }
+ }
+}

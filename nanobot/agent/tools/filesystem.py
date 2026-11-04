@@ -533,7 +533,17 @@ class WriteFileTool(_FsTool):
                 raise ValueError("Unknown content")
             fp = self._resolve_write(path)
             fp.parent.mkdir(parents=True, exist_ok=True)
-            fp.write_text(content, encoding="utf-8")
+            from nanobot.agent.context_evidence import exclusive_create_paths
+            if str(fp.resolve()) in exclusive_create_paths.get():
+                # A requested new file: create exclusively, never replace one that appeared meanwhile.
+                try:
+                    with fp.open("x", encoding="utf-8") as stream:
+                        stream.write(content)
+                except FileExistsError:
+                    return ToolResult.error(f"Error: {fp} already exists; it was expected to be new and was "
+                                            "not overwritten. Confirm with the user before replacing it.")
+            else:
+                fp.write_text(content, encoding="utf-8")
             self._file_states.record_write(fp)
             return f"Successfully wrote {len(content)} characters to {fp}"
         except PermissionError as e:

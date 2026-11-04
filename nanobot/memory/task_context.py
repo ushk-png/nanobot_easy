@@ -99,7 +99,8 @@ class TaskContextStore:
         return self.save(scope, state, expected_version=0)
 
     def save(self, scope: MemoryScope, state: dict[str, Any], *,
-             expected_version: int) -> dict[str, Any]:
+             expected_version: int, through_event_id: str | None = None,
+             events: list[RawEvent] | None = None) -> dict[str, Any]:
         state = {**state, "version": expected_version + 1}
         with self.store.connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
@@ -107,6 +108,17 @@ class TaskContextStore:
                                (state["task_id"],)).fetchone()
             if int(row[0] or 0) != expected_version:
                 raise ValueError("task_version_conflict")
+            if through_event_id is not None:
+                agent_sql, agent_params = self.store._agent_scope_sql(scope)
+                latest = conn.execute(f"""SELECT event_id FROM events WHERE owner_id=?
+                    AND workspace_id IN ({','.join('?' for _ in scope.workspace_ids)})
+                    {agent_sql} AND session_id=? AND event_type='USER_MESSAGE'
+                    AND redacted_at IS NULL ORDER BY sequence DESC, event_rowid DESC LIMIT 1""",
+                    [scope.owner_id, *scope.workspace_ids, *agent_params, state["session_id"]]).fetchone()
+                if latest is None or latest[0] != through_event_id:
+                    raise ValueError("allocation_new_user_event")
+            if events:
+                self.store.insert_events(events, connection=conn)
             conn.execute("INSERT INTO task_context_versions VALUES (?, ?, ?, ?, ?, ?, ?)",
                          (state["task_id"], state["version"], scope.owner_id,
                           scope.workspace_ids[0], scope.agent_ids[0], state["session_id"],

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import threading
 import time
 import uuid
 from contextvars import ContextVar
@@ -22,6 +23,15 @@ def estimate_component(value: Any) -> int:
                                     value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)})
 
 
+# Serialises this process's writes to the context tables. The event journal is
+# written by a background thread while begin/end/persist write on the caller's
+# thread; one lock prevents "database is locked" contention between the two.
+# Only short single-row (or one-batch) transactions are done while it is held.
+_DB_LOCK = threading.Lock()
+_EVENT_BATCH_SIZE = 512
+_EVENT_COALESCE_SECONDS = 0.05
+
+
 @dataclass
 class ContextTrace:
     request_id: str
@@ -37,28 +47,91 @@ class ContextTrace:
 
     event_queue: list[tuple[str, int, dict]] = field(default_factory=list, repr=False)
     event_writer: asyncio.Task | None = field(default=None, repr=False)
+    # Bumped on every caller-thread write of an attempt row. The background
+    # writer only refreshes a finished attempt's row when no newer write raced it.
+    row_revisions: dict[str, int] = field(default_factory=dict, repr=False)
+    flush_requested: bool = field(default=False, repr=False)
+    background: list = field(default_factory=list, repr=False)   # text-accepted streams draining for usage
+    budget: Any = field(default=None, repr=False)   # t54: whole-request TaskBudget shared by every send
+
+    # ---- background event journal (append-only deltas, off the event loop) ----
 
     def _append_events(self, batch) -> None:
         # This worker only appends immutable events; it never overwrites call status.
-        with self.store.connect() as conn:
+        with _DB_LOCK, self.store.connect() as conn:
             conn.executemany("INSERT OR IGNORE INTO context_model_events VALUES (?, ?, ?)",
                              [(aid, ordinal, json.dumps(event)) for aid, ordinal, event in batch])
 
+    def _refresh_finished_rows(self, snapshots) -> None:
+        """Fold milestones that arrived after a call ended (e.g. cleanup) into its row.
+
+        Runs in a worker thread. A snapshot is written only if no caller-thread
+        write happened after it was taken, so a final status is never regressed.
+        """
+        with _DB_LOCK, self.store.connect() as conn:
+            for aid, revision, status, task_id, call in snapshots:
+                if self.row_revisions.get(aid, 0) == revision:
+                    conn.execute("UPDATE context_model_attempts SET task_id=?, status=?, payload=? "
+                                 "WHERE attempt_id=?", (task_id, status, json.dumps(call), aid))
+
+    def _finished_snapshots(self, batch) -> list[tuple]:
+        attempts = {aid for aid, _, _ in batch}
+        return [(call["attempt_id"], self.row_revisions.get(call["attempt_id"], 0), call["status"],
+                 self.task_id, {**call, "task_id": self.task_id,
+                                "milestones": list(call.get("milestones", []))})
+                for call in self.calls
+                if call.get("attempt_id") in attempts and call.get("finished_at")]
+
     async def _write_events(self) -> None:
         try:
+            if not self.flush_requested:
+                # Coalesce a burst of stream events into one transaction.
+                await asyncio.sleep(_EVENT_COALESCE_SECONDS)
             while self.event_queue:
-                await asyncio.sleep(0.05)
-                batch = self.event_queue[:256]
+                batch = self.event_queue[:_EVENT_BATCH_SIZE]
+                snapshots = self._finished_snapshots(batch)
                 await asyncio.to_thread(self._append_events, batch)
                 del self.event_queue[:len(batch)]
+                if snapshots:
+                    await asyncio.to_thread(self._refresh_finished_rows, snapshots)
         except Exception:
-            # Full lifecycle snapshots still preserve the in-memory records. Keep
-            # the queue for diagnosis; do not loop on a failing database.
+            # Lifecycle snapshots (begin/end/persist) still carry the in-memory
+            # records. Keep the queue for diagnosis; do not loop on a failing database.
             logger.warning("Context event journal unavailable; lifecycle snapshot retained")
+        finally:
+            self.flush_requested = False
 
-    async def flush_events(self) -> None:
-        if self.event_writer:
-            await asyncio.shield(self.event_writer)
+    def _kick_writer(self) -> None:
+        if not self.store or not self.event_queue:
+            return
+        if self.event_writer is not None and not self.event_writer.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # Synchronous callers retain events in their next lifecycle snapshot.
+            return
+        self.event_writer = loop.create_task(self._write_events(), name="context-trace-journal")
+
+    async def flush_events(self, timeout: float | None = None) -> None:
+        """Wait until queued milestones are journaled (bounded when timeout is given)."""
+        if not self.store:
+            return
+        if self.event_queue:
+            self.flush_requested = True
+            self._kick_writer()
+        writer = self.event_writer
+        if writer is None or writer.done():
+            return
+        if timeout is None:
+            await asyncio.shield(writer)
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(writer), timeout)
+        except TimeoutError:
+            logger.warning("Context event journal flush still running; continuing without waiting")
+
+    # ---- milestones: in memory + queued delta, never a synchronous write ----
 
     def mark(self, phase: str, *, attempt: str | None = None, **fields: Any) -> None:
         # Only code-owned names/counts/status/options; never response text or errors.
@@ -66,31 +139,27 @@ class ContextTrace:
                    "model", "provider", "reasoning_effort", "max_output_tokens", "stream",
                    "tool_choice", "tool_count", "http_status", "schema_hash", "result_hash"}
         allowed.update({"estimated_tokens", "event_sequence", "item_type", "processing_ms"})
+        # stream_log: the bounded, content-free StreamEventLog summary (one per stream).
+        allowed.add("stream_log")
         milestone = {"phase": phase, "monotonic_ms": round((time.monotonic() - self.started) * 1000, 3),
                      **{k: v for k, v in fields.items() if k in allowed}}
         call = next((c for c in self.calls if c.get("attempt_id") == attempt), None)
         if call is None:
+            # Attached to (and written with) the next attempt row at begin().
             self.pending_milestones.append(milestone)
             return
         milestone["attempt_id"] = attempt
-        call.setdefault("milestones", []).append(milestone)
-        if phase.startswith("stream_"):
-            if self.store:
-                self.event_queue.append((attempt, len(call["milestones"]) - 1, milestone))
-                if self.event_writer is None or self.event_writer.done():
-                    try:
-                        loop = asyncio.get_running_loop()
-                    except RuntimeError:
-                        # Synchronous callers retain events in their next lifecycle snapshot.
-                        return
-                    self.event_writer = loop.create_task(self._write_events())
-            return
-        self.persist()
+        milestones = call.setdefault("milestones", [])
+        milestones.append(milestone)
+        if self.store:
+            # Only the new milestone is queued; the writer appends it off-loop.
+            self.event_queue.append((attempt, len(milestones) - 1, milestone))
+            self._kick_writer()
 
     def bind(self, store: Any) -> None:
         self.store = store
         self.task_id = self.task_id or "pending:" + uuid.uuid4().hex
-        with store.connect() as conn:
+        with _DB_LOCK, store.connect() as conn:
             conn.execute("""CREATE TABLE IF NOT EXISTS context_model_attempts (
                 attempt_id TEXT PRIMARY KEY, request_id TEXT NOT NULL, call_sequence INTEGER NOT NULL,
                 task_id TEXT NOT NULL, stage TEXT NOT NULL, status TEXT NOT NULL, payload TEXT NOT NULL,
@@ -103,6 +172,18 @@ class ContextTrace:
         self.counters[name] = self.counters.get(name, 0) + 1
         if reason and reason not in self.reasons:
             self.reasons.append(reason)
+
+    # ---- call lifecycle: written immediately, one row each ----
+
+    def _write_call(self, call: dict[str, Any]) -> None:
+        if not self.store or not call.get("attempt_id"):
+            return
+        call["task_id"] = self.task_id
+        with _DB_LOCK:
+            self.row_revisions[call["attempt_id"]] = self.row_revisions.get(call["attempt_id"], 0) + 1
+            with self.store.connect() as conn:
+                conn.execute("UPDATE context_model_attempts SET task_id=?, status=?, payload=? WHERE attempt_id=?",
+                             (self.task_id, call["status"], json.dumps(call), call["attempt_id"]))
 
     def begin(self, kwargs: dict[str, Any]) -> str:
         """Commit the attempt before dispatch; no prompt, credentials or output text is stored."""
@@ -123,16 +204,19 @@ class ContextTrace:
         for milestone in call["milestones"]:
             milestone["attempt_id"] = call["attempt_id"]
         if self.store:
-            with self.store.connect() as conn:
-                conn.execute("BEGIN IMMEDIATE")
-                latest = conn.execute("SELECT MAX(call_sequence) FROM context_model_attempts WHERE request_id=?",
-                                      (self.request_id,)).fetchone()[0]
-                call["call_sequence"] = max(sequence, int(latest or 0) + 1)
-                conn.execute("INSERT INTO context_model_attempts VALUES (?, ?, ?, ?, ?, ?, ?)",
-                             (call["attempt_id"], self.request_id, call["call_sequence"], self.task_id,
-                              self.stage, call["status"], json.dumps(call)))
+            # Write-ahead: only this attempt's row, before the request is sent.
+            with _DB_LOCK:
+                with self.store.connect() as conn:
+                    conn.execute("BEGIN IMMEDIATE")
+                    latest = conn.execute("SELECT MAX(call_sequence) FROM context_model_attempts WHERE request_id=?",
+                                          (self.request_id,)).fetchone()[0]
+                    call["call_sequence"] = max(sequence, int(latest or 0) + 1)
+                    conn.execute("INSERT INTO context_model_attempts VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                 (call["attempt_id"], self.request_id, call["call_sequence"], self.task_id,
+                                  self.stage, call["status"], json.dumps(call)))
+                self.row_revisions[call["attempt_id"]] = 1
         self.calls.append(call)
-        self.persist()
+        self._kick_writer()
         return call["attempt_id"]
 
     def end(self, attempt: str, response: Any, elapsed: float, status: str | None = None) -> None:
@@ -152,12 +236,21 @@ class ContextTrace:
             call["estimated_output_tokens"] = (estimate_component(response.content or "")
                 + estimate_component([getattr(t, "arguments", {}) for t in response.tool_calls])
                 + estimate_component(getattr(response, "reasoning_content", None) or ""))
-        self.persist()
+        # Final state of this attempt: one row, written now (full milestones once).
+        self._write_call(call)
+        self.flush_requested = True
+        self._kick_writer()
+
+    async def settle_background(self, timeout: float) -> None:
+        import asyncio
+        pending = [t for t in self.background if not t.done()]
+        if pending:
+            await asyncio.wait(pending, timeout=timeout)
 
     def mark_timeout(self) -> None:
         if self.calls and self.calls[-1].get("status") == "cancelled":
             self.calls[-1]["status"] = "timed_out"
-            self.persist()
+            self._write_call(self.calls[-1])
 
     def record(self, kwargs: dict[str, Any], response: Any, elapsed: float) -> None:
         self.end(self.begin(kwargs), response, elapsed)
@@ -198,19 +291,29 @@ class ContextTrace:
                 "provider_total_tokens": None if missing else known, "known_provider_total_tokens": known}
 
     def persist(self, store: Any = None) -> None:
+        """Lifecycle snapshot: the run row plus each attempt row, written once per call site.
+
+        Milestones are never persisted from mark(); callers persist at the end of
+        a design/execution stage (and begin/end write their own attempt row), so
+        the full cumulative JSON is serialised a bounded number of times per run.
+        """
         store = store or self.store
         if store is None:
             return
-        with store.connect() as conn:
-            # Legacy callers can persist aggregate-only traces before bind().
-            conn.execute("INSERT OR REPLACE INTO context_selection_runs VALUES (?, ?, ?)",
-                         (self.request_id, self.task_id, json.dumps(self.report())))
-            if self.store:
-                for call in self.calls:
-                    call["task_id"] = self.task_id
-                    if call.get("attempt_id"):
-                        conn.execute("UPDATE context_model_attempts SET task_id=?, status=?, payload=? WHERE attempt_id=?",
-                                     (self.task_id, call["status"], json.dumps(call), call["attempt_id"]))
-
+        with _DB_LOCK:
+            with store.connect() as conn:
+                # Legacy callers can persist aggregate-only traces before bind().
+                conn.execute("INSERT OR REPLACE INTO context_selection_runs VALUES (?, ?, ?)",
+                             (self.request_id, self.task_id, json.dumps(self.report())))
+                if self.store:
+                    for call in self.calls:
+                        call["task_id"] = self.task_id
+                        if call.get("attempt_id"):
+                            self.row_revisions[call["attempt_id"]] = self.row_revisions.get(call["attempt_id"], 0) + 1
+                            conn.execute("UPDATE context_model_attempts SET task_id=?, status=?, payload=? WHERE attempt_id=?",
+                                         (self.task_id, call["status"], json.dumps(call), call["attempt_id"]))
+        if self.event_queue:
+            self.flush_requested = True
+            self._kick_writer()
 
 active_context_trace: ContextVar[ContextTrace | None] = ContextVar("context_trace", default=None)

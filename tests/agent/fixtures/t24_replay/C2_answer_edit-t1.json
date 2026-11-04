@@ -1,0 +1,96 @@
+{
+ "case": "C2_answer_edit",
+ "turn": 1,
+ "request": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+ "design": {
+  "goal": "아침 루틴 세 가지를 번호 목록으로 답한다.",
+  "request_type": "explain",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+    "source_ids": [
+     "Ebe354ada12d64d4d94d699a82f4327ad"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "번호 목록으로 아침 루틴이 정확히 세 가지 제시된다."
+  ],
+  "unresolved": [],
+  "answer": "1. 물 한 잔을 마시고 창을 열어 환기한다.\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\n3. 오늘 할 일 세 가지를 적고 아침 식사를 한다.",
+  "completion_specs": [
+   {
+    "check": "번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "count": 3,
+     "format": "numbered_list"
+    }
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+   "keep_constraints": [
+    "아침 루틴 세 가지를 번호 목록으로 알려 줘."
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "required",
+   "source_span": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "1. 물 한 잔을 마시고 창을 열어 환기한다.\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\n3. 오늘 할 일 세 가지를 적고 아침 식사를 한다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"아침 루틴 세 가지를 번호 목록으로 답한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 오늘 할 일 세 가지를 적고 아침 식사를 한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3, \"format\": \"numbered_list\"}}",
+   "parsed": false,
+   "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 617 (char 616)"
+  },
+  {
+   "raw": "{\"goal\": \"아침 루틴 세 가지를 번호 목록으로 답한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 오늘 할 일 세 가지를 적고 아침 식사를 한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3, \"format\": \"numbered_list\"}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"keep_constraints\": [\"아침 루틴 세 가지를 번호 목록으로 알려 줘.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"아침 루틴 세 가지를 번호 목록으로 답한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 오늘 할 일 세 가지를 적고 아침 식사를 한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3, \"format\": \"numbered_list\"}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"keep_constraints\": [\"아침 루틴 세 가지를 번호 목록으로 알려 줘.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

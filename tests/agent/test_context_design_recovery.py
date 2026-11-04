@@ -94,7 +94,7 @@ async def test_design_failure_does_not_claim_missing_execution_proof(env):
     assert 'completion_evidence_invalid_or_insufficient' not in final
 
 
-async def test_xai_wire_uses_required_single_design_function_and_repairs_locally(env, monkeypatch):
+async def test_xai_wire_forces_single_design_function_and_repairs_locally(env, monkeypatch):
     from types import SimpleNamespace
 
     from nanobot.agent.context_selection import ContextSelector
@@ -122,7 +122,8 @@ async def test_xai_wire_uses_required_single_design_function_and_repairs_locally
     assert selected.design == plan()
     assert len(wire_requests) == 2
     for body in wire_requests:
-        assert body['tool_choice'] == 'required'
+        assert body['tool_choice'] == {'type': 'function', 'name': 'submit_context_design'}
+        assert body['parallel_tool_calls'] is False
         assert body['reasoning']['effort'] == 'low'
         assert [tool['name'] for tool in body['tools']] == ['submit_context_design']
         assert body['tools'][0]['parameters']['additionalProperties'] is False
@@ -173,12 +174,14 @@ async def test_design_sse_to_schema_to_return_with_slow_cleanup_has_one_timeline
     assert options['reasoning_effort'] == 'low'
     assert options['max_output_tokens'] == 3000
     assert options['stream'] is True
-    assert options['tool_choice'] == 'required'
+    assert options['tool_choice'] == {'type': 'function', 'name': 'submit_context_design'}
     assert call['component_estimated_tokens']['execution_tool_definitions'] == 0
     client.release.set()
     await __import__('asyncio').gather(*list(_cleanup_tasks))
     phases = [m['phase'] for m in call['milestones']]
     assert phases.index('provider_call_returned') < phases.index('cleanup_finished')
+    # Post-return cleanup milestones are journaled off the event loop; wait for the writer.
+    await selected.trace.flush_events()
     with env[0].connect() as db:
         saved = json.loads(db.execute('SELECT payload FROM context_model_attempts WHERE attempt_id=?',
                           (call['attempt_id'],)).fetchone()[0])
@@ -214,7 +217,8 @@ def test_designer_does_not_inherit_executor_output_or_memory_write_contract(tmp_
     executor = builder.build_selected_system_prompt(channel='telegram')
     gates = render_template('agent/_snippets/permission_gates.md').strip()
     assert gates in designer and gates in executor
-    assert unique_rule in designer and unique_rule in executor
+    # Execution bootstrap files are executor-only; the designer gets design identity only.
+    assert unique_rule not in designer and unique_rule in executor
     assert 'submit_context_design' in designer
     assert 'Reply directly with text' not in designer
     assert '## Topic Memory' not in designer
@@ -254,7 +258,7 @@ async def test_design_timeout_marks_cancel_transfer_and_never_validates_partial_
     selected = await selector.select(provider=XAIGrokProvider(hosted_search=False),
         model='xai-grok/grok-4.7', request='2+2?', scope=env[1], session_id='s',
         registry=env[2], skills=env[3], rules='Mandatory permissions', request_id='mock-cancel-transfer')
-    assert selected.blocked == 'design_timeout'
+    assert selected.blocked == 'design_timeout_initial'
     assert selected.design is None
     assert len(selected.trace.calls) == 1
     call = selected.trace.calls[0]

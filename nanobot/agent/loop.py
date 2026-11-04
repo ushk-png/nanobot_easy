@@ -264,6 +264,8 @@ class AgentLoop:
         unified_session: bool = False,
         disabled_skills: list[str] | None = None,
         hot_path_skills: list[str] | None = None,
+        preload_always_skills: bool = True,
+        on_demand_skills: list[str] | None = None,
         proactive_skill_cards: bool | None = None,
         proactive_card_min_score: int | None = None,
         proactive_method_inline: bool | None = None,
@@ -401,6 +403,8 @@ class AgentLoop:
             timezone=timezone,
             disabled_skills=disabled_skills,
             hot_path_skills=self.hot_path_skills,
+            preload_always_skills=preload_always_skills,
+            on_demand_skills=on_demand_skills,
         )
         self.conversation_memory = ConversationEventStore(workspace)
         self._memory_workspace_id = str(Path(workspace).expanduser().resolve())
@@ -546,6 +550,8 @@ class AgentLoop:
             unified_session=defaults.unified_session,
             disabled_skills=defaults.disabled_skills,
             hot_path_skills=defaults.skills,
+            preload_always_skills=defaults.preload_always_skills,
+            on_demand_skills=defaults.on_demand_skills,
             proactive_skill_cards=defaults.proactive_skill_cards,
             proactive_card_min_score=defaults.proactive_card_min_score,
             proactive_method_inline=defaults.proactive_method_inline,
@@ -1980,7 +1986,8 @@ class AgentLoop:
             ctx.user_persisted_early = self._persist_user_message_early(ctx.msg, ctx.session)
             scope = self.workspace_scopes.for_message(ctx.msg, ctx.session.metadata)
             rules = self.context.build_design_system_prompt(
-                channel=ctx.msg.channel, workspace=scope.project_path)
+                channel=ctx.msg.channel, workspace=scope.project_path,
+                persona=bool(getattr(self.context_selection_config, "design_persona", False)))
             selected = await selector.select(
                 provider=self.provider, model=self.model, request=ctx.msg.content,
                 scope=self._memory_scope_for_message(ctx.msg), session_id=ctx.session_key,
@@ -1989,7 +1996,18 @@ class AgentLoop:
                 continuation=(turn_continuation.internal_continuation_inbound(ctx.msg.metadata)
                               or ctx.msg.metadata.get("_context_selection_continuation", False)))
             ctx.selected_context = selected
-            if selected.blocked and self.context_selection_config.failure_mode == "legacy":
+            selected.timezone = self.context.timezone
+            if getattr(selected.trace, "budget", None) is not None and selected.trace.budget.max_sends is None:
+                # t54 default from the existing loop cap: executor iterations + first design + repair
+                # + finalization retry + malformed-call retry (internal provider retries count too).
+                selected.trace.budget.set_default_sends(self.max_iterations + 4, "max_tool_iterations+4")
+            if getattr(selected.trace, "budget", None) is not None:
+                selected.trace.mark("run_budget_start", **selected.trace.budget.start_record())
+            # Corrections recorded by reconcile_verdicts reach session replay and summaries too.
+            from nanobot.agent.context_corrections import annotate_session
+            if annotate_session(self.conversation_memory, self._memory_scope_for_message(ctx.msg), ctx.session):
+                selected.trace.count("corrections_applied", "session_messages")
+            if selected.blocked and not selected.allocation and self.context_selection_config.failure_mode == "legacy":
                 selected.trace.count("legacy_fallback", selected.blocked)
                 selected.trace.persist(self.conversation_memory)
                 selected.legacy_fallback = True
@@ -2291,6 +2309,8 @@ class AgentLoop:
         if ctx.selected_context and not ctx.selected_context.legacy_fallback:
             selected = ctx.selected_context
             design = selected.design
+            if selected.allocation:
+                ctx.on_stream = ctx.on_stream_end = None
             if selected.blocked or (design and design.route in {"direct", "clarify"}):
                 if selected.blocked:
                     ctx.final_content = (
@@ -2381,6 +2401,13 @@ class AgentLoop:
             else ctx.turn_wall_started_at
         )
         ctx.turn_latency_ms = max(0, int((time.time() - latency_started_at) * 1000))
+        if ctx.selected_context and ctx.selected_context.allocation:
+            content, status, response_id = ctx.selected_context.allocation.persist(ctx.final_content, ctx.stop_reason)
+            ctx.final_content, ctx.stop_reason = content, status
+            if ctx.all_messages and ctx.all_messages[-1].get("role") == "assistant":
+                ctx.all_messages[-1].update(content=content)
+                if response_id:
+                    ctx.all_messages[-1]["memory_event_id"] = response_id
         self._save_turn(
             ctx.session, ctx.all_messages, ctx.save_skip,
             turn_latency_ms=ctx.turn_latency_ms,
@@ -2414,6 +2441,17 @@ class AgentLoop:
         if ctx.suppress_response:
             ctx.outbound = None
             return "ok"
+        allocation = getattr(ctx.selected_context, "allocation", None)
+        if allocation and allocation.bundle and allocation.bundle["status"] == "committed":
+            from nanobot.agent.time_allocation import record_delivery
+            selected = ctx.selected_context
+            selected.control.refresh()
+            if (selected.state.get("instruction_status") != "ACTIVE"
+                    or selected.instruction_version != allocation.bundle["instruction_version"]):
+                ctx.final_content, ctx.stop_reason = allocation.finalize(None, "incomplete")
+            else:
+                record_delivery(selected.control.tasks, selected.scope, selected.state["session_id"],
+                                selected.state["task_id"], allocation.bundle["result_id"], False)
         ctx.outbound = self._assemble_outbound(
             ctx.msg,
             ctx.final_content,
@@ -2423,6 +2461,12 @@ class AgentLoop:
             ctx.on_stream,
             turn_latency_ms=ctx.turn_latency_ms,
         )
+        if allocation and allocation.bundle and ctx.outbound is not None and ctx.stop_reason == "completed":
+            from dataclasses import asdict
+            ctx.outbound.metadata["_allocation_delivery"] = {
+                "scope": asdict(ctx.selected_context.scope), "session_id": ctx.selected_context.state["session_id"],
+                "task_id": ctx.selected_context.state["task_id"], "result_id": allocation.bundle["result_id"],
+                "instruction_version": allocation.bundle["instruction_version"]}
         if ctx.ephemeral and ctx.outbound is not None:
             ctx.outbound.metadata["_stop_reason"] = ctx.stop_reason
         if (getattr(self, "stepwise_lightweight", False) and not ctx.ephemeral

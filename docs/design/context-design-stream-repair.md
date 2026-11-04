@@ -53,7 +53,8 @@
 | 구간 | 기록 |
 |---|---|
 | 입력 조립 | input_assembly_started / input_assembly_finished |
-| 설계 한도 | design_deadline_started / design_deadline_expired |
+| 설계 한도 | design_deadline_started(최초) / design_repair_deadline_started(교정) / design_deadline_expired(status=initial\|repair) |
+| 사용 불가 응답 | design_response_unusable(status=design_empty_response\|design_tool_call_incomplete) |
 | 제공자 진입과 인증 | provider_call_started, authentication_started/finished |
 | 실제 전송 | request_dispatch: HTTP 전송 시작 직전 |
 | 연결/헤더 | connection_established/tls_established: HTTPcore 연결 추적; response_headers: 응답 헤더 확보. 재사용 연결은 새 연결 이벤트가 없을 수 있음 |
@@ -197,3 +198,46 @@ extra_body 오버라이드가 없다. 실행 모델의 무거운 generation 설�
 801개 검사는 위 범위에 기존 runner/loop/task note/answer delivery/memory/filesystem/search/
 채널/config/provider retry와 Azure/Responses circuit breaker 회귀를 함께 실행한 결과다.
 실제 생성 지연을 단정하거나, 타임아웃 확대/우회 실행을 기능 완료의 근거로 사용하지 않았다.
+
+## 설계 호출별 시간 한도 (최초/교정 분리)
+
+- `design_timeout_seconds`(기본 90): 최초 설계 호출 1회 전용 한도. 인증, 401 토큰 갱신+재전송 1회,
+  전송·스트림·추출, 일시 오류 재시도(`design_transient_retries`, 기본 1회, 대기 최대 2초)를 모두 포함한다.
+- `design_repair_timeout_seconds`(기본 12): 받은 제안이 스키마/의미 검증에 실패했을 때만 하는 교정 호출 1회 전용 한도.
+- 최악의 총 소요는 두 한도의 합이다. 타임아웃은 교정을 유발하지 않는다.
+- 빈 완료 응답이나 call_id 없는 함수 호출은 교정 재호출 없이 즉시 실패한다
+  (`design_unusable_responses` / `design_empty_response`, `design_tool_call_incomplete`).
+- 타임아웃은 `design_timeouts`(호환 합계) + `design_timeouts_initial|repair`, 사유 `design_timeout_initial|repair`로 남는다.
+- 설계 호출 안에서 발생한 401 재전송은 `design_auth_resends`로 센다.
+
+## 설계 검증과 데이터 정합 (모델 교정 vs 데이터 누락)
+
+- 데이터 누락: direct 답변이 의존하는 작업 제약 원문이 복원 가능한데 입력에 없을 때(`unloaded_task_constraints`).
+  교정 호출은 같은 입력을 보므로 고칠 수 없다. 코드가 `restore_design_sources`를 다시 실행하고 같은 제안을
+  재검증한다(추가 모델 호출 없음). 그래도 없으면 `design_constraint_data_missing`으로 종료하고
+  `repair_skipped_data_missing`을 기록한다. 복원 불가 ID(`unresolved_constraint_source_ids`)는 요구하지 않는다.
+- 제약 근거: 인용 ID가 입력의 USER 이벤트 또는 작업 상태 user_original 후보여야 하고, 문장은 원문 그대로,
+  정규화(NFKC·casefold·문장부호/공백 정리) 포함, 또는 같은 부정 극성의 한 문장과 문자 bigram 70% 이상 겹쳐야 한다.
+- unsafe_direct: 요청한 행동(명령형 동사)을 건너뛰거나, 로드되지 않은 정보(재개, 미해결 참조, 대화 없는
+  이전 참조, 출처가 없는 필수 정보 필요)에 의존할 때만 실패한다. 주제어로서의 '테스트/검색/구현'은 실패 사유가 아니다.
+
+## 스트림 이벤트 경량 기록 (`stream_event_log`)
+
+Responses 스트림 하나(=provider 시도 하나)마다 메모리에만 작은 리스트를 쌓고, 스트림이 어떤 이유로든
+끝날 때(완료/실패/EOF/취소·마감) **마일스톤 1개**(`phase='stream_event_log'`)로 기존 비동기 이벤트
+저널(`context_model_events`)과 시도 행(`context_model_attempts.payload.milestones`)에 남긴다.
+이벤트 내용·ID·텍스트는 저장하지 않으며, 이벤트별 직렬화나 저장은 없다. trace가 없으면 기록기도 만들지 않는다.
+
+| 필드 (`$.stream_log.*`) | 의미 |
+|---|---|
+| `call_started_wall` | 시도 시작 wall time (epoch 초). 각 `*_ms`에 더하면 수신 시각 |
+| `stream_opened_ms` | 시도 시작 → 스트림 소비 시작 |
+| `events` | `[순번, 이벤트 타입, 항목 타입, 시도 시작 기준 ms]` (최대 256, delta는 항목별 첫 번째만) |
+| `deltas` | `[delta 타입, 항목 타입, 첫 ms, 마지막 ms, 개수]` (항목별 합산, 최대 64) |
+| `function_calls` | `[added ms, 인자 첫 delta ms, 인자 완료 ms, item done ms, delta 수]` (최대 32) |
+| `items_added`, `items_done` | 항목 타입별 개수 |
+| `function_args_started/completed` | 인자 수신 시작/완료한 함수 호출 수 |
+| `last_event`, `since_last_event_ms`, `elapsed_ms` | 마지막 이벤트와 종료(마감) 시점까지의 공백 |
+| `events_seen`, `dropped` | 전체 이벤트 수, 상한으로 생략된 수 |
+
+마일스톤 `status`: `completed`, `failed`, `eof`, `cancelled`(설계 마감 포함; 시도 상태는 `timed_out`).

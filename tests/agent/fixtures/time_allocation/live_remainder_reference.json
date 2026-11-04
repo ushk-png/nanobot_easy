@@ -1,0 +1,267 @@
+{
+  "provenance": "actual_testy_USER_MESSAGE_replay",
+  "originals": [
+    {
+      "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+      "sequence": 158,
+      "text": "총 70분 학습 계획을 짜 주세요. 독서 20분은 고정하고, 남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+    },
+    {
+      "event_id": "E06255f967457492ea07915b2507f25a9",
+      "sequence": 160,
+      "text": "총 시간은 그대로 두고 독서를 30분으로 변경해 주세요. 나머지는 같은 조건으로 배분해 주세요."
+    }
+  ],
+  "first_good_snapshot": {
+    "instruction_version": 1,
+    "requirements": [
+      {
+        "id": "d9f62002565a44339548df9cade403a6",
+        "kind": "total",
+        "target": "total",
+        "expected_values": {
+          "value": "70",
+          "unit": "minute"
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "총 70분"
+          }
+        ]
+      },
+      {
+        "id": "883403f1a35d4b6eb29488146d6830c9",
+        "kind": "item",
+        "target": "883403f1a35d4b6eb29488146d6830c9",
+        "expected_values": {
+          "label": "독서",
+          "mode": "fixed",
+          "value": "20"
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": " 독서 20분"
+          }
+        ]
+      },
+      {
+        "id": "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+        "kind": "item",
+        "target": "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+        "expected_values": {
+          "label": "쓰기",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "98aac4ea2eb94ec6bbdf21275dfe1e02",
+        "kind": "item",
+        "target": "98aac4ea2eb94ec6bbdf21275dfe1e02",
+        "expected_values": {
+          "label": "듣기",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "d647c954d9d44b0e8010cd9536603538",
+        "kind": "relation",
+        "target": "allocation",
+        "expected_values": {
+          "kind": "remainder",
+          "total_id": "d9f62002565a44339548df9cade403a6",
+          "item_ids": [
+            "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+            "98aac4ea2eb94ec6bbdf21275dfe1e02"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "bcbcd5f5e93f4b6ba2a815f4b4f67507",
+        "kind": "relation",
+        "target": "equal",
+        "expected_values": {
+          "kind": "equal",
+          "total_id": null,
+          "item_ids": [
+            "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+            "98aac4ea2eb94ec6bbdf21275dfe1e02"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      }
+    ],
+    "unresolved": [],
+    "through_sequence": 158
+  },
+  "observed_bad_snapshot": {
+    "instruction_version": 2,
+    "requirements": [
+      {
+        "id": "d9f62002565a44339548df9cade403a6",
+        "kind": "total",
+        "target": "total",
+        "expected_values": {
+          "value": "70",
+          "unit": "minute"
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "총 70분"
+          }
+        ]
+      },
+      {
+        "id": "883403f1a35d4b6eb29488146d6830c9",
+        "kind": "item",
+        "target": "883403f1a35d4b6eb29488146d6830c9",
+        "expected_values": {
+          "label": "독서",
+          "mode": "fixed",
+          "value": "30"
+        },
+        "sources": [
+          {
+            "event_id": "E06255f967457492ea07915b2507f25a9",
+            "source_span": "총 시간은 그대로 두고 독서를 30분"
+          }
+        ]
+      },
+      {
+        "id": "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+        "kind": "item",
+        "target": "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+        "expected_values": {
+          "label": "쓰기",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "98aac4ea2eb94ec6bbdf21275dfe1e02",
+        "kind": "item",
+        "target": "98aac4ea2eb94ec6bbdf21275dfe1e02",
+        "expected_values": {
+          "label": "듣기",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "d647c954d9d44b0e8010cd9536603538",
+        "kind": "relation",
+        "target": "allocation",
+        "expected_values": {
+          "kind": "remainder",
+          "total_id": "d9f62002565a44339548df9cade403a6",
+          "item_ids": [
+            "a1d7d7be93ca40c88769c2863f62829b",
+            "8456be11b4b54b5fa076d8df87798a83"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E06255f967457492ea07915b2507f25a9",
+            "source_span": "나머지는 같은 조건으로 배분해 주세요."
+          }
+        ]
+      },
+      {
+        "id": "bcbcd5f5e93f4b6ba2a815f4b4f67507",
+        "kind": "relation",
+        "target": "equal",
+        "expected_values": {
+          "kind": "equal",
+          "total_id": null,
+          "item_ids": [
+            "a91f5feda9264c1fb0a0d4ca6e8dea6a",
+            "98aac4ea2eb94ec6bbdf21275dfe1e02"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E31fd06f8ab344fe59c93f251cf7a8185",
+            "source_span": "남은 시간을 쓰기와 듣기에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "a1d7d7be93ca40c88769c2863f62829b",
+        "kind": "item",
+        "target": "a1d7d7be93ca40c88769c2863f62829b",
+        "expected_values": {
+          "label": "같",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E06255f967457492ea07915b2507f25a9",
+            "source_span": "나머지는 같은 조건으로 배분해 주세요."
+          }
+        ]
+      },
+      {
+        "id": "8456be11b4b54b5fa076d8df87798a83",
+        "kind": "item",
+        "target": "8456be11b4b54b5fa076d8df87798a83",
+        "expected_values": {
+          "label": "조건",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E06255f967457492ea07915b2507f25a9",
+            "source_span": "나머지는 같은 조건으로 배분해 주세요."
+          }
+        ]
+      }
+    ],
+    "unresolved": [],
+    "through_sequence": 160
+  }
+}

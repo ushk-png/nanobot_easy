@@ -1,0 +1,166 @@
+{
+ "case": "C3_answer_only_no_file",
+ "turn": 2,
+ "request": "방금 답변에서 두 번째 항목을 한 문장으로 더 짧게 고쳐 줘. 파일은 건드리지 말고 답변만 수정해.",
+ "design": {
+  "goal": "직전 한국어 번호 목록 답변에서 두 번째 항목만 한 문장으로 더 짧게 고치고, 파일은 변경하지 않는다.",
+  "request_type": "modify",
+  "task_relation": "continue",
+  "task_id": "131048dab6b74efba613591d07047faf",
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.",
+    "source_ids": [
+     "Eb48ec6a67cc941898b6aab15767bec20"
+    ]
+   },
+   {
+    "text": "파일은 건드리지 말고 답변만 수정해.",
+    "source_ids": [
+     "Eb48ec6a67cc941898b6aab15767bec20"
+    ]
+   }
+  ],
+  "information_needs": [
+   {
+    "id": "prior_list",
+    "required": true,
+    "question": "직전 답변의 세 항목 원문은 무엇인가?",
+    "source_kind": "current_request",
+    "scope": "current_task",
+    "query": "ASSISTANT_MESSAGE sequence 2 numbered focus tips",
+    "source_ids": [
+     "E055262b76552491ab9568424e369599c"
+    ],
+    "acceptance": "세 번호 항목의 원문이 공급된 어시스턴트 메시지와 일치한다.",
+    "target": null,
+    "required_range": null,
+    "result_kind": null,
+    "expected_values": {}
+   }
+  ],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.",
+   "파일 생성·수정·삭제는 하지 않는다."
+  ],
+  "unresolved": [],
+  "answer": "1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\n2. 알림과 방해물을 치워 작업 환경을 단순하게 만든다.\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.",
+  "completion_specs": [
+   {
+    "check": "답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.",
+    "result_kind": "answer_content",
+    "target": "prior_answer",
+    "expected_values": {
+     "item2_sentences": 1
+    }
+   },
+   {
+    "check": "파일 생성·수정·삭제는 하지 않는다.",
+    "result_kind": "mutation_result",
+    "target": null,
+    "expected_values": {
+     "files_changed": 0
+    }
+   }
+  ],
+  "obligations": {
+   "target": "prior_answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "파일은 건드리지 말고 답변만 수정해.",
+   "keep_constraints": [
+    "파일은 건드리지 말고 답변만 수정해."
+   ],
+   "change_constraints": [
+    "두 번째 항목을 한 문장으로 더 짧게 고쳐 줘."
+   ],
+   "relations": [
+    {
+     "action": "edit",
+     "target": "prior_answer",
+     "necessity": "required",
+     "source_span": "방금 답변에서 두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.",
+     "target_ref": "E055262b76552491ab9568424e369599c",
+     "condition": null
+    },
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "forbidden",
+     "source_span": "파일은 건드리지 말고 답변만 수정해.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "edit",
+   "target": "prior_answer",
+   "necessity": "required",
+   "source_span": "방금 답변에서 두 번째 항목을 한 문장으로 더 짧게 고쳐 줘",
+   "target_ref": "E055262b76552491ab9568424e369599c",
+   "origin": "parser",
+   "bound_id": "E055262b76552491ab9568424e369599c",
+   "resolved": true
+  },
+  {
+   "action": "edit",
+   "target": "external_resource",
+   "necessity": "forbidden",
+   "source_span": "파일은 건드리지 말고",
+   "target_ref": "파일",
+   "origin": "parser",
+   "resolved": true
+  },
+  {
+   "action": "write",
+   "target": "external_resource",
+   "necessity": "forbidden",
+   "source_span": "파일은 건드리지 말고 답변만 수정해.",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\n2. 알림과 방해물을 치워 작업 환경을 단순하게 만든다.\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [
+  {
+   "kind": "evidence",
+   "code": "evidence_unresolved",
+   "detail": "required evidence needs a source-bound assessment: prior_list"
+  },
+  {
+   "kind": "permission",
+   "code": "external_change_forbidden",
+   "source_span": "파일은 건드리지 말고"
+  },
+  {
+   "kind": "permission",
+   "code": "answer_edit_only"
+  }
+ ],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"직전 한국어 번호 목록 답변에서 두 번째 항목만 한 문장으로 더 짧게 고치고, 파일은 변경하지 않는다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"131048dab6b74efba613591d07047faf\", \"route\": \"direct\", \"constraints\": [{\"text\": \"두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\", \"source_ids\": [\"Eb48ec6a67cc941898b6aab15767bec20\"]}, {\"text\": \"파일은 건드리지 말고 답변만 수정해.\", \"source_ids\": [\"Eb48ec6a67cc941898b6aab15767bec20\"]}], \"information_needs\": [{\"id\": \"prior_list\", \"required\": true, \"question\": \"직전 답변의 세 항목 원문은 무엇인가?\", \"source_kind\": \"current_request\", \"scope\": \"current_task\", \"query\": \"ASSISTANT_MESSAGE sequence 2 numbered focus tips\", \"source_ids\": [\"E055262b76552491ab9568424e369599c\"], \"acceptance\": \"세 번호 항목의 원문이 공급된 어시스턴트 메시지와 일치한다.\"}], \"capabilities_needed\": [], \"completion_checks\": [\"답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.\", \"파일 생성·수정·삭제는 하지 않는다.\"], \"unresolved\": [], \"answer\": \"1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\\n2. 알림과 방해물을 치워 작업 환경을 단순하게 만든다.\\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.\", \"completion_specs\": [{\"check\": \"답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.\", \"result_kind\": \"answer_content\", \"target\": \"prior_answer\", \"expected_values\": {\"item2_sentences\": 1}}, {\"check\": \"파일 생성·수정·삭제는 하지 않는다.\", \"result_kind\": \"mutation_result\", \"target\": null, \"expected_values\": {\"files_changed\": 0}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"파일은 건드리지 말고 답변만 수정해.\", \"keep_constraints\": [\"파일은 건드리지 말고 답변만 수정해.\"], \"change_constraints\": [\"두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 답변에서 두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\", \"target_ref\": \"E055262b76552491ab9568424e369599c\", \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"파일은 건드리지 말고 답변만 수정해.\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"직전 한국어 번호 목록 답변에서 두 번째 항목만 한 문장으로 더 짧게 고치고, 파일은 변경하지 않는다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"131048dab6b74efba613591d07047faf\", \"route\": \"direct\", \"constraints\": [{\"text\": \"두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\", \"source_ids\": [\"Eb48ec6a67cc941898b6aab15767bec20\"]}, {\"text\": \"파일은 건드리지 말고 답변만 수정해.\", \"source_ids\": [\"Eb48ec6a67cc941898b6aab15767bec20\"]}], \"information_needs\": [{\"id\": \"prior_list\", \"required\": true, \"question\": \"직전 답변의 세 항목 원문은 무엇인가?\", \"source_kind\": \"current_request\", \"scope\": \"current_task\", \"query\": \"ASSISTANT_MESSAGE sequence 2 numbered focus tips\", \"source_ids\": [\"E055262b76552491ab9568424e369599c\"], \"acceptance\": \"세 번호 항목의 원문이 공급된 어시스턴트 메시지와 일치한다.\"}], \"capabilities_needed\": [], \"completion_checks\": [\"답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.\", \"파일 생성·수정·삭제는 하지 않는다.\"], \"unresolved\": [], \"answer\": \"1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\\n2. 알림과 방해물을 치워 작업 환경을 단순하게 만든다.\\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.\", \"completion_specs\": [{\"check\": \"답변은 한국어 번호 목록 세 항목을 유지하고, 1번과 3번은 직전 답변과 같으며, 2번만 한 문장으로 더 짧다.\", \"result_kind\": \"answer_content\", \"target\": \"prior_answer\", \"expected_values\": {\"item2_sentences\": 1}}, {\"check\": \"파일 생성·수정·삭제는 하지 않는다.\", \"result_kind\": \"mutation_result\", \"target\": null, \"expected_values\": {\"files_changed\": 0}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"파일은 건드리지 말고 답변만 수정해.\", \"keep_constraints\": [\"파일은 건드리지 말고 답변만 수정해.\"], \"change_constraints\": [\"두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 답변에서 두 번째 항목을 한 문장으로 더 짧게 고쳐 줘.\", \"target_ref\": \"E055262b76552491ab9568424e369599c\", \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"파일은 건드리지 말고 답변만 수정해.\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

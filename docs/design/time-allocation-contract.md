@@ -6,7 +6,7 @@
 
 ## 1. 근거와 결정
 
-근거는 [구조 진단 보고서](../../../nanobot_skill_patches/handoff-review/system-diagnosis-0533ce1/REPORT.md)
+근거는 [구조 진단 보고서](../../../handoff-review/system-diagnosis-0533ce1/REPORT.md)
 §2~4, §7, §9와 그 보고서의 두 대조 반례다. 구조 진단을 다시 수행하거나 반례를 재실행하지 않았다.
 코드 대응은 보고서가 분석한 검증 사본
 `/Users/imkimhk/Project/nanobot_skill_patches/handoff-review/repo`,
@@ -242,6 +242,18 @@ float 허용오차로 고정값 위반을 통과시키지 않는다. 입력 분/
 모델이 보내는 total/remaining도 검산하며 다르면 result_error다. 자동 생성 후보에는 코드가 채운다.
 단위는 요구 스냅샷의 minute를 상속한다. 원본 후보와 수용 결과를 구분하여 조용한 보정은 하지 않는다.
 
+2026-10-31 A1 실제 제출 대조에 따른 제출 경계 규칙:
+현재 요구에서 명시적으로 제외한 항목에 정확히 0분이 배정된 경우, 원본 제출은 증거로
+보존하고 해당 항목을 수용 배분 결과에서 제외한다. 나머지 결과는 기존 필수 검사를 전부
+통과해야 한다. 이 규칙은 원문 요구·고정값·요구 버전을 변경하지 않는다.
+스키마·정확한 분 값·항목 중복을 먼저 검사하고, 현재 excluded 요구 ID와 일치하는
+0분 항목만 제외한다. 양수 배분, 불명확한 값·단위·항목 ID, 출처 없는 추가 항목,
+필수 항목 누락, 중복 항목은 기존 기준으로 거부한다. 활성 항목의 0분 값은 삭제하지 않는다.
+§5의 ‘제외 항목 배분 없음’은 이 수용 결과에서 검사한다. 정규화는 direct/실행기가 공유하는
+`validate_result` 한 곳에서만 수행한다. 원본 설계는 기존 proposals에 유지하고,
+명시적으로 제출된 원본 결과는 완료 묶음의 `submitted_result`에 별도 복사하여 보존한다.
+이 필드는 자동 계산 후보일 때 null이다. 검증·렌더링·저장·보고의 수치 근거는 수용 `result`다.
+
 실제 출력은 검증된 같은 객체에서 다음처럼 만든다. 항목 순서는 최초 사용자 순서를 보존한다.
 
 ```text
@@ -283,6 +295,7 @@ DONE을 만들지 않는다. 다른 작업의 일반 자유문 생성 규칙은 
 allocation = {
   result_id,                      # 런타임 발급, 내용 바뀌면 재발급
   result,                         # 위 items/total/remaining, 불변
+  submitted_result,               # 명시적 원본 제출 증거, 자동 계산 후보는 null
   checks,                         # 필수 집합 및 요구 ID별 기대/관측/판정
   output,                         # 실제 내보낼 최종 본문, renderer 버전 포함
   response_id,                    # 실제 assistant event 연결

@@ -26,14 +26,75 @@ _ACTIONS = {
 }
 
 
-def instruction_policy(text: str) -> dict:
+def _direct_text(text: str) -> str:
     # Quoted files/code are evidence, not fresh user authority.
-    direct = re.split(r"```", text)[0]
+    from nanobot.agent.context_relations import _blank_quotes
+    direct = re.split(r"```", text or "")[0]
     direct = "\n".join(line for line in direct.splitlines() if not line.lstrip().startswith(">"))
+    return _blank_quotes(direct)  # "'파일을 삭제하지 마세요'를 다듬어 줘" quotes text, not an instruction
+
+
+_GRANT_KIND = {"edit": "change", "write": "change", "delete": "delete", "send": "send",
+               "deploy": "deploy", "run": "execute"}
+
+
+def granted_actions(text: str) -> set[str]:
+    """Action kinds a user message explicitly requests on an external target (direct text only)."""
+    from nanobot.agent.context_relations import parse_relations
+    direct = _direct_text(text)
+    return {_GRANT_KIND[r.action] for r in parse_relations(direct)
+            if r.necessity == "required" and r.action in _GRANT_KIND
+            and r.target not in {"answer", "prior_answer"}}
+
+
+def granted_targets(text: str) -> dict[str, list[str]]:
+    """Per granted kind, the named targets the permission covers ("*" when it names none)."""
+    from nanobot.agent.context_relations import _FILE, parse_relations
+    out: dict[str, set[str]] = {}
+    for r in parse_relations(_direct_text(text)):
+        if r.necessity == "required" and r.action in _GRANT_KIND and r.target not in {"answer", "prior_answer"}:
+            named = _FILE.search(r.target_ref or "") or _FILE.search(r.source_span or "")
+            # t39: the target as the user wrote it (full relative/absolute path), never its basename;
+            # it is resolved to one canonical identifier against the workspace when compared.
+            out.setdefault(_GRANT_KIND[r.action], set()).add(named.group(0) if named else "*")
+    return {k: sorted(v) for k, v in out.items()}
+
+
+def effective_scope(entries: list[tuple]) -> dict[str, set[str]]:
+    """Replay user turns in order. Each denied kind maps to the targets a LATER user permission
+    re-opened for it; a permission naming no target re-opens the whole kind; a later denial resets."""
+    scope: dict[str, set[str]] = {}
+    for entry in sorted(entries, key=lambda e: e[0]):
+        _seq, deny, grant = entry[:3]
+        targets = entry[3] if len(entry) > 3 else {k: ["*"] for k in grant}
+        for kind in deny:
+            scope[kind] = set()
+        for kind in grant - deny:
+            if kind not in scope:
+                continue
+            allowed = set(targets.get(kind) or ["*"])
+            if "*" in allowed:
+                scope.pop(kind)
+            else:
+                scope[kind] |= allowed
+    return scope
+
+
+def effective_denials(entries: list[tuple[int, set[str], set[str]]]) -> set[str]:
+    """Replay user turns in order: a later explicit request for a kind supersedes only that kind's denial."""
+    denied: set[str] = set()
+    for _seq, deny, grant in sorted(entries, key=lambda e: e[0]):
+        denied |= deny
+        denied -= (grant - deny)
+    return denied
+
+
+def instruction_policy(text: str) -> dict:
+    direct = _direct_text(text)
     denied = set()
     for kind, words in _ACTIONS.items():
         if re.search(rf"(?:{words})[^.!?\n]{{0,20}}(?:하지|금지|않|안돼)|"
-                     rf"(?:do not|don't|never|no)[^.!?\n]{{0,20}}(?:{words})", direct, re.I):
+                     rf"\b(?:do not|don't|never|no)\b[^.!?\n]{{0,20}}(?:{words})", direct, re.I):
             denied.add(kind)
     if _READ_ONLY.search(direct):
         denied.update(_ACTIONS)
@@ -44,6 +105,90 @@ def instruction_policy(text: str) -> dict:
     return {"denied_actions": sorted(denied), "cancel": cancelled,
             "replace_task": replace_task, "replace": bool(_CHANGE.search(direct)),
             "explicit_resume": bool(_RESUME.search(direct))}
+
+
+# Prohibition wording the designer check used for these kinds besides instruction_policy ("배포 제외").
+_EXTRA_DENIAL = {kind: rf"(?:{_ACTIONS[kind]}).{{0,20}}(?:하지|금지|제외|않)|(?:never|do not|don't).{{0,20}}(?:{_ACTIONS[kind]})"
+                 for kind in ("deploy", "restart", "delete", "send")}
+
+
+def scope_entry(sequence: int, text: str) -> tuple:
+    """One user instruction as (sequence, denied kinds, granted kinds, granted targets)."""
+    denied = set(instruction_policy(text)["denied_actions"])
+    direct = _direct_text(text)
+    denied |= {kind for kind, pattern in _EXTRA_DENIAL.items() if re.search(pattern, direct, re.I)}
+    return (sequence, denied, granted_actions(text), granted_targets(text))
+
+
+def instruction_state(entries: list[tuple]) -> tuple[dict[str, set[str]], set[str]]:
+    """The one current-valid instruction state, shared by design validation and authorize.
+
+    Order comes only from real positions (event sequence / message position; entry[0] is None when
+    it is not known). No order is invented (t36): an unordered denial and a grant of the same kind
+    (or an unordered grant of a kind that is otherwise denied) leave that kind ORDER-UNKNOWN instead
+    of letting either win. Returns (scope, order_unknown): scope maps each kind still denied to the
+    targets a later permission re-opened; order_unknown kinds need the user's confirmation before a
+    related change, and do not block unrelated explanations or lookups."""
+    ordered = [e for e in entries if e[0] is not None]
+    unordered = [e for e in entries if e[0] is None]
+    scope = effective_scope(ordered)
+    granted_somewhere = {k for e in ordered for k in (e[2] - e[1])}
+    unknown: set[str] = set()
+    for i, entry in enumerate(unordered):
+        deny, grant = entry[1], entry[2] - entry[1]
+        others = [o for j, o in enumerate(unordered) if j != i]
+        for kind in deny:
+            if kind in scope and not scope[kind]:
+                continue                                   # denied anyway, whatever the order
+            if kind in granted_somewhere or kind in scope or any(kind in (o[2] - o[1]) for o in others):
+                unknown.add(kind)
+            else:
+                scope[kind] = set()                        # the only instruction on that kind
+        for kind in grant:
+            if kind in scope or any(kind in o[1] for o in others):
+                unknown.add(kind)
+    for kind in unknown:
+        scope.pop(kind, None)
+    return scope, unknown
+
+
+def instruction_scope(entries: list[tuple]) -> dict[str, set[str]]:
+    """Kinds still denied (see instruction_state); order-unknown kinds are reported separately."""
+    return instruction_state(entries)[0]
+
+
+def goal_conflict_in_scope(goal: str, scope: dict[str, set[str]]) -> bool:
+    """The design goal positively names an action kind the current instructions still deny, on a
+    target no later permission re-opened. A granted kind/target is not a conflict."""
+    from nanobot.agent.context_relations import _FILE
+    goal_denied = set(instruction_policy(goal)["denied_actions"])
+    names = {target_identifier(m.group(0), None) for m in _FILE.finditer(goal or "")}
+    for kind, allowed in scope.items():
+        if kind in goal_denied or not re.search(_ACTIONS[kind], goal or "", re.I):
+            continue
+        if names and names <= {target_identifier(a, None) for a in allowed if a != "*"}:
+            continue
+        return True
+    return False
+
+
+def target_identifier(ref: str, workspace: Any) -> str:
+    """t39: one normalized full identifier per target (workspace-relative paths resolved, ``~``
+    expanded, aliases resolved). Same-name files in different directories stay different."""
+    from nanobot.agent.context_evidence import canonical
+    return canonical(str(ref), workspace)
+
+
+def target_permitted(kind: str, target: str | None, scope: dict[str, set[str]], workspace: Any) -> bool:
+    """Action kind + full target identifier + workspace scope against the current instruction state."""
+    if kind not in scope:
+        return True
+    if not target:
+        return False
+    ident = target_identifier(target, workspace)
+    if workspace and not ident.startswith(target_identifier(".", workspace).rstrip("/") + "/"):
+        return False                                      # outside the permitted workspace scope
+    return ident in {target_identifier(a, workspace) for a in scope[kind] if a != "*"}
 
 
 def goal_conflict(goal: str, text: str) -> bool:
@@ -112,7 +257,20 @@ class TaskControl:
         if event.sequence <= self.seen:
             return
         self.seen = event.sequence
+        if getattr(self.selected, "allocation", None):
+            # Task linkage is settled at selection. In-flight events invalidate delivery,
+            # but must not be silently merged into this task's requirement ledger.
+            def hold(state):
+                refs = state.setdefault("pending_instruction_refs", [])
+                if event.event_id not in refs:
+                    refs.append(event.event_id)
+                state["status"], state["instruction_status"] = "BLOCKED", "RECONCILE"
+            self.save(hold)
+            self.selected.completion_reports.clear()
+            return
         policy = instruction_policy(event.content or "")
+        policy["granted_actions"] = sorted(granted_actions(event.content or ""))
+        policy["granted_targets"] = granted_targets(event.content or "")
 
         def update(state):
             ids = {item["event_id"] for item in state.get("instructions", [])}
@@ -138,6 +296,13 @@ class TaskControl:
                     "sequence": event.sequence, "text": event.content, "kind": "user_original"})
             else:
                 state.setdefault("pending_instruction_refs", []).append(event.event_id)
+            if not policy["cancel"]:
+                # t39: one instruction state. A follow-up permission/denial is stored where design
+                # validation, execution checks and completion all read it (user_constraints), not
+                # only in the execution-side policy list.
+                state.setdefault("user_constraints", []).append({"event_id": event.event_id,
+                    "sequence": event.sequence, "text": event.content, "kind": "user_original",
+                    "instruction_version": state["instruction_version"]})
         self.save(update)
         self.selected.completion_reports.clear()
 
@@ -170,7 +335,7 @@ class TaskControl:
             message["memory_event_id"] = event.event_id
             self.ingest_event(event)
 
-    def authorize(self, name: str) -> str | None:
+    def authorize(self, name: str, target: str | None = None) -> str | None:
         self.refresh()
         if self.cancelled:
             return "Task cancelled; new mutations are blocked. Completed effects remain recorded."
@@ -181,13 +346,34 @@ class TaskControl:
             return self.selected.blocked
         if state.get("blockers"):
             return "Task has unresolved blockers: " + ", ".join(state["blockers"])
+        entries, seen = [], set()
         for instruction in state.get("instructions", []):
-            if tool_action(name) in instruction.get("policy", {}).get("denied_actions", []):
-                return "Latest versioned user instruction forbids this action."
+            pol = instruction.get("policy", {})
+            seen.add(instruction.get("event_id"))
+            seq = instruction.get("sequence")
+            entries.append((int(seq) if seq is not None else None, set(pol.get("denied_actions", [])),
+                            set(pol.get("granted_actions", [])), pol.get("granted_targets")
+                            or {k: ["*"] for k in pol.get("granted_actions", [])}))
         for item in state.get("user_constraints", []):
-            denied = instruction_policy(item.get("text", ""))["denied_actions"]
-            if tool_action(name) in denied or (name in {"exec", "run_cli_app"} and denied):
-                return "Latest applicable user constraints forbid this state-changing action."
+            if item.get("event_id") in seen:
+                continue
+            seq = item.get("sequence")
+            entries.append(scope_entry(int(seq) if seq is not None else None, item.get("text", "")))
+        scope, order_unknown = instruction_state(entries)
+        kind = tool_action(name)
+        if kind in order_unknown or (name in {"exec", "run_cli_app"} and order_unknown):
+            # Conflicting instructions whose order is not known: hold this change and ask.
+            return ("Conflicting user instructions about this kind of action have no known order; "
+                    "confirm with the user which one applies before changing anything.")
+        note = getattr(self.selected, "note_instruction_read", None)
+        if callable(note):
+            note("execution_check")
+        self.last_check = {"task_id": state.get("task_id"), "instruction_version": self.version,
+                           "action": kind, "target": target_identifier(target, getattr(self.selected, "workspace", None)) if target else None}
+        if (not target_permitted(kind, target, scope, getattr(self.selected, "workspace", None))
+                or (name in {"exec", "run_cli_app"} and scope)):
+            # A later permission lifts a denial only for the action kind and the target it names.
+            return "Latest applicable user constraints forbid this state-changing action."
         return self.selected.evidence_error(for_mutation=True)
 
     def execution(self, call, status, **extra):
@@ -197,6 +383,9 @@ class TaskControl:
             if entry is None:
                 entry = {"tool_call_id": call.id, "name": call.name,
                          "instruction_version": self.version, "request_id": self.selected.trace.request_id}
+                path = (call.arguments or {}).get("path") or (call.arguments or {}).get("file_path")
+                if path:   # t52: the execution record names its target (claims of a later turn)
+                    entry["target"] = str(path)
                 facts.append(entry)
             entry.update(status=status, **extra)
             if status == "running":
@@ -224,7 +413,8 @@ class TaskControl:
                     return ToolResult(record["_text"]), {"name": call.name, "status": "ok", "reused": True}, None
                 return ToolResult.error("Previous execution exists; inspect its recorded outcome before retry."), {
                     "name": call.name, "status": "blocked"}, None
-            error = self.authorize(call.name)
+            error = self.authorize(call.name, (call.arguments or {}).get("path")
+                                   if isinstance(call.arguments, dict) else None)
             if error or messages:
                 return ToolResult.error(error or "New instruction superseded prepared action"), {
                     "name": call.name, "status": "blocked"}, None

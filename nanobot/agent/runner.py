@@ -341,6 +341,8 @@ class AgentRunner:
                            initial_messages=[*spec.initial_messages, note.guidance()],
                            stream_progress_deltas=False)
             task_token = active_task_note.set(note)
+        if spec.selected_context and getattr(spec.selected_context, "allocation", None):
+            spec = replace(spec, stream_progress_deltas=False)
         hook = spec.hook or AgentHook()
         messages = list(spec.initial_messages)
         context = AgentRunHookContext(messages=deepcopy(messages))
@@ -435,12 +437,13 @@ class AgentRunner:
         compacted_tool_call_ids: set[str] = set()
         premature_final_corrections = 0
         answer_body_corrections = 0
+        answer_fix_corrections = 0
         task_corrections = 0
         report_corrections = 0
 
         async def guard_final(clean, assistant_message, iteration, *, already_appended=False):
             nonlocal premature_final_corrections, task_corrections, report_corrections, stop_reason
-            nonlocal answer_body_corrections
+            nonlocal answer_body_corrections, answer_fix_corrections
             if spec.task_state is not None:
                 if spec.task_state.update is not None:
                     spec.task_state.update.final_answer = hook.finalize_content(
@@ -495,6 +498,20 @@ class AgentRunner:
                 assistant_message["content"] = clean
             if spec.selected_context and not spec.selected_context.legacy_fallback:
                 checked, checked_status = spec.selected_context.verdict(clean)
+                if checked_status != "completed" and answer_fix_corrections == 0:
+                    # t47/t49: at most one in-loop fix, routed by kind (answer content / evidence link);
+                    # no fix call for an open item shown to decide the answer (t50: a target/permission
+                    # condition holds changes only), a verifier defect, or when the iteration budget is
+                    # used up. The fix is an ordinary iteration (counts in budget).
+                    from nanobot.agent.context_plan import fix_route
+                    _, fix = fix_route(spec.selected_context, clean, iteration + 1 < spec.max_iterations)
+                    if fix:
+                        answer_fix_corrections += 1
+                        assistant_message["_hidden_history"] = True
+                        if not already_appended:
+                            messages.append(assistant_message)
+                        messages.append({"role": "user", "_hidden_history": True, "content": fix})
+                        return clean, True
                 if checked_status != "completed":
                     stop_reason = checked_status
                     assistant_message["unverified_content"] = clean
@@ -562,6 +579,16 @@ class AgentRunner:
                 spec.selected_context.control.refresh()
                 if spec.selected_context.control.cancelled:
                     final_content, stop_reason = spec.selected_context.verdict(None, "cancelled")
+                    self._append_final_message(messages, final_content)
+                    break
+                # t54: whole-request budget / repeated refused action -> stop with a code-built report
+                _budget = getattr(spec.selected_context.trace, "budget", None)
+                _stop = getattr(spec.selected_context, "stop_requested", None) or (
+                    _budget.exhausted() if _budget is not None else None)
+                if _stop:
+                    if _budget is not None:
+                        _budget.stop(_stop)
+                    final_content, stop_reason = spec.selected_context.verdict(None, _stop)
                     self._append_final_message(messages, final_content)
                     break
             try:
@@ -708,7 +735,11 @@ class AgentRunner:
                         if call.name not in {"discover_context_capabilities", "resolve_context_need",
                                               "record_context_completion", "revise_context_requirements", "skill_decision",
                                               "skill_search", "skill_registry"}:
-                            spec.selected_context.capture(call, observed_result, event.get("status"), tool)
+                            spec.selected_context.capture(call, observed_result, event.get("status"), tool,
+                                                          executed=event.get("executed", True))
+                        elif call.name == "record_context_completion" and event.get("status") != "ok":
+                            from nanobot.agent.context_plan import note_record_error
+                            note_record_error(spec.selected_context, call, observed_result)
                         if call.name in {"search_memory", "read_memory_events"}:
                             spec.selected_context.trace.count("additional_searches", "executor_plan_revision")
                         spec.tools.resolver.observed[call.id] = bool(
@@ -829,6 +860,25 @@ class AgentRunner:
                 )
                 if _drained:
                     had_injections = True
+                allocation = getattr(spec.selected_context, "allocation", None)
+                if (not _drained and spec.task_state is None and allocation is not None
+                        and allocation.decision == "pass"
+                        and any(event.get("name") == "submit_time_allocation" for event in new_events)
+                        and all(event.get("status") == "ok" and event.get("executed", True)
+                                for event in new_events)):
+                    # A verified structured result already contains the answer. Do not
+                    # spend another model iteration just to trigger its final verdict.
+                    # Refresh/revalidate here; the loop's save boundary still commits
+                    # the exact output and DONE atomically before publishing either.
+                    content, status = allocation.finalize(None)
+                    if status == "completed":
+                        final_content, stop_reason = content, status
+                        self._append_final_message(messages, final_content)
+                        context.final_content, context.stop_reason = final_content, stop_reason
+                        if hook.wants_streaming():
+                            await hook.on_stream_end(context, resuming=False)
+                        await hook.after_iteration(context)
+                        break
                 await hook.after_iteration(context)
                 continue
 
@@ -932,6 +982,14 @@ class AgentRunner:
                 await hook.after_iteration(context)
                 continue
 
+            if (response.finish_reason == "error" and response.error_kind == "budget_exhausted"
+                    and spec.selected_context and not spec.selected_context.legacy_fallback):
+                # t54: the send was refused by the request budget (nothing sent): stop, no extra call.
+                _budget = getattr(spec.selected_context.trace, "budget", None)
+                _stop = (_budget.stop_reason if _budget is not None else None) or "budget_sends"
+                final_content, stop_reason = spec.selected_context.verdict(None, _stop)
+                self._append_final_message(messages, final_content)
+                break
             if response.finish_reason == "error":
                 if LLMProvider.is_arrearage_response(response):
                     final_content = _ARREARAGE_ERROR_MESSAGE
@@ -1508,6 +1566,29 @@ class AgentRunner:
         external_lookup_counts: dict[str, int],
         workspace_violation_counts: dict[str, int],
     ) -> tuple[list[Any], list[dict[str, str]], BaseException | None]:
+        # t49: a plan/requirement update sent with other actions is processed first.
+        # t50: a rejected update returns only its own error; the other actions still run, each through
+        # its own pre-execution checks (repeat, permission, target, cancellation, budget). An update
+        # grants no permission, so nothing depends on its acceptance to be safe.
+        first: dict[int, tuple[Any, dict[str, str], BaseException | None]] = {}
+        if spec.selected_context:
+            for i, call in enumerate(tool_calls):
+                args = call.arguments if isinstance(call.arguments, dict) else {}
+                if call.name == "revise_context_requirements" and args.get("reason") in {
+                        "update_plan", "supplement_requirement"}:
+                    first[i] = await self._run_tool(spec, call, external_lookup_counts, workspace_violation_counts)
+        if first:
+            if any(first[i][1].get("status") != "ok" for i in first):
+                spec.selected_context.trace.count("plan_gate", "update_rejected_others_run")
+            rest = [c for i, c in enumerate(tool_calls) if i not in first]
+            rest_res, rest_ev, rest_err = await self._execute_tools(
+                spec, rest, external_lookup_counts, workspace_violation_counts) if rest else ([], [], None)
+            rest_out = (list(zip(rest_res, rest_ev, [None] * len(rest_res))), rest_err)
+            merged, it = [], iter(rest_out[0])
+            for i in range(len(tool_calls)):
+                merged.append(first[i] if i in first else next(it))
+            fatal = next((e for _, _, e in merged if e is not None), rest_out[1])
+            return [r for r, _, _ in merged], [e for _, e, _ in merged], fatal
         batches = self._partition_tool_batches(spec, tool_calls)
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
@@ -1640,6 +1721,7 @@ class AgentRunner:
                 "name": tool_call.name,
                 "status": "error",
                 "detail": prep_error.split(": ", 1)[-1][:120],
+                "executed": False,   # t49: refused before execution
             }
             handled = self._classify_violation(
                 raw_text=prep_error,
@@ -1683,10 +1765,12 @@ class AgentRunner:
                 if spec.selected_context and not tool.read_only:
                     latest = await self._drain_injections(spec, wait=False)
                     spec.selected_context.control.pending.extend(latest)
-                    error = spec.selected_context.control.authorize(tool_call.name)
+                    error = spec.selected_context.control.authorize(
+                        tool_call.name, (tool_call.arguments or {}).get("path")
+                        if isinstance(tool_call.arguments, dict) else None)
                     if error or latest:
                         return ToolResult.error(error or "Prepared action superseded"), {
-                            "name": tool_call.name, "status": "blocked"}, None
+                            "name": tool_call.name, "status": "blocked", "executed": False}, None
                     spec.selected_context.control.active = tool_call.id
                     spec.selected_context.control.execution(tool_call, "running")
                 from nanobot.agent.tools.search import FindFilesTool, GrepTool
@@ -1696,9 +1780,39 @@ class AgentRunner:
 
                     result = await isolated_search(tool, params)
                 else:
-                    result = await tool.execute(**params)
+                    _budget = getattr(spec.selected_context.trace, "budget", None) if spec.selected_context else None
+                    _limit = _budget.cap(None) if _budget is not None else None
+                    if _limit is not None:
+                        # t54: a tool wait never outlives the request deadline. A timeout goes through the
+                        # error path below; a change it may have made stays "unknown" (no rollback).
+                        try:
+                            async with asyncio.timeout(_limit):
+                                result = await tool.execute(**params)
+                        except TimeoutError:
+                            _budget.stop("budget_deadline")
+                            from nanobot.agent.tools.shell import termination_note
+                            info = getattr(tool, "last_termination", None)
+                            note = termination_note(info)
+                            if note and spec.selected_context is not None:
+                                spec.selected_context.unconfirmed_terminations = [
+                                    *getattr(spec.selected_context, "unconfirmed_terminations", []),
+                                    dict(info, call=tool_call.id)]
+                            raise TimeoutError("request deadline reached while waiting for " + tool_call.name
+                                               + ("; " + note if note else ""))
+                    else:
+                        result = await tool.execute(**params)
             else:
-                result = await spec.tools.execute(tool_call.name, params)
+                _budget = getattr(spec.selected_context.trace, "budget", None) if spec.selected_context else None
+                _limit = _budget.cap(None) if _budget is not None else None
+                if _limit is not None:
+                    try:
+                        async with asyncio.timeout(_limit):
+                            result = await spec.tools.execute(tool_call.name, params)
+                    except TimeoutError:
+                        _budget.stop("budget_deadline")
+                        raise TimeoutError("request deadline reached while waiting for " + tool_call.name)
+                else:
+                    result = await spec.tools.execute(tool_call.name, params)
             execution = getattr(result, "execution_evidence", None)
             if spec.selected_context and isinstance(execution, dict):
                 execution["checked_versions"] = checked_versions

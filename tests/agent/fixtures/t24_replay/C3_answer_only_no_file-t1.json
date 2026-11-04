@@ -1,0 +1,99 @@
+{
+ "case": "C3_answer_only_no_file",
+ "turn": 1,
+ "request": "집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.",
+ "design": {
+  "goal": "집중력을 높이는 방법 세 가지를 번호 목록으로 답한다.",
+  "request_type": "explain",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.",
+    "source_ids": [
+     "E7d475d9875994727b1db98943c4d940f"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [
+   "answer-howto"
+  ],
+  "completion_checks": [
+   "답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다."
+  ],
+  "unresolved": [],
+  "answer": "1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\n2. 알림과 불필요한 탭을 끄고, 책상 위 방해물을 치워 작업 환경을 단순하게 만든다.\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.",
+  "completion_specs": [
+   {
+    "check": "답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "count": 3,
+     "format": "numbered_list"
+    }
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.",
+   "keep_constraints": [
+    "번호 목록",
+    "세 가지"
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "required",
+   "source_span": "집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\n2. 알림과 불필요한 탭을 끄고, 책상 위 방해물을 치워 작업 환경을 단순하게 만든다.\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 답한다.\",\"request_type\":\"explain\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"source_ids\":[\"E7d475d9875994727b1db98943c4d940f\"]}],\"information_needs\":[],\"capabilities_needed\":[\"answer-howto\"],\"completion_checks\":[\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\"],\"unresolved\":[],\"answer\":\"1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\\n2. 알림과 불필요한 탭을 끄고, 책상 위 방해물을 치워 작업 환경을 단순하게 만든다.\\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.\",\"completion_specs\":[{\"check\":\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\",\"result_kind\":\"answer_content\",\"expected_values\":{\"count\":3,\"format\":\"numbered_list\"}}",
+   "parsed": false,
+   "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 698 (char 697)"
+  },
+  {
+   "raw": "{\"goal\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 답한다.\",\"request_type\":\"explain\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"source_ids\":[\"E7d475d9875994727b1db98943c4d940f\"]}],\"information_needs\":[],\"capabilities_needed\":[\"answer-howto\"],\"completion_checks\":[\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\"],\"unresolved\":[],\"answer\":\"1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\\n2. 알림과 불필요한 탭을 끄고, 책상 위 방해물을 치워 작업 환경을 단순하게 만든다.\\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.\",\"completion_specs\":[{\"check\":\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\",\"result_kind\":\"answer_content\",\"expected_values\":{\"count\":3,\"format\":\"numbered_list\"}}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"unneeded\",\"external_change\":\"none\",\"source_span\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"keep_constraints\":[\"번호 목록\",\"세 가지\"],\"change_constraints\":[],\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"target_ref\":null,\"condition\":null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 답한다.\",\"request_type\":\"explain\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"source_ids\":[\"E7d475d9875994727b1db98943c4d940f\"]}],\"information_needs\":[],\"capabilities_needed\":[\"answer-howto\"],\"completion_checks\":[\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\"],\"unresolved\":[],\"answer\":\"1. 한 번에 한 가지 일만 하고, 25분 집중 후 5분 쉬는 짧은 구간으로 나눈다.\\n2. 알림과 불필요한 탭을 끄고, 책상 위 방해물을 치워 작업 환경을 단순하게 만든다.\\n3. 시작 전에 오늘 끝낼 한 가지 목표를 적고, 물과 가벼운 움직임으로 몸 상태를 맞춘다.\",\"completion_specs\":[{\"check\":\"답은 한국어 번호 목록으로 집중력을 높이는 방법 정확히 세 가지를 제시한다.\",\"result_kind\":\"answer_content\",\"expected_values\":{\"count\":3,\"format\":\"numbered_list\"}}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"unneeded\",\"external_change\":\"none\",\"source_span\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"keep_constraints\":[\"번호 목록\",\"세 가지\"],\"change_constraints\":[],\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"집중력을 높이는 방법 세 가지를 번호 목록으로 알려 줘.\",\"target_ref\":null,\"condition\":null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

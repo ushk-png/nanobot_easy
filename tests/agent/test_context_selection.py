@@ -212,10 +212,10 @@ async def test_old_instruction_restores_later_cancellation_and_raw_originals(env
 
 @pytest.mark.asyncio
 async def test_required_failure_blocks_mutation_and_false_final(env):
-    event(env, "파일 수정해줘")
+    event(env, "notes.md 파일 수정해줘")
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
         capabilities_needed=["change_test_file"], information_needs=[need(query="not-in-memory")]),
-        request="파일 수정해줘")
+        request="notes.md 파일 수정해줘")
     assert selected.missing == ["n1"]
     # Gate prepare_call too: runner normally invokes prepared tool objects directly.
     assert selected.tools.prepare_call("change_test_file", {})[2]
@@ -241,12 +241,23 @@ async def test_invalid_design_bounded_repair_then_block(env, bad):
     if bad == "constraint":
         design.constraints = [Constraint(text="user approved deployment", source_ids=["unknown"])]
     if bad == "direct":
-        design = plan()
+        design = plan(unresolved=["which file"])  # structural unsafe_direct (model mistake)
     result = LLMResponse(content="{bad json") if bad == "json" else response(design)
     _, provider, selected = await select(env, design, request="파일 구현해줘", responses=[result, result])
     assert selected.blocked == "design_validation_failed"
     assert len(provider.requests) == 2
     assert selected.trace.counters["design_recoveries"] == 2
+
+
+@pytest.mark.asyncio
+async def test_validator_only_error_reroutes_without_repair(env):
+    event(env, "파일 구현해줘")
+    _, provider, selected = await select(env, plan(), request="파일 구현해줘",
+                                         responses=[response(plan()), response(plan())])
+    assert selected.blocked is None
+    assert len(provider.requests) == 1  # no repair call for a validator heuristic
+    assert selected.design.route == "execute" and selected.design.answer is None
+    assert selected.trace.counters["validator_overrides"] == 1
 
 
 @pytest.mark.asyncio
@@ -262,9 +273,9 @@ async def test_internal_clarification_runs_search_without_extra_model(env):
 
 @pytest.mark.asyncio
 async def test_wrong_first_plan_can_discover_read_and_resolve_in_executor(env):
-    event(env, "현재 파일을 수정해줘")
+    event(env, "현재 설정을 수정해줘")
     _, _, selected = await select(env, plan(route="execute", request_type="modify", answer=None,
-        information_needs=[need(source_kind="file", query="current config")]), request="파일 수정해줘")
+        information_needs=[need(source_kind="file", query="current config")]), request="현재 설정을 수정해줘")
     assert not selected.tools.has("change_test_file")
     await selected.tools.execute("discover_context_capabilities", {"names": ["change_test_file"]})
     assert selected.tools.has("change_test_file")
@@ -916,16 +927,19 @@ async def test_design_deadline_never_starts_second_slow_call(env):
             rules="Mandatory policy", request_id="timeout")
     assert attempts == [False]
     assert cancelled == [True]
-    deadline.assert_called_once_with(20)
-    assert selected.blocked == "design_timeout"
+    deadline.assert_called_once_with(90)
+    assert selected.blocked == "design_timeout_initial"
     assert selected.trace.counters["design_timeouts"] == 1
+    assert selected.trace.counters["design_timeouts_initial"] == 1
+    assert "design_timeouts_repair" not in selected.trace.counters
+    assert "design_timeout_initial" in selected.trace.reasons
     assert "design_recoveries" not in selected.trace.counters
     assert selected.trace.report()["provider_usage_status"] == "unavailable"
     assert hosted_tools_enabled()
 
 
 @pytest.mark.asyncio
-async def test_format_repair_shares_one_design_deadline_and_low_effort(env):
+async def test_format_repair_gets_its_own_short_deadline_and_low_effort(env):
     import asyncio
 
     from nanobot.providers.base import hosted_tools_enabled
@@ -948,10 +962,125 @@ async def test_format_repair_shares_one_design_deadline_and_low_effort(env):
             scope=env[1], session_id="s", registry=env[2], skills=env[3],
             rules="Mandatory policy", request_id="repair-timeout")
     assert settings == [("low", False), ("low", False)]
-    deadline.assert_called_once_with(20)
-    assert selected.blocked == "design_timeout"
+    assert [c.args[0] for c in deadline.call_args_list] == [90, 12]
+    assert selected.blocked == "design_timeout_repair"
+    assert selected.trace.counters["design_timeouts"] == 1
+    assert selected.trace.counters["design_timeouts_repair"] == 1
+    assert "design_timeouts_initial" not in selected.trace.counters
     assert selected.trace.counters["design_recoveries"] == 1
     assert selected.trace.report()["provider_usage_status"] == "unavailable"
+
+
+@pytest.mark.asyncio
+async def test_repair_budget_is_separate_from_initial_budget(env):
+    """Initial call using most of its budget must not starve the repair call."""
+    import asyncio
+
+    event(env, "2+2?")
+    timeout = asyncio.timeout
+    budgets = []
+
+    class SlowInvalidThenSlowValid(FakeProvider):
+        async def chat(self, messages, **kwargs):
+            self.requests.append(kwargs)
+            await asyncio.sleep(0.12)
+            return LLMResponse(content="bad json") if len(self.requests) == 1 else response(plan())
+
+    def scaled(seconds):
+        budgets.append(seconds)
+        return timeout(seconds / 100)  # 20s -> 0.2s, 12s -> 0.12s+; shared deadline would expire
+
+    selector = ContextSelector(env[0], ContextSelectionConfig(
+        enabled=True, design_timeout_seconds=20, design_repair_timeout_seconds=15))
+    provider = SlowInvalidThenSlowValid([])
+    with patch("nanobot.agent.context_selection.asyncio.timeout", side_effect=scaled):
+        selected = await selector.select(provider=provider, model="offline", request="2+2?",
+            scope=env[1], session_id="s", registry=env[2], skills=env[3],
+            rules="Mandatory policy", request_id="separate-budget")
+    assert budgets == [20, 15]
+    assert len(provider.requests) == 2
+    assert selected.blocked is None
+    assert selected.design.answer == "4"
+    assert "design_timeouts" not in selected.trace.counters
+    assert selected.trace.counters["design_recoveries"] == 1
+    starts = [m for c in selected.trace.calls for m in c["milestones"]
+              if m["phase"] in {"design_deadline_started", "design_repair_deadline_started"}]
+    assert [(m["phase"], m["timeout_seconds"], m["status"]) for m in starts] == [
+        ("design_deadline_started", 20, "initial"), ("design_repair_deadline_started", 15, "repair")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("reply", "reason"), [
+    (LLMResponse(content=""), "design_empty_response"),
+    (LLMResponse(content=None, tool_calls=[]), "design_empty_response"),
+    (LLMResponse(content=None, tool_calls=[ToolCallRequest(
+        id="|fc1", name="submit_context_design", arguments=plan().model_dump())]),
+     "design_tool_call_incomplete"),
+])
+async def test_empty_or_unattributed_design_response_is_not_recalled(env, reply, reason):
+    event(env, "2+2?")
+    _, provider, selected = await select(env, plan(), responses=[reply, response(plan())])
+    assert len(provider.requests) == 1
+    assert selected.design is None
+    assert selected.blocked == reason
+    assert selected.trace.counters["design_unusable_responses"] == 1
+    assert reason in selected.trace.reasons
+    assert "design_recoveries" not in selected.trace.counters
+    assert "design_timeouts" not in selected.trace.counters
+
+
+@pytest.mark.asyncio
+async def test_auth_resend_runs_inside_the_initial_budget_and_is_counted(env):
+    import asyncio
+
+    from nanobot.providers.call_observation import observe
+
+    event(env, "2+2?")
+    timeout = asyncio.timeout
+
+    class AuthResendThenSlow(FakeProvider):
+        async def chat(self, messages, **kwargs):
+            observe("authentication_retry_started", http_status=401)
+            await asyncio.sleep(10)  # the resent request hangs
+
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    with patch("nanobot.agent.context_selection.asyncio.timeout",
+               side_effect=lambda seconds: timeout(0.03)) as deadline:
+        selected = await selector.select(provider=AuthResendThenSlow([]), model="offline", request="2+2?",
+            scope=env[1], session_id="s", registry=env[2], skills=env[3],
+            rules="Mandatory policy", request_id="auth-resend")
+    deadline.assert_called_once_with(90)
+    assert selected.blocked == "design_timeout_initial"
+    assert selected.trace.counters["design_auth_resends"] == 1
+    assert len(selected.trace.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_design_call_uses_bounded_transient_retries(env):
+    event(env, "2+2?")
+    for early in (False,):  # t28: only the completed-result path exists
+        seen = {}
+
+        class Recording(FakeProvider):
+            async def chat_with_retry(self, **kwargs):
+                seen.update(kwargs, path="completed")
+                return response(plan())
+
+            async def chat_stream_with_retry(self, **kwargs):
+                seen.update(kwargs, path="stream")
+                return response(plan())
+
+        selector = ContextSelector(env[0], ContextSelectionConfig(
+            enabled=True, design_transient_retries=0))
+        selected = await selector.select(provider=Recording([]), model="offline", request="2+2?",
+            scope=env[1], session_id="s", registry=env[2], skills=env[3],
+            rules="Mandatory policy", request_id="bounded-retry")
+        assert selected.blocked is None
+        assert seen["path"] == ("stream" if early else "completed")
+        assert seen["max_retries"] == 0
+        assert seen["max_retry_delay_s"] == 2.0
+        if early:
+            assert seen["retry_after_streamed_content"] is True
 
 
 @pytest.mark.asyncio
@@ -964,7 +1093,7 @@ async def test_design_provider_error_does_not_trigger_json_repair(env):
     assert "design_recoveries" not in selected.trace.counters
 
 
-def test_designer_retains_all_bootstrap_and_permission_rules_without_tool_tutorials(tmp_path):
+def test_designer_gets_permission_rules_but_no_bootstrap_files_or_tool_tutorials(tmp_path):
     from nanobot.agent.context import ContextBuilder
 
     policies = {"AGENTS.md": "Do not restart services. Await explicit stage approval.",
@@ -974,8 +1103,11 @@ def test_designer_retains_all_bootstrap_and_permission_rules_without_tool_tutori
     builder = ContextBuilder(tmp_path)
     designer = builder.build_design_system_prompt(channel="telegram")
     executor = builder.build_selected_system_prompt(channel="telegram")
+    full = builder.build_system_prompt(channel="telegram")
     for text in policies.values():
-        assert text in designer and text in executor
+        assert text not in designer
+        assert text in executor and text in full
+    assert "## AGENTS.md" not in designer
     assert "Explicit Permission Gates" in designer
     assert "General Tool Contract" not in designer
     assert "General Tool Contract" in executor
@@ -984,7 +1116,9 @@ def test_designer_retains_all_bootstrap_and_permission_rules_without_tool_tutori
 
 def test_design_timeout_and_effort_are_explicit_config_and_execution_unchanged():
     defaults = AgentDefaults()
-    assert defaults.context_selection.design_timeout_seconds == 20
+    assert defaults.context_selection.design_timeout_seconds == 90
+    assert defaults.context_selection.design_repair_timeout_seconds == 12
+    assert defaults.context_selection.design_transient_retries == 1
     assert defaults.context_selection.design_reasoning_effort == "low"
     config = AgentDefaults.model_validate({"reasoningEffort": "high", "contextSelection": {
         "designTimeoutSeconds": 15, "designReasoningEffort": "medium"}})
@@ -1026,3 +1160,345 @@ async def test_user_stop_cancels_designer_without_repair_and_retains_partial_tra
     assert "design_recoveries" not in metrics["counters"]
     assert metrics["provider_usage_status"] == "unavailable"
     assert hosted_tools_enabled()
+
+
+# ---- Minimal design input (patch 3) ----
+
+def test_designer_prompt_excludes_real_bootstrap_templates_and_execution_prompt_keeps_them(tmp_path):
+    from nanobot.agent.context import ContextBuilder
+    from nanobot.utils.helpers import sync_workspace_templates
+
+    sync_workspace_templates(tmp_path, silent=True)
+    builder = ContextBuilder(tmp_path)
+    designer = builder.build_design_system_prompt(channel="cli")
+    executor = builder.build_system_prompt(channel="cli")
+    bootstrap = builder._load_bootstrap_files(tmp_path)
+    assert bootstrap and bootstrap in executor
+    for name in ContextBuilder.BOOTSTRAP_FILES:
+        assert f"## {name}" not in designer and f"## {name}" in executor
+    assert "submit_context_design" in designer
+    assert len(designer) < len(bootstrap)
+
+
+def test_capabilities_keep_every_name_with_short_sorted_descriptions(env):
+    from nanobot.agent.context_selection import validate_meaning
+
+    store, scope, registry, skills = env
+
+    class LongTool(Tool):
+        name = "aaa_long_tool"
+        description = "First sentence is kept. " + "Second sentence is long and dropped. " * 20
+        parameters = {"type": "object", "properties": {}}
+
+        async def execute(self, **kwargs):
+            return "ok"
+
+    class HugeTool(LongTool):
+        name = "zzz_huge"
+        description = "x" * 500
+
+    registry.register(HugeTool())
+    registry.register(LongTool())
+    payload = ContextSelector(store, ContextSelectionConfig()).minimal_input(
+        "2+2?", scope, "s", registry, skills)
+    caps = payload["capabilities"]
+    tool_names = [c["name"] for c in caps[:len(registry.tool_names)]]
+    assert tool_names == sorted(registry.tool_names)
+    skill_names = {s["name"] for s in skills.list_skills()}
+    assert {c["name"] for c in caps} == set(registry.tool_names) | skill_names
+    assert all(len(c["description"]) <= 80 for c in caps)
+    long = next(c for c in caps if c["name"] == "aaa_long_tool")
+    assert long["description"] == "First sentence is kept."
+    assert next(c for c in caps if c["name"] == "zzz_huge")["description"].endswith("…")
+    # Validation still recognises every real name and rejects unknown ones.
+    ok = plan(route="execute", answer=None, request_type="modify",
+              capabilities_needed=["zzz_huge", "aaa_long_tool"])
+    assert "unknown_capability" not in validate_meaning(ok, payload)
+    bad = plan(route="execute", answer=None, request_type="modify", capabilities_needed=["invented"])
+    assert "unknown_capability" in validate_meaning(bad, payload)
+
+
+def test_standing_rule_scan_is_bounded_newest_first_and_deduplicated(env):
+    from nanobot.agent.context_selection import _RULE_EXCERPT_MAX_RECORDS
+
+    oldest = event(env, "always use metric units (oldest rule)")
+    for i in range(30):
+        event(env, f"항상 규칙 {i}번을 지켜 주세요.")
+        event(env, "ok", actor="assistant")
+    for _ in range(3):
+        event(env, "always reply briefly.")  # identical line repeated: one excerpt only
+    for i in range(10):
+        event(env, f"plain question {i}")
+        event(env, "plain answer", actor="assistant")
+    selector = ContextSelector(env[0], ContextSelectionConfig())
+    payload = selector.minimal_input("2+2?", env[1], "s", env[2], env[3])
+    excerpts = [s for s in payload["sources"] if s.get("excerpt_only")]
+    assert len(excerpts) == _RULE_EXCERPT_MAX_RECORDS
+    texts = [s["content"] for s in excerpts]
+    assert sum("always reply briefly." in t for t in texts) == 1
+    assert "항상 규칙 29번을 지켜 주세요." in texts      # newest kept
+    assert all(oldest.event_id != s["event_id"] for s in excerpts)  # oldest dropped by the cap
+    assert payload["omitted_rule_excerpts"] > 0
+    assert all(len(t) <= 300 for t in texts)
+
+
+def test_standing_rule_scan_ignores_user_events_outside_tail_window(env):
+    from nanobot.agent import context_selection as cs
+
+    old = event(env, "always answer in Korean.")
+    for i in range(5):
+        event(env, f"q{i}")
+    with patch.object(cs, "_RULE_SCAN_TAIL_USER_EVENTS", 3):
+        payload = ContextSelector(env[0], ContextSelectionConfig(recent_messages=2)).minimal_input(
+            "2+2?", env[1], "s", env[2], env[3])
+    assert old.event_id not in {s["event_id"] for s in payload["sources"]}
+    assert "omitted_rule_excerpts" not in payload
+
+
+def _direct_payload_with_constraints(selector, env, ids):
+    payload = selector.minimal_input("2+2?", env[1], "s", env[2], env[3])
+    payload["task_candidates"] = [{"task_id": "t1", "goal": "g", "status": "ACTIVE"}]
+    payload["task_state"] = {"task_id": "t1", "constraint_source_ids": ids,
+                             "valid_constraint_candidates": []}
+    return payload
+
+
+def test_unrestorable_constraint_ids_are_unresolved_and_not_demanded_by_validation(env):
+    from nanobot.agent.context_selection import validate_meaning
+
+    store = env[0]
+    other_session = event(env, "다른 세션 규칙: 배포하지 마.", session="other")
+    assistant = event(env, "assistant proposal", actor="assistant")
+    redacted = event(env, "삭제된 규칙")
+    with store.connect() as conn:
+        conn.execute("UPDATE events SET redacted_at='2026-01-01' WHERE event_id=?", (redacted.event_id,))
+    loadable = event(env, "재시작하지 마세요.")
+    for i in range(12):  # push the loadable one out of the recent window
+        event(env, f"filler {i}")
+    selector = ContextSelector(store, ContextSelectionConfig(recent_messages=2))
+    ids = [other_session.event_id, assistant.event_id, redacted.event_id, "missing-id", loadable.event_id]
+    payload = _direct_payload_with_constraints(selector, env, ids)
+    assert loadable.event_id not in {s["event_id"] for s in payload["sources"]}
+    restored = selector.restore_design_sources(payload, env[1], "s")
+    assert restored == 1
+    assert loadable.event_id in {s["event_id"] for s in payload["sources"]}
+    reasons = {u["source_id"]: u["reason"] for u in payload["unresolved_constraint_source_ids"]}
+    assert reasons == {other_session.event_id: "other_session", assistant.event_id: "not_user",
+                       redacted.event_id: "missing_or_redacted", "missing-id": "missing_or_redacted"}
+    design = plan(task_id="t1", task_relation="continue")
+    assert "unloaded_task_constraints" not in validate_meaning(design, payload)
+    # A loadable-but-absent original is still flagged.
+    payload["sources"] = [s for s in payload["sources"] if s["event_id"] != loadable.event_id]
+    assert "unloaded_task_constraints" in validate_meaning(design, payload)
+
+
+@pytest.mark.asyncio
+async def test_unresolved_constraint_ids_and_input_sizes_are_traced(env):
+    other = event(env, "never deploy", session="other")
+    event(env, "2+2?")
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    real_minimal = selector.minimal_input
+
+    def with_task_state(*args, **kwargs):
+        payload = real_minimal(*args, **kwargs)
+        payload["task_state"] = {"task_id": "t1", "constraint_source_ids": [other.event_id],
+                                 "valid_constraint_candidates": []}
+        return payload
+
+    selector.minimal_input = with_task_state
+    selected = await selector.select(provider=FakeProvider([response(plan())]), model="offline",
+        request="2+2?", scope=env[1], session_id="s", registry=env[2], skills=env[3],
+        rules="Mandatory policy", request_id="unresolved")
+    assert selected.trace.counters["unresolved_constraint_sources"] == 1
+    assert "constraint_source_other_session" in selected.trace.reasons
+    milestones = [m for c in selected.trace.calls for m in c["milestones"]]
+    assert any(m["phase"] == "constraint_sources_unresolved" and m["count"] == 1 for m in milestones)
+    sections = {m["status"]: m for m in milestones if m["phase"] == "design_input_section"}
+    assert set(sections) == {"rules", "sources", "capabilities", "task_state", "other", "total"}
+    assert all(m["bytes"] >= 0 and m["estimated_tokens"] >= 0 for m in sections.values())
+    assert sections["total"]["bytes"] >= sections["rules"]["bytes"] + sections["sources"]["bytes"]
+
+
+# ---- Validation aligned with available data (patch 4) ----
+
+async def _task_with_unrecent_constraint(env):
+    original = event(env, "이 작업의 출력 언어는 한국어이며 예산은 0원입니다.")
+    _, _, first = await select(env, plan(route="retrieve", answer=None), request="설명해줘")
+    for index in range(45):
+        event(env, f"무관한 질문 {index}")
+        event(env, f"무관한 답변 {index}", actor="assistant")
+    request = "같은 조건으로 간단한 예시를 들어줘"
+    event(env, request)
+    design = plan(task_relation="continue", task_id=first.state["task_id"],
+                  answer="같은 조건(한국어, 예산 0원)으로 만든 간단한 예시입니다.")
+    return original, request, design
+
+
+async def _select_with(env, request, design, restore_mode):
+    selector = ContextSelector(env[0], ContextSelectionConfig(enabled=True))
+    real = selector.restore_design_sources
+    calls = []
+
+    def restore(payload, scope, session_id):
+        calls.append(restore_mode)
+        if restore_mode == "never" or len(calls) == 1 and restore_mode == "late":
+            return 0  # simulate a payload that is missing loadable originals at validation time
+        return real(payload, scope, session_id)
+
+    selector.restore_design_sources = restore
+    provider = FakeProvider([response(design), response(design)])
+    selected = await selector.select(provider=provider, model="offline", request=request,
+        scope=env[1], session_id="s", registry=env[2], skills=env[3],
+        rules="Mandatory policy", request_id="data-missing-" + restore_mode)
+    return provider, selected, calls
+
+
+@pytest.mark.asyncio
+async def test_same_direct_design_passes_when_constraint_original_is_loaded(env):
+    _, request, design = await _task_with_unrecent_constraint(env)
+    provider, selected, _ = await _select_with(env, request, design, "real")
+    assert selected.blocked is None and selected.design.route == "direct"
+    assert len(provider.requests) == 1
+    assert "design_recoveries" not in selected.trace.counters
+
+
+@pytest.mark.asyncio
+async def test_missing_constraint_data_is_restored_in_code_without_repair_call(env):
+    _, request, design = await _task_with_unrecent_constraint(env)
+    provider, selected, calls = await _select_with(env, request, design, "late")
+    assert len(provider.requests) == 1          # no repair call
+    assert len(calls) == 2                      # pre-design + in-validation restore
+    assert selected.blocked is None
+    phases = [m["phase"] for c in selected.trace.calls for m in c["milestones"]]
+    assert "constraint_data_restore_finished" in phases
+    assert "design_recoveries" not in selected.trace.counters
+
+
+@pytest.mark.asyncio
+async def test_unrestorable_constraint_data_fails_clearly_without_repair_call(env):
+    _, request, design = await _task_with_unrecent_constraint(env)
+    provider, selected, _ = await _select_with(env, request, design, "never")
+    assert len(provider.requests) == 1
+    assert selected.design is None
+    assert selected.blocked == "design_constraint_data_missing"
+    counters = selected.trace.counters
+    assert counters["repair_skipped_data_missing"] == 1
+    assert counters["design_constraint_data_missing"] == 1
+    assert "design_recoveries" not in counters
+    phases = [m["phase"] for c in selected.trace.calls for m in c["milestones"]]
+    assert "repair_skipped_data_missing" in phases
+
+
+@pytest.mark.parametrize(("text", "original", "ok"), [
+    ("Always answer in Korean", "always answer in Korean.", True),
+    ("ＡＢＣ 형식으로", "ABC 형식으로 정리", True),
+    ("한국어로 답하세요", "항상 한국어로 답해 주세요.", True),
+    ("재시작하지 마세요", "서비스를 재시작하지 마십시오.", True),
+    ("예산은 0원", "이 작업의 출력 언어는 한국어이며\n예산은 0원입니다.", True),
+    ("배포를 허용한다", "로그를 확인해 주세요.", False),
+    ("서비스를 재시작하세요", "서비스를 재시작하지 마세요.", False),
+    ("do not delete files", "delete files when done", False),
+    ("영어", "한국어로 답하세요", False),
+])
+def test_constraint_text_normalized_and_paraphrase_matching(text, original, ok):
+    from nanobot.agent.context_selection import constraint_text_supported
+    assert constraint_text_supported(text, original) is ok
+
+
+def test_constraint_reference_and_text_checks_in_validation(env):
+    from nanobot.agent.context_selection import validate_meaning
+
+    user = event(env, "항상 한국어로 답해 주세요.")
+    bot = event(env, "한국어로 답하겠습니다.", actor="assistant")
+    payload = ContextSelector(env[0], ContextSelectionConfig()).minimal_input("2+2?", env[1], "s", env[2], env[3])
+
+    def check(text, ids):
+        return "unsupported_user_constraint" in validate_meaning(
+            plan(constraints=[Constraint(text=text, source_ids=ids)]), payload)
+
+    assert not check("한국어로 답하세요", [user.event_id])          # paraphrase of a user source
+    assert check("영어로 답하세요", [user.event_id])                # unrelated text
+    assert check("한국어로 답하세요", [bot.event_id])               # non-user source
+    assert check("한국어로 답하세요", ["invented"])                 # unknown reference
+    payload["task_state"] = {"valid_constraint_candidates": [
+        {"source_id": "cand-1", "text": "예산은 0원입니다.", "status": "user_original"}]}
+    assert not check("예산은 0원", ["cand-1"])                        # task-state candidate reference
+
+
+@pytest.mark.parametrize(("request_text", "prior", "unsafe"), [
+    ("테스트 주도 개발을 설명해줘", False, False),
+    ("구현 방식 A와 B를 비교해줘", False, False),
+    ("How does a search index work?", False, False),
+    ("이전 답변을 한 줄로 요약해줘", True, False),
+    # Imperative action phrases are a validator-class signal (reroute, no repair), not unsafe_direct.
+    ("파일 구현해줘", False, False),
+    ("테스트를 실행해 주세요", False, False),
+    ("please fix the failing test", False, False),
+    ("서버에 배포해", False, False),
+    # A resume word alone is not an obligation; the design's task_relation decides (below).
+    ("계속 진행해줘", True, False),
+    ("이전 답변을 요약해줘", False, True),
+])
+def test_unsafe_direct_only_for_actions_or_unloaded_context(request_text, prior, unsafe):
+    from nanobot.agent.context_selection import validate_meaning
+
+    sources = [{"event_id": "cur", "actor": "user", "content": request_text, "sequence": 2}]
+    if prior:
+        sources.insert(0, {"event_id": "a1", "actor": "assistant", "content": "earlier", "sequence": 1})
+    payload = {"request": request_text, "sources": sources, "capabilities": [], "task_candidates": [],
+               "references": {}, "known_material_clues": []}
+    design = plan(answer="A complete explanation with the requested example and comparison.")
+    assert ("unsafe_direct" in validate_meaning(design, payload)) is unsafe
+
+
+@pytest.mark.parametrize(("request_text", "word"), [
+    ("파일 구현해줘", True), ("테스트를 실행해 주세요", True), ("please fix the failing test", True),
+    ("서버에 배포해", True), ("인터넷 검색은 필요 없습니다", False), ("검색하지 마", False),
+    ("테스트 주도 개발을 설명해줘", False),
+])
+def test_imperative_action_word_is_validator_class(request_text, word):
+    from nanobot.agent.context_selection import error_class, validate_meaning
+
+    payload = {"request": request_text, "sources": [{"event_id": "cur", "actor": "user",
+               "content": request_text, "sequence": 1}], "capabilities": [], "task_candidates": [],
+               "references": {}, "known_material_clues": []}
+    errors = validate_meaning(plan(answer="A complete explanation with the requested example."), payload)
+    # Relation-level reroute ("relation_requires_work") or an unclassified imperative: both validator class.
+    assert bool({"direct_action_word", "relation_requires_work"} & set(errors)) is word
+    assert error_class("direct_action_word") == "validator"
+    assert error_class("relation_requires_work") == "validator"
+    assert error_class("unsafe_direct") == "plan_conflict"
+
+
+@pytest.mark.parametrize(("request_type", "relation", "unsafe"), [
+    ("modify", "new", False), ("execute", "new", False), ("other", "new", False),
+    ("explain", "resume", True),
+])
+def test_unsafe_direct_ignores_request_type_but_not_resume(request_type, relation, unsafe):
+    from nanobot.agent.context_selection import validate_meaning
+
+    request_text = "방금 계획에서 전체 시간을 45분으로 줄여 주세요."
+    payload = {"request": request_text, "sources": [
+        {"event_id": "a1", "actor": "assistant", "content": "earlier plan", "sequence": 1},
+        {"event_id": "cur", "actor": "user", "content": request_text, "sequence": 2}],
+        "capabilities": [], "task_candidates": [{"task_id": "t1", "goal": "g", "status": "IN_PROGRESS"}],
+        "references": {}, "known_material_clues": []}
+    design = plan(request_type=request_type, task_relation=relation,
+                  task_id="t1" if relation != "new" else None,
+                  answer="A complete revised plan with every requested part.")
+    assert ("unsafe_direct" in validate_meaning(design, payload)) is unsafe
+
+
+def test_direct_with_needs_only_fails_when_required_info_is_unloaded(env):
+    from nanobot.agent.context_selection import InformationNeed, validate_meaning
+
+    loaded = event(env, "Q1. 텍스트의 장단점")
+    payload = ContextSelector(env[0], ContextSelectionConfig()).minimal_input(
+        "텍스트 장단점을 다시 설명해줘", env[1], "s", env[2], env[3])
+
+    def errors(**kw):
+        return validate_meaning(plan(information_needs=[InformationNeed(**need(**kw))]), payload)
+
+    assert "unsafe_direct" not in errors(required=False)
+    assert "unsafe_direct" not in errors(source_ids=[loaded.event_id], query="텍스트")
+    assert "unsafe_direct" in errors(source_ids=[], query="텍스트")

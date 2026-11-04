@@ -92,3 +92,63 @@ async def test_failed_background_append_keeps_events_in_terminal_snapshot(tmp_pa
         saved = json.loads(conn.execute('SELECT payload FROM context_model_attempts').fetchone()[0])
     assert saved['status'] == 'cancelled'
     assert saved['milestones'][0]['event_sequence'] == 1
+
+
+async def test_non_stream_milestones_are_queued_not_persisted_and_lifecycle_rows_are_immediate(tmp_path):
+    trace, store, aid = trace_at(tmp_path)
+    with store.connect() as conn:
+        assert conn.execute('SELECT status FROM context_model_attempts').fetchone()[0] == 'in_flight'
+    with patch.object(trace, 'persist', wraps=trace.persist) as persist, \
+            patch('nanobot.agent.context_trace.json.dumps', wraps=json.dumps) as dumps:
+        for phase in ('request_dispatch', 'tls_established', 'first_output', 'terminal_event',
+                      'result_extracted', 'cleanup_started', 'cleanup_finished'):
+            trace.mark(phase, attempt=aid, status='ok')
+        # No snapshot and no serialisation on the caller's thread per milestone.
+        assert persist.call_count == 0
+        assert dumps.call_count == 0
+    assert len(trace.event_queue) == 7
+    trace.end(aid, None, .1, status='cancelled')
+    with store.connect() as conn:
+        status, payload = conn.execute('SELECT status, payload FROM context_model_attempts').fetchone()
+    assert status == 'cancelled'
+    assert [m['phase'] for m in json.loads(payload)['milestones']][-1] == 'cleanup_finished'
+    await trace.flush_events()
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) FROM context_model_events').fetchone()[0] == 7
+
+
+async def test_late_milestone_after_end_is_folded_into_attempt_row_without_regressing_status(tmp_path):
+    trace, store, aid = trace_at(tmp_path)
+    trace.end(aid, None, .1, status='cancelled')
+    trace.mark_timeout()
+    trace.mark('cleanup_finished', attempt=aid, status='closed')
+    await trace.flush_events()
+    with store.connect() as conn:
+        status, payload = conn.execute('SELECT status, payload FROM context_model_attempts').fetchone()
+    assert status == 'timed_out'
+    assert json.loads(payload)['milestones'][-1]['phase'] == 'cleanup_finished'
+
+
+async def test_marks_do_not_block_event_loop_while_journal_write_is_slow(tmp_path):
+    trace, store, aid = trace_at(tmp_path)
+    entered, release = threading.Event(), threading.Event()
+    original = trace._append_events
+
+    def slow(batch):
+        entered.set()
+        assert release.wait(3)
+        original(batch)
+
+    trace._append_events = slow
+    trace.mark('first_output', attempt=aid)
+    await asyncio.wait_for(asyncio.to_thread(entered.wait), 1)
+    loop = asyncio.get_running_loop()
+    started = loop.time()
+    for i in range(200):
+        trace.mark('stream_event_received', attempt=aid, event_sequence=i)
+    await asyncio.sleep(0)
+    assert loop.time() - started < 0.5
+    release.set()
+    await trace.flush_events()
+    with store.connect() as conn:
+        assert conn.execute('SELECT count(*) FROM context_model_events').fetchone()[0] == 201

@@ -1,0 +1,201 @@
+{
+ "case": "F_corrected_followup",
+ "turn": 1,
+ "request": "방금 계획에서 전체 시간을 45분으로 줄여 주세요. 퍼팅 20분은 그대로 유지하고, 남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요. 드라이버 제외 조건도 유지해 주세요.",
+ "design": {
+  "goal": "Revise the supplied 60-minute golf practice plan to 45 minutes: keep putting at 20 minutes and its goal, split the remaining 25 minutes equally between approach and iron while keeping their goals, and continue excluding driver.",
+  "request_type": "modify",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "드라이버 연습은 제외하고",
+    "source_ids": [
+     "Eseed_t24-new-F_corrected_followup-20261028091854_u"
+    ]
+   },
+   {
+    "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요",
+    "source_ids": [
+     "Eseed_t24-new-F_corrected_followup-20261028091854_u"
+    ]
+   },
+   {
+    "text": "인터넷 검색은 필요 없습니다.",
+    "source_ids": [
+     "Eseed_t24-new-F_corrected_followup-20261028091854_u"
+    ]
+   },
+   {
+    "text": "전체 시간을 45분으로 줄여 주세요.",
+    "source_ids": [
+     "Ea213b05d31ce43dca37d45bd6d48bf50"
+    ]
+   },
+   {
+    "text": "퍼팅 20분은 그대로 유지하고",
+    "source_ids": [
+     "Ea213b05d31ce43dca37d45bd6d48bf50"
+    ]
+   },
+   {
+    "text": "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+    "source_ids": [
+     "Ea213b05d31ce43dca37d45bd6d48bf50"
+    ]
+   },
+   {
+    "text": "드라이버 제외 조건도 유지해 주세요.",
+    "source_ids": [
+     "Ea213b05d31ce43dca37d45bd6d48bf50"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "The timetable totals 45 minutes with 퍼팅 20, 어프로치 12.5, and 아이언 12.5, and 드라이버 is excluded.",
+   "Each included practice keeps one goal from the prior plan: 퍼팅 거리감, 어프로치 캐리 거리, 아이언 템포.",
+   "No web search or external lookup is used."
+  ],
+  "unresolved": [],
+  "answer": "| 시간 | 연습 | 목표 |\n|---|---|---|\n| 0–20분 | 퍼팅 | 거리감 |\n| 20–32.5분 | 어프로치 | 캐리 거리 |\n| 32.5–45분 | 아이언 | 템포 |\n\n전체 45분입니다. 퍼팅은 20분을 유지하고, 남은 25분을 어프로치 12.5분과 아이언 12.5분으로 같게 나눔습니다. 드라이버 연습은 제외합니다.",
+  "completion_specs": [
+   {
+    "check": "The timetable totals 45 minutes with 퍼팅 20, 어프로치 12.5, and 아이언 12.5, and 드라이버 is excluded.",
+    "result_kind": "computed",
+    "target": null,
+    "expected_values": {
+     "values": {
+      "퍼팅": 20,
+      "어프로치": 12.5,
+      "아이언": 12.5
+     },
+     "total": 45,
+     "excluded": [
+      "드라이버"
+     ]
+    }
+   },
+   {
+    "check": "Each included practice keeps one goal from the prior plan: 퍼팅 거리감, 어프로치 캐리 거리, 아이언 템포.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "No web search or external lookup is used.",
+    "result_kind": "semantic",
+    "target": null,
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "forbidden",
+   "external_change": "none",
+   "source_span": "인터넷 검색은 필요 없습니다.",
+   "keep_constraints": [
+    "드라이버 연습은 제외하고",
+    "퍼팅 20분은 그대로 유지하고",
+    "드라이버 제외 조건도 유지해 주세요."
+   ],
+   "change_constraints": [
+    "전체 시간을 45분으로 줄여 주세요.",
+    "남은 시간은 어프로치와 아이언에 같이 배분해 주세요."
+   ],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "prior_answer",
+     "necessity": "required",
+     "source_span": "방금 계획에서 전체 시간을 45분으로 줄여 주세요.",
+     "target_ref": "Eseed_t24-new-F_corrected_followup-20261028091854_a",
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "퍼팅 20분은 그대로 유지하고",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "forbidden",
+     "source_span": "드라이버 제외 조건도 유지해 주세요.",
+     "target_ref": "드라이버",
+     "condition": null
+    },
+    {
+     "action": "lookup",
+     "target": "web",
+     "necessity": "forbidden",
+     "source_span": "인터넷 검색은 필요 없습니다.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "answer",
+   "target": "prior_answer",
+   "necessity": "required",
+   "source_span": "방금 계획에서 전체 시간을 45분으로 줄여 주세요.",
+   "target_ref": "Eseed_t24-new-F_corrected_followup-20261028091854_a",
+   "origin": "model",
+   "bound_id": "Eseed_t24-new-F_corrected_followup-20261028091854_a",
+   "resolved": true
+  },
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "forbidden",
+   "source_span": "드라이버 제외 조건도 유지해 주세요.",
+   "target_ref": "드라이버",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "| 시간 | 연습 | 목표 |\n|---|---|---|\n| 0–20분 | 퍼팅 | 거리감 |\n| 20–32.5분 | 어프로치 | 캐리 거리 |\n| 32.5–45분 | 아이언 | 템포 |\n\n전체 45분입니다. 퍼팅은 20분을 유지하고, 남은 25분을 어프로치 12.5분과 아이언 12.5분으로 같게 나눔습니다. 드라이버 연습은 제외합니다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [
+  {
+   "kind": "permission",
+   "code": "answer_edit_only"
+  }
+ ],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"Revise the supplied 60-minute golf practice plan to 45 minutes: keep putting at 20 minutes and its goal, split the remaining 25 minutes equally between approach and iron while keeping their goals, and continue excluding driver.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud558\\uace0\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\ub97c \\ud558\\ub098\\uc529 \\uc801\\uc5b4 \\uc8fc\\uc138\\uc694\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"The timetable totals 45 minutes with \\ud37c\\ud305 20, \\uc5b4\\ud504\\ub85c\\uce58 12.5, and \\uc544\\uc774\\uc5b8 12.5, and \\ub4dc\\ub77c\\uc774\\ubc84 is excluded.\", \"Each included practice keeps one goal from the prior plan: \\ud37c\\ud305 \\uac70\\ub9ac\\uac10, \\uc5b4\\ud504\\ub85c\\uce58 \\uce90\\ub9ac \\uac70\\ub9ac, \\uc544\\uc774\\uc5b8 \\ud15c\\ud3ec.\", \"No web search or external lookup is used.\"], \"unresolved\": [], \"answer\": \"| \\uc2dc\\uac04 | \\uc5f0\\uc2b5 | \\ubaa9\\ud45c |\\n|---|---|---|\\n| 0\\u201320\\ubd84 | \\ud37c\\ud305 | \\uac70\\ub9ac\\uac10 |\\n| 20\\u201332.5\\ubd84 | \\uc5b4\\ud504\\ub85c\\uce58 | \\uce90\\ub9ac \\uac70\\ub9ac |\\n| 32.5\\u201345\\ubd84 | \\uc544\\uc774\\uc5b8 | \\ud15c\\ud3ec |\\n\\n\\uc804\\uccb4 45\\ubd84\\uc785\\ub2c8\\ub2e4. \\ud37c\\ud305\\uc740 20\\ubd84\\uc744 \\uc720\\uc9c0\\ud558\\uace0, \\ub0a8\\uc740 25\\ubd84\\uc744 \\uc5b4\\ud504\\ub85c\\uce58 12.5\\ubd84\\uacfc \\uc544\\uc774\\uc5b8 12.5\\ubd84\\uc73c\\ub85c \\uac19\\uac8c \\ub098\\ub214\\uc2b5\\ub2c8\\ub2e4. \\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud569\\ub2c8\\ub2e4.\", \"completion_specs\": [{\"check\": \"The timetable totals 45 minutes with \\ud37c\\ud305 20, \\uc5b4\\ud504\\ub85c\\uce58 12.5, and \\uc544\\uc774\\uc5b8 12.5, and \\ub4dc\\ub77c\\uc774\\ubc84 is excluded.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"\\ud37c\\ud305\": 20, \"\\uc5b4\\ud504\\ub85c\\uce58\": 12.5, \"\\uc544\\uc774\\uc5b8\": 12.5}, \"total\": 45, \"excluded\": [\"\\ub4dc\\ub77c\\uc774\\ubc84\"]}}, {\"check\": \"Each included practice keeps one goal from the prior plan: \\ud37c\\ud305 \\uac70\\ub9ac\\uac10, \\uc5b4\\ud504\\ub85c\\uce58 \\uce90\\ub9ac \\uac70\\ub9ac, \\uc544\\uc774\\uc5b8 \\ud15c\\ud3ec.\", \"result_kind\": \"answer_content\"}, {\"check\": \"No web search or external lookup is used.\", \"result_kind\": \"semantic\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"keep_constraints\": [\"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud558\\uace0\", \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\", \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\"], \"change_constraints\": [\"\\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\"], \"relations\": [{\"action\": \"answer\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"\\ubc29\\uae08 \\uacc4\\ud68d\\uc5d0\\uc11c \\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"Eseed_t24-new-F_corrected_followup-20261028091854_a\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"\\ub4dc\\ub77c\\uc774\\ubc84\"}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\"}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"Revise the supplied 60-minute golf practice plan to 45 minutes: keep putting at 20 minutes and its goal, split the remaining 25 minutes equally between approach and iron while keeping their goals, and continue excluding driver.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud558\\uace0\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\ub97c \\ud558\\ub098\\uc529 \\uc801\\uc5b4 \\uc8fc\\uc138\\uc694\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"source_ids\": [\"Eseed_t24-new-F_corrected_followup-20261028091854_u\"]}, {\"text\": \"\\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}, {\"text\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Ea213b05d31ce43dca37d45bd6d48bf50\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"The timetable totals 45 minutes with \\ud37c\\ud305 20, \\uc5b4\\ud504\\ub85c\\uce58 12.5, and \\uc544\\uc774\\uc5b8 12.5, and \\ub4dc\\ub77c\\uc774\\ubc84 is excluded.\", \"Each included practice keeps one goal from the prior plan: \\ud37c\\ud305 \\uac70\\ub9ac\\uac10, \\uc5b4\\ud504\\ub85c\\uce58 \\uce90\\ub9ac \\uac70\\ub9ac, \\uc544\\uc774\\uc5b8 \\ud15c\\ud3ec.\", \"No web search or external lookup is used.\"], \"unresolved\": [], \"answer\": \"| \\uc2dc\\uac04 | \\uc5f0\\uc2b5 | \\ubaa9\\ud45c |\\n|---|---|---|\\n| 0\\u201320\\ubd84 | \\ud37c\\ud305 | \\uac70\\ub9ac\\uac10 |\\n| 20\\u201332.5\\ubd84 | \\uc5b4\\ud504\\ub85c\\uce58 | \\uce90\\ub9ac \\uac70\\ub9ac |\\n| 32.5\\u201345\\ubd84 | \\uc544\\uc774\\uc5b8 | \\ud15c\\ud3ec |\\n\\n\\uc804\\uccb4 45\\ubd84\\uc785\\ub2c8\\ub2e4. \\ud37c\\ud305\\uc740 20\\ubd84\\uc744 \\uc720\\uc9c0\\ud558\\uace0, \\ub0a8\\uc740 25\\ubd84\\uc744 \\uc5b4\\ud504\\ub85c\\uce58 12.5\\ubd84\\uacfc \\uc544\\uc774\\uc5b8 12.5\\ubd84\\uc73c\\ub85c \\uac19\\uac8c \\ub098\\ub214\\uc2b5\\ub2c8\\ub2e4. \\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud569\\ub2c8\\ub2e4.\", \"completion_specs\": [{\"check\": \"The timetable totals 45 minutes with \\ud37c\\ud305 20, \\uc5b4\\ud504\\ub85c\\uce58 12.5, and \\uc544\\uc774\\uc5b8 12.5, and \\ub4dc\\ub77c\\uc774\\ubc84 is excluded.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"\\ud37c\\ud305\": 20, \"\\uc5b4\\ud504\\ub85c\\uce58\": 12.5, \"\\uc544\\uc774\\uc5b8\": 12.5}, \"total\": 45, \"excluded\": [\"\\ub4dc\\ub77c\\uc774\\ubc84\"]}}, {\"check\": \"Each included practice keeps one goal from the prior plan: \\ud37c\\ud305 \\uac70\\ub9ac\\uac10, \\uc5b4\\ud504\\ub85c\\uce58 \\uce90\\ub9ac \\uac70\\ub9ac, \\uc544\\uc774\\uc5b8 \\ud15c\\ud3ec.\", \"result_kind\": \"answer_content\"}, {\"check\": \"No web search or external lookup is used.\", \"result_kind\": \"semantic\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"keep_constraints\": [\"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ud558\\uace0\", \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\", \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\"], \"change_constraints\": [\"\\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\"], \"relations\": [{\"action\": \"answer\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"\\ubc29\\uae08 \\uacc4\\ud68d\\uc5d0\\uc11c \\uc804\\uccb4 \\uc2dc\\uac04\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"Eseed_t24-new-F_corrected_followup-20261028091854_a\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uadf8\\ub300\\ub85c \\uc720\\uc9c0\\ud558\\uace0\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc740 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678 \\uc870\\uac74\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"\\ub4dc\\ub77c\\uc774\\ubc84\"}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\"}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

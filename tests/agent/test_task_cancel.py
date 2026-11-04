@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import tempfile
+from pathlib import Path
+
 import asyncio
 import time
 from types import SimpleNamespace
@@ -23,8 +26,9 @@ def _make_loop(*, tools_config=None):
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    workspace = MagicMock()
-    workspace.__truediv__ = MagicMock(return_value=MagicMock())
+    # A real directory: AgentLoop opens SQLite stores under the workspace (a MagicMock path
+    # cannot be opened and used to leave "<MagicMock ...>" files in the repo).
+    workspace = Path(tempfile.mkdtemp(prefix="nanobot-cancel-"))
 
     with patch("nanobot.agent.loop.ContextBuilder"), \
          patch("nanobot.agent.loop.SessionManager"), \
@@ -205,7 +209,7 @@ class TestSubagentCancellation:
         provider.get_default_model.return_value = "test-model"
         mgr = SubagentManager(
             provider=provider,
-            workspace=MagicMock(),
+            workspace=Path(tempfile.mkdtemp(prefix="nanobot-subagent-")),
             bus=bus,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
         )
@@ -238,7 +242,7 @@ class TestSubagentCancellation:
         provider.get_default_model.return_value = "test-model"
         mgr = SubagentManager(
             provider=provider,
-            workspace=MagicMock(),
+            workspace=Path(tempfile.mkdtemp(prefix="nanobot-subagent-")),
             bus=bus,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
         )
@@ -440,7 +444,7 @@ class TestSubagentAnnounceSessionKey:
         provider.get_default_model.return_value = "test-model"
         mgr = SubagentManager(
             provider=provider,
-            workspace=MagicMock(),
+            workspace=Path(tempfile.mkdtemp(prefix="nanobot-subagent-")),
             bus=bus,
             max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
         )

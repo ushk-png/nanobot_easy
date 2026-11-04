@@ -1,0 +1,56 @@
+{
+  "source_sha256": "452921abdb9d2ec4a825b315aac9a1a853a19ab619b92f233cbd19c35754d323",
+  "events": [
+    {
+      "event_id": "E1bf4fcbdb94b440e94dae752008adc12",
+      "owner_id": "t24-new-A_golf_handoff-1793282345294856000",
+      "workspace_id": "/Users/imkimhk/Project/nanobot_skill_patches/handoff-review/live-handoff-90/workspace-A_golf_handoff",
+      "agent_id": null,
+      "conversation_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "session_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "sequence": 1,
+      "ts": "2026-10-29T22:59:05.326485",
+      "actor": "user",
+      "event_type": "USER_MESSAGE",
+      "content": "퍼팅, 어프로치, 아이언으로 총 60분 연습 계획을 만들어 주세요. 퍼팅은 20분이고, 나머지 시간은 어프로치와 아이언에 똑같이 나눠 주세요. 드라이버는 제외하고 인터넷 검색은 하지 마세요.",
+      "metadata_json": "{\"memory_event_id\": \"E1bf4fcbdb94b440e94dae752008adc12\", \"message_id\": \"direct:1793282345324670000\"}",
+      "parent_event_id": null,
+      "content_hash": "6d5d4b10746854d09d8681c45dbbfa1bc93c010750e348820a10c62c2b2010e1",
+      "redacted_at": null
+    },
+    {
+      "event_id": "E825537b84663427fae30a35ef81f3685",
+      "owner_id": "t24-new-A_golf_handoff-1793282345294856000",
+      "workspace_id": "/Users/imkimhk/Project/nanobot_skill_patches/handoff-review/live-handoff-90/workspace-A_golf_handoff",
+      "agent_id": null,
+      "conversation_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "session_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "sequence": 2,
+      "ts": "2026-10-29T22:59:33.428321",
+      "actor": "assistant",
+      "event_type": "ASSISTANT_MESSAGE",
+      "content": "총 60분 연습 계획입니다. 드라이버는 포함하지 않습니다.\n\n- 퍼팅: 20분\n- 어프로치: 20분\n- 아이언: 20분\n\n퍼팅 20분을 뺀 나머지 40분을 어프로치와 아이언에 똑같이 20분씩 나눴습니다.",
+      "metadata_json": "{\"latency_ms\": 28103, \"memory_event_id\": \"E825537b84663427fae30a35ef81f3685\"}",
+      "parent_event_id": null,
+      "content_hash": "20da9bb505c3d55c704240162a28fad7ba49db3320ba9720ff3dfd2719f735d2",
+      "redacted_at": null
+    },
+    {
+      "event_id": "E5eec1d7e024548f59a9a02855b61b308",
+      "owner_id": "t24-new-A_golf_handoff-1793282345294856000",
+      "workspace_id": "/Users/imkimhk/Project/nanobot_skill_patches/handoff-review/live-handoff-90/workspace-A_golf_handoff",
+      "agent_id": null,
+      "conversation_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "session_id": "cli:t24-new-A_golf_handoff-1793282345294856000",
+      "sequence": 3,
+      "ts": "2026-10-29T22:59:33.486000",
+      "actor": "user",
+      "event_type": "USER_MESSAGE",
+      "content": "총 45분으로 줄여 주세요. 퍼팅 시간은 유지하고 나머지는 반씩 나눠 주세요.",
+      "metadata_json": "{\"memory_event_id\": \"E5eec1d7e024548f59a9a02855b61b308\", \"message_id\": \"direct:1793282373484837000\"}",
+      "parent_event_id": null,
+      "content_hash": "aac360c114b66af92498745498eecf08906455cd6dfe8f3e03ac5ac6391dc386",
+      "redacted_at": null
+    }
+  ]
+}

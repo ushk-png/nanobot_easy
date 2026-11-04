@@ -224,9 +224,11 @@ class ConversationEventStore:
         self.insert_events([event])
         return event
 
-    def insert_events(self, events: Iterable[RawEvent]) -> None:
-        with self.connect() as conn:
-            with conn:
+    def insert_events(self, events: Iterable[RawEvent], *, connection=None) -> None:
+        from contextlib import nullcontext
+
+        with (nullcontext(connection) if connection is not None else self.connect()) as conn:
+            with (nullcontext() if connection is not None else conn):
                 for event in events:
                     cur = conn.execute(
                         """

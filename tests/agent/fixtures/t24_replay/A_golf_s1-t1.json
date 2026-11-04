@@ -1,0 +1,165 @@
+{
+ "case": "A_golf_s1",
+ "turn": 1,
+ "request": "주말에 골프 연습을 60분 하려고 합니다. 퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요. 드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요. 인터넷 검색은 필요 없습니다.",
+ "design": {
+  "goal": "주말 60분 골프 연습 시간표(퍼팅·어프로치·아이언 각 20분, 드라이버 제외)와 구간별 목표 1개씩을 답으로 제시한다.",
+  "request_type": "explain",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.",
+    "source_ids": [
+     "Ea017a81f28804f1da81c7c251aa8f46c"
+    ]
+   },
+   {
+    "text": "드라이버 연습은 제외하고",
+    "source_ids": [
+     "Ea017a81f28804f1da81c7c251aa8f46c"
+    ]
+   },
+   {
+    "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+    "source_ids": [
+     "Ea017a81f28804f1da81c7c251aa8f46c"
+    ]
+   },
+   {
+    "text": "인터넷 검색은 필요 없습니다.",
+    "source_ids": [
+     "Ea017a81f28804f1da81c7c251aa8f46c"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.",
+   "드라이버 연습은 포함하지 않는다.",
+   "각 연습마다 목표가 하나씩만 적혀 있다.",
+   "웹 검색이나 외부 자료를 사용하지 않는다."
+  ],
+  "unresolved": [],
+  "answer": "주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았습니다.\n\n| 시간 | 연습 | 목표 |\n| --- | --- | --- |\n| 0–20분 | 퍼팅 | 1.5m 이내 퍼트를 같은 리듬으로 홀에 넣는 비율을 높인다. |\n| 20–40분 | 어프로치 | 30m 안쪽 칩에서 볼을 그린 위 목표 지점에 떨어뜨린다. |\n| 40–60분 | 아이언 | 7번 아이언으로 일정한 탄도와 방향의 풀스윙을 반복한다. |\n\n합계는 퍼팅 20 + 어프로치 20 + 아이언 20 = 60분입니다.",
+  "completion_specs": [
+   {
+    "check": "60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.",
+    "result_kind": "computed",
+    "target": null,
+    "expected_values": {
+     "values": {
+      "퍼팅": 20,
+      "어프로치": 20,
+      "아이언": 20
+     },
+     "total": 60,
+     "excluded": [
+      "드라이버"
+     ]
+    }
+   },
+   {
+    "check": "드라이버 연습은 포함하지 않는다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "각 연습마다 목표가 하나씩만 적혀 있다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "웹 검색이나 외부 자료를 사용하지 않는다.",
+    "result_kind": "semantic",
+    "target": null,
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "forbidden",
+   "external_change": "none",
+   "source_span": "인터넷 검색은 필요 없습니다.",
+   "keep_constraints": [
+    "퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.",
+    "드라이버 연습은 제외하고",
+    "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+    "인터넷 검색은 필요 없습니다."
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "lookup",
+     "target": "web",
+     "necessity": "forbidden",
+     "source_span": "인터넷 검색은 필요 없습니다.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "forbidden",
+     "source_span": "드라이버 연습은 제외하고",
+     "target_ref": "드라이버",
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "lookup",
+   "target": "web",
+   "necessity": "forbidden",
+   "source_span": "인터넷 검색은 필요 없습니다.",
+   "origin": "model",
+   "resolved": true
+  },
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "forbidden",
+   "source_span": "드라이버 연습은 제외하고",
+   "target_ref": "드라이버",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았습니다.\n\n| 시간 | 연습 | 목표 |\n| --- | --- | --- |\n| 0–20분 | 퍼팅 | 1.5m 이내 퍼트를 같은 리듬으로 홀에 넣는 비율을 높인다. |\n| 20–40분 | 어프로치 | 30m 안쪽 칩에서 볼을 그린 위 목표 지점에 떨어뜨린다. |\n| 40–60분 | 아이언 | 7번 아이언으로 일정한 탄도와 방향의 풀스윙을 반복한다. |\n\n합계는 퍼팅 20 + 어프로치 20 + 아이언 20 = 60분입니다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"주말 60분 골프 연습 시간표(퍼팅·어프로치·아이언 각 20분, 드라이버 제외)와 구간별 목표 1개씩을 답으로 제시한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"드라이버 연습은 제외하고\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.\", \"드라이버 연습은 포함하지 않는다.\", \"각 연습마다 목표가 하나씩만 적혀 있다.\", \"웹 검색이나 외부 자료를 사용하지 않는다.\"], \"unresolved\": [], \"answer\": \"주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았습니다.\\n\\n| 시간 | 연습 | 목표 |\\n| --- | --- | --- |\\n| 0–20분 | 퍼팅 | 1.5m 이내 퍼트를 같은 리듬으로 홀에 넣는 비율을 높인다. |\\n| 20–40분 | 어프로치 | 30m 안쪽 칩에서 볼을 그린 위 목표 지점에 떨어뜨린다. |\\n| 40–60분 | 아이언 | 7번 아이언으로 일정한 탄도와 방향의 풀스윙을 반복한다. |\\n\\n합계는 퍼팅 20 + 어프로치 20 + 아이언 20 = 60분입니다.\", \"completion_specs\": [{\"check\": \"60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 20, \"아이언\": 20}, \"total\": 60, \"excluded\": [\"드라이버\"]}}, {\"check\": \"드라이버 연습은 포함하지 않는다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"각 연습마다 목표가 하나씩만 적혀 있다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"웹 검색이나 외부 자료를 사용하지 않는다.\", \"result_kind\": \"semantic\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"keep_constraints\": [\"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\", \"드라이버 연습은 제외하고\", \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"인터넷 검색은 필요 없습니다.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"드라이버 연습은 제외하고\", \"target_ref\": \"드라이버\", \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"주말 60분 골프 연습 시간표(퍼팅·어프로치·아이언 각 20분, 드라이버 제외)와 구간별 목표 1개씩을 답으로 제시한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"드라이버 연습은 제외하고\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Ea017a81f28804f1da81c7c251aa8f46c\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.\", \"드라이버 연습은 포함하지 않는다.\", \"각 연습마다 목표가 하나씩만 적혀 있다.\", \"웹 검색이나 외부 자료를 사용하지 않는다.\"], \"unresolved\": [], \"answer\": \"주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았습니다.\\n\\n| 시간 | 연습 | 목표 |\\n| --- | --- | --- |\\n| 0–20분 | 퍼팅 | 1.5m 이내 퍼트를 같은 리듬으로 홀에 넣는 비율을 높인다. |\\n| 20–40분 | 어프로치 | 30m 안쪽 칩에서 볼을 그린 위 목표 지점에 떨어뜨린다. |\\n| 40–60분 | 아이언 | 7번 아이언으로 일정한 탄도와 방향의 풀스윙을 반복한다. |\\n\\n합계는 퍼팅 20 + 어프로치 20 + 아이언 20 = 60분입니다.\", \"completion_specs\": [{\"check\": \"60분 시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로만 구성된다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 20, \"아이언\": 20}, \"total\": 60, \"excluded\": [\"드라이버\"]}}, {\"check\": \"드라이버 연습은 포함하지 않는다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"각 연습마다 목표가 하나씩만 적혀 있다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"웹 검색이나 외부 자료를 사용하지 않는다.\", \"result_kind\": \"semantic\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"keep_constraints\": [\"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\", \"드라이버 연습은 제외하고\", \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"인터넷 검색은 필요 없습니다.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"드라이버 연습은 제외하고\", \"target_ref\": \"드라이버\", \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

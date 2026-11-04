@@ -1,0 +1,273 @@
+{
+ "case": "D2_museum_noweb",
+ "turn": 1,
+ "request": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+ "design": {
+  "goal": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 공식·현재 정보로 확인해 알려 준다.",
+  "request_type": "investigate",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "retrieve",
+  "constraints": [
+   {
+    "text": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+    "source_ids": [
+     "E6e1d7a55b18a4fd9a3cf17bdec0b17b2"
+    ]
+   }
+  ],
+  "information_needs": [
+   {
+    "id": "nmok_today_hours",
+    "required": true,
+    "question": "오늘 기준 국립중앙박물관 관람 시간과 휴관 여부는 무엇인가?",
+    "source_kind": "tool",
+    "scope": "current_task",
+    "query": "국립중앙박물관 오늘 관람 시간 휴관",
+    "source_ids": [],
+    "acceptance": "공식 또는 신뢰할 수 있는 현재 출처에서 오늘 날짜의 개관·휴관 여부와 관람 시간이 확인된다.",
+    "target": null,
+    "required_range": null,
+    "result_kind": null,
+    "expected_values": {}
+   }
+  ],
+  "capabilities_needed": [
+   "research-brief",
+   "browser-agent-cli"
+  ],
+  "completion_checks": [
+   "오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+   "확인되지 않으면 추측하지 않고 미확인임을 밝힌다."
+  ],
+  "unresolved": [
+   "오늘 날짜의 공식 관람·휴관 정보가 아직 조회되지 않았다."
+  ],
+  "answer": null,
+  "completion_specs": [
+   {
+    "check": "오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+    "result_kind": "sourced",
+    "target": null,
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "required",
+   "external_change": "none",
+   "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "lookup",
+     "target": "web",
+     "necessity": "required",
+     "source_span": "확인해서 알려줘",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "알려줘",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "inspect",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘",
+   "origin": "parser",
+   "resolved": true
+  },
+  {
+   "action": "lookup",
+   "target": "web",
+   "necessity": "required",
+   "source_span": "확인해서 알려줘",
+   "origin": "model",
+   "resolved": true
+  },
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "required",
+   "source_span": "알려줘",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [
+  {
+   "name": "discover_context_capabilities",
+   "params": {
+    "names": [
+     "web_search",
+     "web_fetch",
+     "browser-agent-cli",
+     "research-brief"
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "revise_context_requirements",
+   "params": {
+    "reason": "missing_evidence",
+    "information_needs": [
+     {
+      "id": "nmok_official_page",
+      "required": true,
+      "question": "국립중앙박물관 공식 사이트에서 오늘 관람 시간과 휴관 여부를 읽을 수 있는가?",
+      "source_kind": "tool",
+      "scope": "current_task",
+      "query": "https://www.museum.go.kr 관람안내 휴관",
+      "acceptance": "공식 페이지에서 관람 시간 또는 휴관 안내 문구가 확인된다."
+     }
+    ],
+    "completion_checks": [
+     "오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+     "확인되지 않으면 추측하지 않고 미확인임을 밝힌다."
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "skill_search",
+   "params": {
+    "queries": [
+     {
+      "query": "official current museum visiting hours closure status lookup",
+      "intent_summary": "국립중앙박물관의 오늘 관람 시간과 휴관 여부를 공식 현재 정보로 확인한다.",
+      "top_k": 5
+     }
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "revise_context_requirements",
+   "params": {
+    "reason": "missing_evidence",
+    "information_needs": [
+     {
+      "id": "nmok_official_page",
+      "required": true,
+      "question": "국립중앙박물관 공식 사이트에서 오늘 관람 시간과 휴관 여부를 읽을 수 있는가?",
+      "source_kind": "tool",
+      "scope": "current_task",
+      "query": "https://www.museum.go.kr 관람안내 휴관",
+      "acceptance": "공식 페이지에서 관람 시간 또는 휴관 안내 문구가 확인된다.",
+      "target": null,
+      "required_range": null,
+      "result_kind": null,
+      "expected_values": {}
+     }
+    ],
+    "completion_checks": [
+     "오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+     "확인되지 않으면 추측하지 않고 미확인임을 밝힌다."
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "discover_context_capabilities",
+   "params": {
+    "names": [
+     "exec"
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "revise_context_requirements",
+   "params": {
+    "reason": "missing_evidence",
+    "information_needs": [
+     {
+      "id": "nmok_official_page",
+      "required": true,
+      "question": "국립중앙박물관 공식 사이트에서 오늘 관람 시간과 휴관 여부를 읽을 수 있는가?",
+      "source_kind": "tool",
+      "scope": "current_task",
+      "query": "국립중앙박물관 공식 관람안내 휴관",
+      "acceptance": "공식 페이지에서 관람 시간 또는 휴관 안내 문구가 확인된다."
+     }
+    ],
+    "completion_checks": [
+     "오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.",
+     "확인되지 않으면 추측하지 않고 미확인임을 밝힌다."
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "discover_context_capabilities",
+   "params": {
+    "names": [
+     "revise_context_requirements"
+    ]
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  }
+ ],
+ "reply": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n남은 조건: nmok_today_hours, requirement_unmet:lookup, information_missing:nmok_today_hours, 오늘 관람 시간과 휴관 여부를 출처와 함께 답한다., 확인되지 않으면 추측하지 않고 미확인임을 밝힌다.\n부분 응답(미검증): 프랭크, 오늘 국립중앙박물관 관람 시간과 휴관 여부는 확인하지 못했습니다.\n\n웹 검색과 페이지 조회가 이 환경에서 막혀 있어, 공식 사이트의 오늘 개관·휴관 안내를 읽지 못했습니다. 평소 휴관 요일을 오늘 일정으로 추정하지는 않겠습니다.\n\n직접 확인하실 곳은 국립중앙박물관 공식 사이트(museum.go.kr)의 관람 안내입니다. 조회가 되면 다시 확인해 드리겠습니다.",
+ "unmet_reasons": [
+  "requirement_unmet:lookup",
+  "information_missing:nmok_today_hours"
+ ],
+ "unresolved_conditions": [
+  {
+   "kind": "target",
+   "code": "design_unresolved",
+   "text": "오늘 날짜의 공식 관람·휴관 정보가 아직 조회되지 않았다."
+  },
+  {
+   "kind": "evidence",
+   "code": "evidence_unresolved",
+   "detail": "required evidence unresolved: nmok_today_hours"
+  }
+ ],
+ "validations": [
+  {
+   "route": "retrieve",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 공식·현재 정보로 확인해 알려 준다.\", \"request_type\": \"investigate\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"retrieve\", \"constraints\": [{\"text\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\", \"source_ids\": [\"E6e1d7a55b18a4fd9a3cf17bdec0b17b2\"]}], \"information_needs\": [{\"id\": \"nmok_today_hours\", \"required\": true, \"question\": \"오늘 기준 국립중앙박물관 관람 시간과 휴관 여부는 무엇인가?\", \"source_kind\": \"tool\", \"scope\": \"current_task\", \"query\": \"국립중앙박물관 오늘 관람 시간 휴관\", \"source_ids\": [], \"acceptance\": \"공식 또는 신뢰할 수 있는 현재 출처에서 오늘 날짜의 개관·휴관 여부와 관람 시간이 확인된다.\"}], \"capabilities_needed\": [\"research-brief\", \"browser-agent-cli\"], \"completion_checks\": [\"오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.\", \"확인되지 않으면 추측하지 않고 미확인임을 밝힌다.\"], \"unresolved\": [\"오늘 날짜의 공식 관람·휴관 정보가 아직 조회되지 않았다.\"], \"answer\": null, \"completion_specs\": [{\"check\": \"오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.\", \"result_kind\": \"sourced\", \"target\": null, \"expected_values\": {}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"required\", \"external_change\": \"none\", \"source_span\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"required\", \"source_span\": \"확인해서 알려줘\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"알려줘\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 공식·현재 정보로 확인해 알려 준다.\", \"request_type\": \"investigate\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"retrieve\", \"constraints\": [{\"text\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\", \"source_ids\": [\"E6e1d7a55b18a4fd9a3cf17bdec0b17b2\"]}], \"information_needs\": [{\"id\": \"nmok_today_hours\", \"required\": true, \"question\": \"오늘 기준 국립중앙박물관 관람 시간과 휴관 여부는 무엇인가?\", \"source_kind\": \"tool\", \"scope\": \"current_task\", \"query\": \"국립중앙박물관 오늘 관람 시간 휴관\", \"source_ids\": [], \"acceptance\": \"공식 또는 신뢰할 수 있는 현재 출처에서 오늘 날짜의 개관·휴관 여부와 관람 시간이 확인된다.\"}], \"capabilities_needed\": [\"research-brief\", \"browser-agent-cli\"], \"completion_checks\": [\"오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.\", \"확인되지 않으면 추측하지 않고 미확인임을 밝힌다.\"], \"unresolved\": [\"오늘 날짜의 공식 관람·휴관 정보가 아직 조회되지 않았다.\"], \"answer\": null, \"completion_specs\": [{\"check\": \"오늘 관람 시간과 휴관 여부를 출처와 함께 답한다.\", \"result_kind\": \"sourced\", \"target\": null, \"expected_values\": {}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"required\", \"external_change\": \"none\", \"source_span\": \"국립중앙박물관의 오늘 관람 시간과 휴관 여부를 확인해서 알려줘.\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"required\", \"source_span\": \"확인해서 알려줘\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"알려줘\", \"target_ref\": null, \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "retrieve",
+ "stop_reason": "incomplete",
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}
