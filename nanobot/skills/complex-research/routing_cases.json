@@ -1,0 +1,23 @@
+{
+  "scope": "Retrieval ranking only, when skill discovery is requested. An overview matching research-brief does not require loading it; ordinary overviews use web tools directly.",
+  "cases": [
+    {"query": "2019년 학회 논문 중 제2저자가 학부를 X대학에서 졸업한 논문을 찾아줘.", "expected": "complex-research"},
+    {"query": "후반전에만 교체가 있었고 주심이 특정 국가 출신인 경기가 어느 경기인지 단서를 연결해서 찾아줘.", "expected": "complex-research"},
+    {"query": "두 출처의 사건 날짜와 인물 기록이 서로 달라. 원문을 대조해서 어느 쪽이 맞는지 확인해줘.", "expected": "complex-research"},
+    {"query": "Identify the paper whose second author earned a bachelor's degree at X, then verify the venue and year.", "expected": "complex-research"},
+    {"query": "같은 검색어로는 후보가 안 나와. 남은 단서와 다른 출처를 이용해서 인물을 추적해줘.", "expected": "complex-research"},
+    {"query": "Find current sources on this topic.", "expected": "research-brief"},
+    {"query": "Use research-brief to prepare a sourced brief on this topic.", "expected": "research-brief"},
+    {"query": "Give me a short overview of recent (2026) developments in modular brine-recovery desalination.", "expected": "research-brief"},
+    {"query": "Give me a short overview of recent developments in solid-state batteries with source links.", "expected": "research-brief"},
+    {"query": "What are the latest trends in grid-scale energy storage? Give a brief overview.", "expected": "research-brief"},
+    {"query": "해수 담수화 기술의 최신 동향과 현황을 간단히 정리해줘. 출처도 알려줘.", "expected": "research-brief"},
+    {"query": "배터리 재활용의 최근 기술 동향 개요와 출처를 알려줘.", "expected": "research-brief"},
+    {"query": "동향을 정리하다 보니 두 출처의 시행 날짜가 서로 달라. 원문을 대조해서 어느 쪽이 맞는지 확인해줘.", "expected": "complex-research"},
+    {"query": "개요에서 언급한 논문의 제2저자가 학부를 어느 대학에서 졸업했는지 단서를 연결해서 찾아줘.", "expected": "complex-research"},
+    {"query": "Synthesize these three reports into common themes.", "expected": "research-synthesis"},
+    {"query": "Summarize this report.", "expected": "summarize-document"},
+    {"query": "Translate this technical paragraph into Korean.", "expected": "translation-technical"},
+    {"query": "What is the weather in Seoul today?", "expected": "weather"}
+  ]
+}

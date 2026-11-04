@@ -7,7 +7,7 @@ description: >
 metadata:
   nanobot:
     id: builtin-debug-procedure
-    version: 1.0.1
+    version: 1.0.2
     status: verified
     category: coding.debug_plan
     risk_level: low
@@ -43,7 +43,7 @@ metadata:
 
 ## Method
 
-1. State the failure signal and the suspected boundary.
+1. State the failure signal, suspected boundary, and material assumptions.
 2. Include a check for repository instructions and existing test/build commands
    before any proposed edits.
 3. Define the cheapest reproduction or observation step.
@@ -51,9 +51,16 @@ metadata:
 5. Recommend instrumentation only after cheaper checks.
 6. End with stop conditions: what result proves the cause or changes direction.
 
+## Done Criteria
+
+- Deliver a plan with concrete checks and observable outcomes that distinguish
+  the hypotheses, using known repository commands where available.
+- Label proposed checks as unexecuted and preserve the user's plan-only scope.
+
 ## Failure Rules
 
-- If logs, error text, or repro steps are missing, ask for the one artifact that
-  would most reduce uncertainty.
+- Use available evidence to make a useful plan even when some details are
+  missing. Ask for an artifact only when its absence prevents meaningful next
+  steps; label assumptions instead of inventing logs or repository commands.
 - If the user asks to proceed from planning into code changes, switch to
   `code-debugging` for failure repair or `code-modify` for general changes.

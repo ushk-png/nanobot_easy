@@ -209,6 +209,30 @@ class TestBundledToolContract:
         assert "## General Tool Contract" in prompt
         assert "Do not use `exec` as a universal workaround" in prompt
 
+    @pytest.mark.parametrize("build_method", [
+        "build_system_prompt", "build_selected_system_prompt",
+    ])
+    @pytest.mark.parametrize("skill_name", [
+        None, "code-debugging", "code-review", "debug-procedure",
+    ])
+    def test_coding_contract_and_selected_skill_reach_executor(
+        self, tmp_path, build_method, skill_name,
+    ):
+        from nanobot.utils.prompt_templates import render_template
+
+        builder = _builder(tmp_path)
+        names = [skill_name] if skill_name else []
+        prompt = getattr(builder, build_method)(skill_names=names)
+        # The shared coding guidance must reach both executors even when routing
+        # selects no skill. Compare the full artifact, not individual rule wording.
+        contract = render_template("agent/tool_contract.md")
+        assert contract
+        assert prompt.count(contract) == 1
+        if names:
+            skill_content = builder.skills.load_skills_for_context(names)
+            assert skill_content
+            assert prompt.count(skill_content) == 1
+
 
 # ---------------------------------------------------------------------------
 # _build_user_content

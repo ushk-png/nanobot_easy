@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-from nanobot.evidence.scoring import FreshnessPolicy, SourceScorer, dedupe_by_independence
+from nanobot.evidence.scoring import FreshnessPolicy, SourceScorer, dedupe_by_document
 from nanobot.evidence.types import Answerability, EvidenceItem, EvidencePacket
 
 _TIME_SENSITIVE_RE = re.compile(
@@ -56,7 +56,7 @@ class EvidencePacketBuilder:
             scored_item = self.source_scorer.score(item)
             scored_item = self.freshness_policy.score(scored_item, time_sensitive=sensitive)
             scored.append(scored_item)
-        deduped = dedupe_by_independence(scored)
+        deduped = dedupe_by_document(scored)
         deduped.sort(
             key=lambda item: (
                 item.trust_score * 0.45 + item.freshness_score * 0.25 + item.relevance * 0.30
@@ -74,6 +74,8 @@ class EvidencePacketBuilder:
             missing.append("No retrieval evidence was found.")
         elif answerability == Answerability.STALE_RISK:
             missing.append("Current enough evidence was not confirmed.")
+        elif answerability == Answerability.PARTIAL:
+            missing.append("Retrieved candidates require original-source and condition verification.")
         return EvidencePacket(
             question=question,
             query_type=classify_query_type(question, time_sensitive=sensitive),
@@ -93,13 +95,11 @@ class EvidencePacketBuilder:
     ) -> Answerability:
         if not items:
             return Answerability.NO_EVIDENCE
-        independent = {item.independence_key or item.id for item in items}
-        has_reliable = any(item.trust_score >= 0.7 for item in items)
         if time_sensitive and len(freshness_warnings) == len(items):
             return Answerability.STALE_RISK
-        if len(independent) == 1 and not has_reliable:
-            return Answerability.PARTIAL
-        return Answerability.ANSWERABLE if has_reliable or len(independent) >= 2 else Answerability.PARTIAL
+        # Retrieval has no claim-to-source assessment. Reputation, lexical overlap,
+        # and source counts cannot establish that all user conditions are supported.
+        return Answerability.PARTIAL
 
     @staticmethod
     def format(packet: EvidencePacket, *, max_items: int = 10) -> str:
@@ -135,7 +135,12 @@ class EvidencePacketBuilder:
             "",
             "Instructions:",
             "- Use only the sources above for factual claims from this search.",
-            "- Mark single-source or stale-risk claims instead of overstating certainty.",
+            "- Trust, relevance, and origin labels are retrieval hints, not verified claims.",
+            "- Read decisive original passages and check the user's mandatory conditions. "
+            "PARTIAL describes this retrieval packet; it does not require further searching "
+            "once those conditions are supported by consulted sources.",
+            "- A direct authoritative source can establish a fact. Corroborate disputed or "
+            "indirect claims; different domains alone do not prove independent confirmation.",
             "- If Answerability is NO_EVIDENCE or STALE_RISK, say what cannot be confirmed.",
         ])
         return "\n".join(lines)
