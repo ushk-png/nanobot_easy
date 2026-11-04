@@ -6,6 +6,39 @@ DEFAULT_INSTALL_DIR="${NANOBOT_EASY_HOME:-$HOME/nanobot-easy}"
 CONFIG="${NANOBOT_CONFIG:-$SCRIPT_DIR/.local/config.json}"
 WORKSPACE="${NANOBOT_WORKSPACE:-$SCRIPT_DIR/.local/workspace}"
 NANOBOT_BIN="${NANOBOT_BIN:-$SCRIPT_DIR/.venv/bin/nanobot}"
+
+# Pinned deployments: when NANOBOT_RUNTIME_PROFILE is set, or a profile in
+# .local/runtimes/*.json names this exact config and workspace, the instance
+# runs from that profile's pinned runtime checkout (scripts/runtime.sh) so
+# start, restart, per-agent wrappers and direct gateway runs select the same
+# code and settings.
+select_runtime_profile() {
+  /usr/bin/env python3 - "$1" "$2" "$3" "${NANOBOT_RUNTIME_PROFILE:-}" <<'PY'
+import json, sys
+from pathlib import Path
+config, workspace, profiles_dir, explicit = sys.argv[1:5]
+def same(a, b):
+    return Path(a).expanduser().resolve() == Path(b).expanduser().resolve()
+candidates = [Path(explicit)] if explicit else sorted(Path(profiles_dir).glob("*.json"))
+matches = []
+for path in candidates:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        continue
+    if same(data.get("config", ""), config) and same(data.get("workspace", ""), workspace):
+        matches.append(str(path.resolve()))
+if explicit and not matches:
+    sys.exit("NANOBOT_RUNTIME_PROFILE does not match NANOBOT_CONFIG/NANOBOT_WORKSPACE")
+if len(matches) > 1:
+    sys.exit("several runtime profiles match this config/workspace: " + ", ".join(matches))
+print(matches[0] if matches else "")
+PY
+}
+RUNTIME_PROFILE="$(select_runtime_profile "$CONFIG" "$WORKSPACE" "$SCRIPT_DIR/.local/runtimes")"
+if [[ -n "$RUNTIME_PROFILE" ]]; then
+  exec "$SCRIPT_DIR/scripts/runtime.sh" "$RUNTIME_PROFILE" up
+fi
 ENV_FILE="${NANOBOT_ENV_FILE:-$SCRIPT_DIR/.local/env}"
 
 # The actual launcher logic (config bootstrap, WebUI freshness rebuild,

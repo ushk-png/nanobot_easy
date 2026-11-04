@@ -1,0 +1,17 @@
+{
+  "instance": "example",
+  "runtime_root": "/path/to/runtime-checkout",
+  "commit": "<full 40-char commit of the runtime checkout>",
+  "cwd": "/path/to/data-root",
+  "python": "/path/to/data-root/.venv/bin/python",
+  "config": "/path/to/data-root/.local/config.example.json",
+  "workspace": "/path/to/data-root/.local/workspace-example",
+  "port": 18799,
+  "env_files": ["/path/to/data-root/.local/env"],
+  "record": "/path/to/data-root/.local/run/example-runtime.json",
+  "expect": {
+    "on_demand_skills": ["example-agent"],
+    "ordinary_conversation": true,
+    "time_allocation_contract_enabled": true
+  }
+}
