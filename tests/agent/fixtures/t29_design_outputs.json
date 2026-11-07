@@ -1,0 +1,2106 @@
+{
+ "source": "t29 runs (live xAI design sends, b2ba3d2) + t30 p2-multi-r1-t1; design send only",
+ "requests": {
+  "GOLF_T1": "주말에 골프 연습을 60분 하려고 합니다. 퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요. 드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요. 인터넷 검색은 필요 없습니다.",
+  "GOLF_T2": "방금 계획에서 전체 시간을 45분으로 줄여 주세요. 퍼팅 20분은 그대로 유지하고, 남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요. 드라이버 제외 조건도 유지해 주세요.",
+  "Q1": "24,000토큰을 9,000토큰으로 줄이면 감소량과 감소율은 얼마인가요? 두 줄로 답해주세요. 검색은 필요 없습니다.",
+  "Q2": "방금 계획을 45분으로 줄여 주세요. 퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요. 드라이버 제외도 유지해 주세요.",
+  "Q2_CTX": "퍼팅 20분, 어프로치 20분, 아이언 20분, 총 60분. 드라이버 제외.",
+  "FILE1": "지정된 시험 폴더에 notes.md를 만들고 ‘회의 시간: 10시’를 저장해 주세요.",
+  "MULTI": "아까 만든 문서의 제목을 바꿔 주세요.",
+  "PERM1": "notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요. 지금은 파일을 수정하지 마세요.",
+  "PERM2": "확인했습니다. 이제 그 변경안을 notes.md에 적용해 주세요.",
+  "MUSEUM": "국립중앙박물관 공식 홈페이지를 실제로 조회해 상설전시의 관람시간과 기본 관람료를 알려주세요. 특별전과 구분하고 공식 출처 링크와 확인 날짜를 표시해 주세요. 예약·결제·파일 저장은 하지 마세요.",
+  "RENT": "장소 대여료는 48,000원이고 6명이 똑같이 부담합니다. 1인당 금액을 알려주세요. 필요하면 검색해도 됩니다."
+ },
+ "cases": {
+  "p2-golf-r1-t2": {
+   "request": "GOLF_T2",
+   "content": "{\"goal\":\"기존 주말 골프 연습 계획을 전체 45분으로 줄이고, 퍼팅 20분은 유지한 채 남은 시간을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 연습별 목표 하나를 제시한다.\",\"request_type\":\"modify\",\"task_relation\":\"continue\",\"task_id\":\"0d99dbe2ab4b477da992654bcdec06ee\",\"route\":\"direct\",\"constraints\":[{\"text\":\"전체 시간을 45분으로 줄여 주세요.\",\"source_ids\":[\"Ef01b5596af634cc49bb97564a73b9a48\"]},{\"text\":\"퍼팅 20분은 그대로 유지하고\",\"source_ids\":[\"Ef01b5596af634cc49bb97564a73b9a48\"]},{\"text\":\"남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\",\"source_ids\":[\"Ef01b5596af634cc49bb97564a73b9a48\"]},{\"text\":\"드라이버 제외 조건도 유지해 주세요.\",\"source_ids\":[\"Ef01b5596af634cc49bb97564a73b9a48\"]},{\"text\":\"드라이버 연습은 제외하고\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]},{\"text\":\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]},{\"text\":\"인터넷 검색은 필요 없습니다.\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]}],\"information_needs\":[],\"capabilities_needed\":[],\"completion_checks\":[\"시간표 합계가 45분이고 퍼팅은 20분이다.\",\"남은 25분은 어프로치와 아이언에 똑같이 배분되어 각각 12.5분이다.\",\"드라이버 연습은 포함하지 않는다.\",\"퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.\",\"인터넷 검색이나 외부 자료를 사용하지 않는다.\"],\"unresolved\":[],\"answer\":\"주말 골프 연습 45분 계획입니다. 드라이버는 넣지 않았고, 퍼팅 20분은 그대로이며 남은 25분을 어프로치와 아이언에 똑같이 나눴습니다.\\n\\n시간표\\n- 0–20분: 퍼팅 (20분)\\n- 20–32.5분: 어프로치 (12.5분)\\n- 32.5–45분: 아이언 (12.5분)\\n\\n합계: 20 + 12.5 + 12.5 = 45분\\n\\n연습별 목표 (각 하나)\\n- 퍼팅: 2미터 안팎에서 같은 스트로크 길이로 홀을 지나치지 않게 굴려 넣는다.\\n- 어프로치: 그린 가장자리 10–20미터에서 캐리와 런을 나눠 보고 볼을 홀 주변에 멈춘다.\\n- 아이언: 한 클럽으로 스윙 크기와 방향을 맞춰 같은 탄도로 목표 지점에 반복해서 보낸다.\",\"completion_specs\":[{\"check\":\"시간표 합계가 45분이고 퍼팅은 20분이다.\",\"result_kind\":\"computed\",\"expected_values\":{\"values\":{\"퍼팅\":20,\"어프로치\":12.5,\"아이언\":12.5},\"total\":45,\"excluded\":[\"드라이버\"]}},{\"check\":\"남은 25분은 어프로치와 아이언에 똑같이 배분되어 각각 12.5분이다.\",\"result_kind\":\"computed\",\"expected_values\":{\"values\":{\"어프로치\":12.5,\"아이언\":12.5},\"total\":25,\"excluded\":[\"퍼팅\",\"드라이버\"]}},{\"check\":\"드라이버 연습은 포함하지 않는다.\",\"result_kind\":\"answer_content\"},{\"check\":\"퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.\",\"result_kind\":\"answer_content\"},{\"check\":\"인터넷 검색이나 외부 자료를 사용하지 않는다.\",\"result_kind\":\"semantic\"}],\"obligations\":{\"target\":\"prior_answer\",\"lookup\":\"forbidden\",\"external_change\":\"none\",\"source_span\":\"인터넷 검색은 필요 없습니다.\",\"keep_constraints\":[\"드라이버 연습은 제외하고\",\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"인터넷 검색은 필요 없습니다.\",\"퍼팅 20분은 그대로 유지하고\"],\"change_constraints\":[\"전체 시간을 45분으로 줄여 주세요.\",\"남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\"],\"relations\":[{\"action\":\"edit\",\"target\":\"prior_answer\",\"necessity\":\"required\",\"source_span\":\"방금 계획에서 전체 시간을 45분으로 줄여 주세요.\",\"target_ref\":\"Ebcdbd513868a4ef98650134aae350b54\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"퍼팅 20분은 그대로 유지하고\",\"target_ref\":null},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\",\"target_ref\":null},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"드라이버 제외 조건도 유지해 주세요.\",\"target_ref\":null},{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"forbidden\",\"source_span\":\"인터넷 검색은 필요 없습니다.\",\"target_ref\":null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "기존 주말 골프 연습 계획을 전체 45분으로 줄이고, 퍼팅 20분은 유지한 채 남은 시간을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 연습별 목표 하나를 제시한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": "0d99dbe2ab4b477da992654bcdec06ee",
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "전체 시간을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "Ef01b5596af634cc49bb97564a73b9a48"
+        ]
+       },
+       {
+        "text": "퍼팅 20분은 그대로 유지하고",
+        "source_ids": [
+         "Ef01b5596af634cc49bb97564a73b9a48"
+        ]
+       },
+       {
+        "text": "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "Ef01b5596af634cc49bb97564a73b9a48"
+        ]
+       },
+       {
+        "text": "드라이버 제외 조건도 유지해 주세요.",
+        "source_ids": [
+         "Ef01b5596af634cc49bb97564a73b9a48"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "시간표 합계가 45분이고 퍼팅은 20분이다.",
+       "남은 25분은 어프로치와 아이언에 같이 배분되어 각각 12.5분이다.",
+       "드라이버 연습은 포함하지 않는다.",
+       "퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.",
+       "인터넷 검색이나 외부 자료를 사용하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": "주말 골프 연습 45분 계획입니다. 드라이버는 넣지 않았고, 퍼팅 20분은 그대로이며 남은 25분을 어프로치와 아이언에 똑같이 나눴습니다.\n\n시간표\n- 0–20분: 퍼팅 (20분)\n- 20–32.5분: 어프로치 (12.5분)\n- 32.5–45분: 아이언 (12.5분)\n\n합계: 20 + 12.5 + 12.5 = 45분\n\n연습별 목표 (각 하나)\n- 퍼팅: 2미터 안팎에서 같은 스트로크 길이로 홀을 지나치지 않게 굴려 넣는다.\n- 어프로치: 그린 가장자리 10–20미터에서 캐리와 런을 나눠 보고 볼을 홀 주변에 멈춘다.\n- 아이언: 한 클럽으로 스윙 크기와 방향을 맞춰 같은 탄도로 목표 지점에 반복해서 보낸다.",
+      "completion_specs": [
+       {
+        "check": "시간표 합계가 45분이고 퍼팅은 20분이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "남은 25분은 어프로치와 아이언에 같이 배분되어 각각 12.5분이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 25,
+         "excluded": [
+          "퍼팅",
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 포함하지 않는다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "인터넷 검색이나 외부 자료를 사용하지 않는다.",
+        "result_kind": "semantic"
+       }
+      ],
+      "obligations": {
+       "target": "prior_answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "드라이버 연습은 제외하고",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다.",
+        "퍼팅 20분은 그대로 유지하고"
+       ],
+       "change_constraints": [
+        "전체 시간을 45분으로 줄여 주세요.",
+        "남은 시간은 어프로치와 아이언에 같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "prior_answer",
+         "necessity": "required",
+         "source_span": "방금 계획에서 전체 시간을 45분으로 줄여 주세요.",
+         "target_ref": "Ebcdbd513868a4ef98650134aae350b54"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 그대로 유지하고",
+         "target_ref": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+         "target_ref": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "드라이버 제외 조건도 유지해 주세요.",
+         "target_ref": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-corrected-r1-t1": {
+   "request": "GOLF_T2",
+   "content": "{\"goal\": \"직전 60분 골프 연습 계획을 전체 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 12.5분씩 균등 배분하며 드라이버 제외와 기존 목표를 유지한 시간표를 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"전체 시간을 45분으로 줄여 주세요.\", \"source_ids\": [\"Ea5d0d37753bb4f3f824ce37778374544\"]}, {\"text\": \"퍼팅 20분은 그대로 유지하고\", \"source_ids\": [\"Ea5d0d37753bb4f3f824ce37778374544\"]}, {\"text\": \"남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\", \"source_ids\": [\"Ea5d0d37753bb4f3f824ce37778374544\"]}, {\"text\": \"드라이버 제외 조건도 유지해 주세요.\", \"source_ids\": [\"Ea5d0d37753bb4f3f824ce37778374544\"]}, {\"text\": \"드라이버 연습은 제외하고\", \"source_ids\": [\"Eseed_t29-p2-corrected-r1_u\"]}, {\"text\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Eseed_t29-p2-corrected-r1_u\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Eseed_t29-p2-corrected-r1_u\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"전체 45분, 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이며 합이 45이다\", \"드라이버 연습은 포함하지 않고 각 연습의 기존 목표를 하나씩 유지한다\"], \"unresolved\": [], \"answer\": \"| 시간 | 연습 | 목표 |\\n|---|---|---|\\n| 0–20분 | 퍼팅 | 거리감 |\\n| 20–32.5분 | 어프로치 | 캐리 거리 |\\n| 32.5–45분 | 아이언 | 템포 |\\n\\n전체 45분입니다. 퍼팅은 20분 그대로이고, 남은 25분은 어프로치 12.5분과 아이언 12.5분으로 같게 나눴습니다. 드라이버 연습은 제외합니다.\", \"completion_specs\": [{\"check\": \"전체 45분, 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이며 합이 45이다\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 12.5, \"아이언\": 12.5}, \"total\": 45, \"excluded\": [\"드라이버\"]}}, {\"check\": \"드라이버 연습은 포함하지 않고 각 연습의 기존 목표를 하나씩 유지한다\", \"result_kind\": \"answer_content\", \"expected_values\": {\"goals\": {\"퍼팅\": \"거리감\", \"어프로치\": \"캐리 거리\", \"아이언\": \"템포\"}, \"excluded\": [\"드라이버\"]}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"keep_constraints\": [\"전체 시간을 45분으로 줄여 주세요.\", \"퍼팅 20분은 그대로 유지하고\", \"남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\", \"드라이버 제외 조건도 유지해 주세요.\", \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"인터넷 검색은 필요 없습니다.\"], \"change_constraints\": [\"주말에 골프 연습을 60분 하려고 합니다.\", \"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 계획에서 전체 시간을 45분으로 줄여 주세요.\", \"target_ref\": \"Eseed_t29-p2-corrected-r1_a\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"퍼팅 20분은 그대로 유지하고, 남은 시간은 어프로치와 아이언에 똑같이 배분해 주세요.\", \"target_ref\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"드라이버 제외 조건도 유지해 주세요.\", \"target_ref\": \"드라이버\", \"condition\": \"드라이버 연습 항목을 넣지 않음\"}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "직전 60분 골프 연습 계획을 전체 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 12.5분씩 균등 배분하며 드라이버 제외와 기존 목표를 유지한 시간표를 제시한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "전체 시간을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "Ea5d0d37753bb4f3f824ce37778374544"
+        ]
+       },
+       {
+        "text": "퍼팅 20분은 그대로 유지하고",
+        "source_ids": [
+         "Ea5d0d37753bb4f3f824ce37778374544"
+        ]
+       },
+       {
+        "text": "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "Ea5d0d37753bb4f3f824ce37778374544"
+        ]
+       },
+       {
+        "text": "드라이버 제외 조건도 유지해 주세요.",
+        "source_ids": [
+         "Ea5d0d37753bb4f3f824ce37778374544"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고",
+        "source_ids": [
+         "Eseed_t29-p2-corrected-r1_u"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p2-corrected-r1_u"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p2-corrected-r1_u"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "전체 45분, 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이며 합이 45이다",
+       "드라이버 연습은 포함하지 않고 각 연습의 기존 목표를 하나씩 유지한다"
+      ],
+      "unresolved": [],
+      "answer": "| 시간 | 연습 | 목표 |\n|---|---|---|\n| 0–20분 | 퍼팅 | 거리감 |\n| 20–32.5분 | 어프로치 | 캐리 거리 |\n| 32.5–45분 | 아이언 | 템포 |\n\n전체 45분입니다. 퍼팅은 20분 그대로이고, 남은 25분은 어프로치 12.5분과 아이언 12.5분으로 같게 나눴습니다. 드라이버 연습은 제외합니다.",
+      "completion_specs": [
+       {
+        "check": "전체 45분, 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이며 합이 45이다",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 포함하지 않고 각 연습의 기존 목표를 하나씩 유지한다",
+        "result_kind": "answer_content",
+        "expected_values": {
+         "goals": {
+          "퍼팅": "거리감",
+          "어프로치": "캐리 거리",
+          "아이언": "템포"
+         },
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       }
+      ],
+      "obligations": {
+       "target": "prior_answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "전체 시간을 45분으로 줄여 주세요.",
+        "퍼팅 20분은 그대로 유지하고",
+        "남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+        "드라이버 제외 조건도 유지해 주세요.",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다."
+       ],
+       "change_constraints": [
+        "주말에 골프 연습을 60분 하려고 합니다.",
+        "퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "prior_answer",
+         "necessity": "required",
+         "source_span": "방금 계획에서 전체 시간을 45분으로 줄여 주세요.",
+         "target_ref": "Eseed_t29-p2-corrected-r1_a"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 그대로 유지하고, 남은 시간은 어프로치와 아이언에 같이 배분해 주세요.",
+         "target_ref": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "forbidden",
+         "source_span": "드라이버 제외 조건도 유지해 주세요.",
+         "target_ref": "드라이버",
+         "condition": "드라이버 연습 항목을 넣지 않음"
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q1-A-r1-t1": {
+   "request": "Q1",
+   "content": "{\"goal\": \"24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"두 줄로 답해주세요.\", \"source_ids\": [\"E83b7ea0c12d9471c9f9ced84cb26942e\"]}, {\"text\": \"검색은 필요 없습니다.\", \"source_ids\": [\"E83b7ea0c12d9471c9f9ced84cb26942e\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.\"], \"unresolved\": [], \"answer\": \"감소량: 15,000토큰\\n감소율: 62.5%\", \"completion_specs\": [{\"check\": \"답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"감소량\": 15000, \"감소율\": 62.5}, \"total\": 15000, \"excluded\": [\"감소율\"]}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"검색은 필요 없습니다.\", \"keep_constraints\": [\"두 줄로 답해주세요.\", \"검색은 필요 없습니다.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"감소량과 감소율은 얼마인가요?\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다.",
+      "request_type": "explain",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "두 줄로 답해주세요.",
+        "source_ids": [
+         "E83b7ea0c12d9471c9f9ced84cb26942e"
+        ]
+       },
+       {
+        "text": "검색은 필요 없습니다.",
+        "source_ids": [
+         "E83b7ea0c12d9471c9f9ced84cb26942e"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다."
+      ],
+      "unresolved": [],
+      "answer": "감소량: 15,000토큰\n감소율: 62.5%",
+      "completion_specs": [
+       {
+        "check": "답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "감소량": 15000,
+          "감소율": 62.5
+         },
+         "total": 15000,
+         "excluded": [
+          "감소율"
+         ]
+        }
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "검색은 필요 없습니다.",
+       "keep_constraints": [
+        "두 줄로 답해주세요.",
+        "검색은 필요 없습니다."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "감소량과 감소율은 얼마인가요?",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q1-B-r1-t1": {
+   "request": "Q1",
+   "content": "{\"goal\": \"24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다. 검색은 하지 않는다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"두 줄로 답해주세요.\", \"source_ids\": [\"Efa7722aa54dc47b58652e37fa1aea8aa\"]}, {\"text\": \"검색은 필요 없습니다.\", \"source_ids\": [\"Efa7722aa54dc47b58652e37fa1aea8aa\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.\", \"검색이나 외부 조회를 하지 않았다.\"], \"unresolved\": [], \"answer\": \"감소량: 15,000토큰\\n감소율: 62.5%\", \"completion_specs\": [{\"check\": \"답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"감소량\": 15000, \"감소율\": 62.5}, \"total\": 24000, \"excluded\": []}}, {\"check\": \"검색이나 외부 조회를 하지 않았다.\", \"result_kind\": \"answer_content\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"검색은 필요 없습니다.\", \"keep_constraints\": [\"두 줄로 답해주세요.\", \"검색은 필요 없습니다.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"감소량과 감소율은 얼마인가요?\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다. 검색은 하지 않는다.",
+      "request_type": "explain",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "두 줄로 답해주세요.",
+        "source_ids": [
+         "Efa7722aa54dc47b58652e37fa1aea8aa"
+        ]
+       },
+       {
+        "text": "검색은 필요 없습니다.",
+        "source_ids": [
+         "Efa7722aa54dc47b58652e37fa1aea8aa"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.",
+       "검색이나 외부 조회를 하지 않았다."
+      ],
+      "unresolved": [],
+      "answer": "감소량: 15,000토큰\n감소율: 62.5%",
+      "completion_specs": [
+       {
+        "check": "답은 정확히 두 줄이며 감소량은 15,000토큰, 감소율은 62.5%이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "감소량": 15000,
+          "감소율": 62.5
+         },
+         "total": 24000,
+         "excluded": []
+        }
+       },
+       {
+        "check": "검색이나 외부 조회를 하지 않았다.",
+        "result_kind": "answer_content"
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "검색은 필요 없습니다.",
+       "keep_constraints": [
+        "두 줄로 답해주세요.",
+        "검색은 필요 없습니다."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "감소량과 감소율은 얼마인가요?",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q1-C-r1-t1": {
+   "request": "Q1",
+   "content": "{\"goal\": \"24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다.\", \"request_type\": \"other\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"두 줄로 답해주세요.\", \"source_ids\": [\"E90327c843c954556be62fee1e250053e\"]}, {\"text\": \"검색은 필요 없습니다.\", \"source_ids\": [\"E90327c843c954556be62fee1e250053e\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"답은 정확히 두 줄이며 감소량 15,000토큰과 감소율 62.5%를 포함한다.\", \"검색이나 외부 조회 없이 요청 숫자만으로 계산한다.\"], \"unresolved\": [], \"answer\": \"감소량: 15,000토큰\\n감소율: 62.5%\", \"completion_specs\": [{\"check\": \"답은 정확히 두 줄이며 감소량 15,000토큰과 감소율 62.5%를 포함한다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"감소량\": 15000, \"감소율\": 62.5}, \"total\": 15000, \"excluded\": [\"감소율\"]}}, {\"check\": \"검색이나 외부 조회 없이 요청 숫자만으로 계산한다.\", \"result_kind\": \"answer_content\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"검색은 필요 없습니다.\", \"keep_constraints\": [\"두 줄로 답해주세요.\", \"검색은 필요 없습니다.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"감소량과 감소율은 얼마인가요? 두 줄로 답해주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "24,000토큰을 9,000토큰으로 줄일 때의 감소량과 감소율을 두 줄로 계산해 답한다.",
+      "request_type": "other",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "두 줄로 답해주세요.",
+        "source_ids": [
+         "E90327c843c954556be62fee1e250053e"
+        ]
+       },
+       {
+        "text": "검색은 필요 없습니다.",
+        "source_ids": [
+         "E90327c843c954556be62fee1e250053e"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "답은 정확히 두 줄이며 감소량 15,000토큰과 감소율 62.5%를 포함한다.",
+       "검색이나 외부 조회 없이 요청 숫자만으로 계산한다."
+      ],
+      "unresolved": [],
+      "answer": "감소량: 15,000토큰\n감소율: 62.5%",
+      "completion_specs": [
+       {
+        "check": "답은 정확히 두 줄이며 감소량 15,000토큰과 감소율 62.5%를 포함한다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "감소량": 15000,
+          "감소율": 62.5
+         },
+         "total": 15000,
+         "excluded": [
+          "감소율"
+         ]
+        }
+       },
+       {
+        "check": "검색이나 외부 조회 없이 요청 숫자만으로 계산한다.",
+        "result_kind": "answer_content"
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "검색은 필요 없습니다.",
+       "keep_constraints": [
+        "두 줄로 답해주세요.",
+        "검색은 필요 없습니다."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "감소량과 감소율은 얼마인가요? 두 줄로 답해주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-A-r1-t1": {
+   "request": "Q2",
+   "content": "{\"goal\": \"기존 60분 골프 연습 계획을 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 각 12.5분으로 균등 배분하며 드라이버 제외·시간표·연습별 목표 하나씩을 유지한 최종 계획을 답한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"\\ubc29\\uae08 \\uacc4\\ud68d\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"E0244b00e380a4e9d84677fdeccf201a1\"]}, {\"text\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uc720\\uc9c0\\ud558\\uace0\", \"source_ids\": [\"E0244b00e380a4e9d84677fdeccf201a1\"]}, {\"text\": \"\\ub098\\uba38\\uc9c0\\ub294 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"E0244b00e380a4e9d84677fdeccf201a1\"]}, {\"text\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"E0244b00e380a4e9d84677fdeccf201a1\"]}, {\"text\": \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\ub97c \\ud558\\ub098\\uc529 \\uc801\\uc5b4 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"Eseed_t29-p1-q2-A-r1_0\"]}, {\"text\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"source_ids\": [\"Eseed_t29-p1-q2-A-r1_0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"\\ucd1d 45\\ubd84\\uc774\\uace0 \\ud37c\\ud305 20\\ubd84, \\uc5b4\\ud504\\ub85c\\uce58 12.5\\ubd84, \\uc544\\uc774\\uc5b8 12.5\\ubd84\\uc774\\ub2e4.\", \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ub41c\\ub2e4.\", \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\uac00 \\ud558\\ub098\\uc529 \\uc788\\ub2e4.\"], \"unresolved\": [], \"answer\": \"\\uc8fc\\ub9d0 \\uace8\\ud504 \\uc5f0\\uc2b5 45\\ubd84 (\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678)\\n\\n\\uc2dc\\uac04\\ud45c\\n- 0\\u201320\\ubd84 \\ud37c\\ud305 20\\ubd84: \\ubaa9\\ud45c\\ub294 \\ub2e8\\uac70\\ub9ac \\ud37c\\ud2b8\\uc758 \\uc2a4\\ud53c\\ub4dc\\uc640 \\ub77c\\uc778\\uc744 \\uac19\\uac8c \\ub9de\\ucd94\\ub294 \\uac83\\uc785\\ub2c8\\ub2e4.\\n- 20\\u201332.5\\ubd84 \\uc5b4\\ud504\\ub85c\\uce58 12.5\\ubd84: \\ubaa9\\ud45c\\ub294 \\uadf8\\ub9b0 \\uc8fc\\ubcc0 20m \\uc548\\uc5d0 \\uacf5\\uc744 \\uc62c\\ub9ac\\ub294 \\uac83\\uc785\\ub2c8\\ub2e4.\\n- 32.5\\u201345\\ubd84 \\uc544\\uc774\\uc5b8 12.5\\ubd84: \\ubaa9\\ud45c\\ub294 \\uac19\\uc740 \\ud074\\ub7fd\\uc73c\\ub85c \\ud0c0\\uac9f \\uc911\\uc2ec\\uc5d0 \\ubc29\\ud5a5\\uc744 \\ub9de\\ucd94\\ub294 \\uac83\\uc785\\ub2c8\\ub2e4.\\n\\n\\ud569\\uacc4: \\ud37c\\ud305 20 + \\uc5b4\\ud504\\ub85c\\uce58 12.5 + \\uc544\\uc774\\uc5b8 12.5 = 45\\ubd84. \\ub4dc\\ub77c\\uc774\\ubc84\\ub294 \\ud3ec\\ud568\\ud558\\uc9c0 \\uc54a\\uc2b5\\ub2c8\\ub2e4.\", \"completion_specs\": [{\"check\": \"\\ucd1d 45\\ubd84\\uc774\\uace0 \\ud37c\\ud305 20\\ubd84, \\uc5b4\\ud504\\ub85c\\uce58 12.5\\ubd84, \\uc544\\uc774\\uc5b8 12.5\\ubd84\\uc774\\ub2e4.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"\\ud37c\\ud305\": 20, \"\\uc5b4\\ud504\\ub85c\\uce58\": 12.5, \"\\uc544\\uc774\\uc5b8\": 12.5}, \"total\": 45, \"excluded\": [\"\\ub4dc\\ub77c\\uc774\\ubc84\"]}}, {\"check\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc5f0\\uc2b5\\uc740 \\uc81c\\uc678\\ub41c\\ub2e4.\", \"result_kind\": \"answer_content\"}, {\"check\": \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\uac00 \\ud558\\ub098\\uc529 \\uc788\\ub2e4.\", \"result_kind\": \"answer_content\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"keep_constraints\": [\"\\ud37c\\ud305 20\\ubd84\\uc740 \\uc720\\uc9c0\\ud558\\uace0\", \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"\\uc2dc\\uac04\\ud45c\\uc640 \\uac01 \\uc5f0\\uc2b5\\uc758 \\ubaa9\\ud45c\\ub97c \\ud558\\ub098\\uc529 \\uc801\\uc5b4 \\uc8fc\\uc138\\uc694.\", \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\"], \"change_constraints\": [\"\\ubc29\\uae08 \\uacc4\\ud68d\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"\\ub098\\uba38\\uc9c0\\ub294 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\"], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ubc29\\uae08 \\uacc4\\ud68d\\uc744 45\\ubd84\\uc73c\\ub85c \\uc904\\uc5ec \\uc8fc\\uc138\\uc694.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ud37c\\ud305 20\\ubd84\\uc740 \\uc720\\uc9c0\\ud558\\uace0\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ub098\\uba38\\uc9c0\\ub294 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uac19\\uc774 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678\\ub3c4 \\uc720\\uc9c0\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud544\\uc694 \\uc5c6\\uc2b5\\ub2c8\\ub2e4.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "기존 60분 골프 연습 계획을 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 각 12.5분으로 균등 배분하며 드라이버 제외·시간표·연습별 목표 하나씩을 유지한 최종 계획을 답한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "방금 계획을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "E0244b00e380a4e9d84677fdeccf201a1"
+        ]
+       },
+       {
+        "text": "퍼팅 20분은 유지하고",
+        "source_ids": [
+         "E0244b00e380a4e9d84677fdeccf201a1"
+        ]
+       },
+       {
+        "text": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "E0244b00e380a4e9d84677fdeccf201a1"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E0244b00e380a4e9d84677fdeccf201a1"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-A-r1_0"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-A-r1_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "총 45분이고 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이다.",
+       "드라이버 연습은 제외된다.",
+       "시간표와 각 연습의 목표가 하나씩 있다."
+      ],
+      "unresolved": [],
+      "answer": "주말 골프 연습 45분 (드라이버 제외)\n\n시간표\n- 0–20분 퍼팅 20분: 목표는 단거리 퍼트의 스피드와 라인을 같게 맞추는 것입니다.\n- 20–32.5분 어프로치 12.5분: 목표는 그린 주변 20m 안에 공을 올리는 것입니다.\n- 32.5–45분 아이언 12.5분: 목표는 같은 클럽으로 타겟 중심에 방향을 맞추는 것입니다.\n\n합계: 퍼팅 20 + 어프로치 12.5 + 아이언 12.5 = 45분. 드라이버는 포함하지 않습니다.",
+      "completion_specs": [
+       {
+        "check": "총 45분이고 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 제외된다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "시간표와 각 연습의 목표가 하나씩 있다.",
+        "result_kind": "answer_content"
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "퍼팅 20분은 유지하고",
+        "드라이버 제외도 유지해 주세요.",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다."
+       ],
+       "change_constraints": [
+        "방금 계획을 45분으로 줄여 주세요.",
+        "나머지는 어프로치와 아이언에 같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 유지하고",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "드라이버 제외도 유지해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-A-r3-t1": {
+   "request": "Q2",
+   "content": "{\"goal\":\"60분 골프 연습 계획을 총 45분으로 줄이고, 퍼팅 20분을 유지한 뒤 남은 25분을 어프로치와 아이언에 동일하게 나누며 드라이버 제외·시간표·연습별 목표 1개를 포함한 수정안을 답으로 제시한다.\",\"request_type\":\"modify\",\"task_relation\":\"continue\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\",\"source_ids\":[\"E067cfeae6a144d4abff16ebf51ff1802\"]},{\"text\":\"드라이버 제외도 유지해 주세요.\",\"source_ids\":[\"E067cfeae6a144d4abff16ebf51ff1802\"]},{\"text\":\"방금 계획을 45분으로 줄여 주세요.\",\"source_ids\":[\"E067cfeae6a144d4abff16ebf51ff1802\"]},{\"text\":\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"source_ids\":[\"Eseed_t29-p1-q2-A-r3_0\"]},{\"text\":\"인터넷 검색은 필요 없습니다.\",\"source_ids\":[\"Eseed_t29-p1-q2-A-r3_0\"]}],\"information_needs\":[],\"capabilities_needed\":[],\"completion_checks\":[\"총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.\",\"드라이버 연습은 포함하지 않는다.\",\"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\"],\"unresolved\":[],\"answer\":\"주말 골프 연습 45분 (드라이버 제외)\\n\\n시간표\\n- 0:00–20:00 퍼팅 20분\\n- 20:00–32:30 어프로치 12분 30초\\n- 32:30–45:00 아이언 12분 30초\\n\\n합계 45분. 퍼팅 20분을 뺀 25분을 어프로치와 아이언에 똑같이 12.5분씩 배분했습니다.\\n\\n목표\\n- 퍼팅: 2m 이내 거리감을 맞춰 홀 주변에서 멈추게 한다.\\n- 어프로치: 그린 주변에서 캐리와 런을 나눠 핀 쪽으로 붙인다.\\n- 아이언: 같은 클럽으로 방향과 탄도를 일정하게 맞춘다.\",\"completion_specs\":[{\"check\":\"총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.\",\"result_kind\":\"computed\",\"expected_values\":{\"values\":{\"퍼팅\":20,\"어프로치\":12.5,\"아이언\":12.5},\"total\":45,\"excluded\":[\"드라이버\"]}},{\"check\":\"드라이버 연습은 포함하지 않는다.\",\"result_kind\":\"answer_content\"},{\"check\":\"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\",\"result_kind\":\"answer_content\"}],\"obligations\":{\"target\":\"prior_answer\",\"lookup\":\"forbidden\",\"external_change\":\"none\",\"source_span\":\"인터넷 검색은 필요 없습니다.\",\"keep_constraints\":[\"퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\",\"드라이버 제외도 유지해 주세요.\",\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"인터넷 검색은 필요 없습니다.\"],\"change_constraints\":[\"방금 계획을 45분으로 줄여 주세요.\"],\"relations\":[{\"action\":\"edit\",\"target\":\"prior_answer\",\"necessity\":\"required\",\"source_span\":\"방금 계획을 45분으로 줄여 주세요.\",\"target_ref\":\"Eseed_t29-p1-q2-A-r3_1\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"드라이버 제외도 유지해 주세요.\"},{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"forbidden\",\"source_span\":\"인터넷 검색은 필요 없습니다.\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "60분 골프 연습 계획을 총 45분으로 줄이고, 퍼팅 20분을 유지한 뒤 남은 25분을 어프로치와 아이언에 동일하게 나누며 드라이버 제외·시간표·연습별 목표 1개를 포함한 수정안을 답으로 제시한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "E067cfeae6a144d4abff16ebf51ff1802"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E067cfeae6a144d4abff16ebf51ff1802"
+        ]
+       },
+       {
+        "text": "방금 계획을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "E067cfeae6a144d4abff16ebf51ff1802"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-A-r3_0"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-A-r3_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.",
+       "드라이버 연습은 포함하지 않는다.",
+       "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다."
+      ],
+      "unresolved": [],
+      "answer": "주말 골프 연습 45분 (드라이버 제외)\n\n시간표\n- 0:00–20:00 퍼팅 20분\n- 20:00–32:30 어프로치 12분 30초\n- 32:30–45:00 아이언 12분 30초\n\n합계 45분. 퍼팅 20분을 뺀 25분을 어프로치와 아이언에 똑같이 12.5분씩 배분했습니다.\n\n목표\n- 퍼팅: 2m 이내 거리감을 맞춰 홀 주변에서 멈추게 한다.\n- 어프로치: 그린 주변에서 캐리와 런을 나눠 핀 쪽으로 붙인다.\n- 아이언: 같은 클럽으로 방향과 탄도를 일정하게 맞춘다.",
+      "completion_specs": [
+       {
+        "check": "총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 포함하지 않는다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.",
+        "result_kind": "answer_content"
+       }
+      ],
+      "obligations": {
+       "target": "prior_answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "드라이버 제외도 유지해 주세요.",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다."
+       ],
+       "change_constraints": [
+        "방금 계획을 45분으로 줄여 주세요."
+       ],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "prior_answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": "Eseed_t29-p1-q2-A-r3_1"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 같이 배분해 주세요."
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "드라이버 제외도 유지해 주세요."
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다."
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-B-r1-t1": {
+   "request": "Q2",
+   "content": "{\"goal\": \"주말 골프 연습 계획을 총 45분으로 줄이고, 퍼팅 20분을 유지한 뒤 남은 시간을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 각 목표를 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"방금 계획을 45분으로 줄여 주세요.\", \"source_ids\": [\"E70d7a79333e24567a8d89dcb30052715\"]}, {\"text\": \"퍼팅 20분은 유지하고\", \"source_ids\": [\"E70d7a79333e24567a8d89dcb30052715\"]}, {\"text\": \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"source_ids\": [\"E70d7a79333e24567a8d89dcb30052715\"]}, {\"text\": \"드라이버 제외도 유지해 주세요.\", \"source_ids\": [\"E70d7a79333e24567a8d89dcb30052715\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r1_0\"]}, {\"text\": \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r1_0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"총 45분이고 퍼팅은 20분이며 남은 25분을 어프로치와 아이언에 각 12.5분으로 똑같이 배분했다.\", \"드라이버 연습은 제외했다.\", \"시간표와 퍼팅·어프로치·아이언 각각의 목표를 하나씩 적었다.\", \"인터넷 검색이나 외부 자료를 사용하지 않았다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"총 45분이고 퍼팅은 20분이며 남은 25분을 어프로치와 아이언에 각 12.5분으로 똑같이 배분했다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 12.5, \"아이언\": 12.5}, \"total\": 45, \"excluded\": [\"드라이버\"]}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"keep_constraints\": [\"퍼팅 20분은 유지하고\", \"드라이버 제외도 유지해 주세요.\", \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\"], \"change_constraints\": [\"방금 계획을 45분으로 줄여 주세요.\", \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\"], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"퍼팅 20분은 유지하고\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"드라이버 제외도 유지해 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "주말 골프 연습 계획을 총 45분으로 줄이고, 퍼팅 20분을 유지한 뒤 남은 시간을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 각 목표를 제시한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "방금 계획을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "E70d7a79333e24567a8d89dcb30052715"
+        ]
+       },
+       {
+        "text": "퍼팅 20분은 유지하고",
+        "source_ids": [
+         "E70d7a79333e24567a8d89dcb30052715"
+        ]
+       },
+       {
+        "text": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "E70d7a79333e24567a8d89dcb30052715"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E70d7a79333e24567a8d89dcb30052715"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r1_0"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r1_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "총 45분이고 퍼팅은 20분이며 남은 25분을 어프로치와 아이언에 각 12.5분으로 같이 배분했다.",
+       "드라이버 연습은 제외했다.",
+       "시간표와 퍼팅·어프로치·아이언 각각의 목표를 하나씩 적었다.",
+       "인터넷 검색이나 외부 자료를 사용하지 않았다."
+      ],
+      "unresolved": [],
+      "answer": null,
+      "completion_specs": [
+       {
+        "check": "총 45분이고 퍼팅은 20분이며 남은 25분을 어프로치와 아이언에 각 12.5분으로 같이 배분했다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "퍼팅 20분은 유지하고",
+        "드라이버 제외도 유지해 주세요.",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요."
+       ],
+       "change_constraints": [
+        "방금 계획을 45분으로 줄여 주세요.",
+        "나머지는 어프로치와 아이언에 같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 유지하고",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "드라이버 제외도 유지해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-B-r2-t1": {
+   "request": "Q2",
+   "content": "{\"goal\": \"45분 골프 연습 계획으로 수정: 퍼팅 20분 유지, 남은 25분을 어프로치와 아이언에 균등 배분, 드라이버 제외, 시간표와 목표 하나씩\", \"request_type\": \"modify\", \"task_relation\": \"unknown\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"방금 계획을 45분으로 줄여 주세요.\", \"source_ids\": [\"E45311b6fb83d4f528d1c7a2ee57e30c0\"]}, {\"text\": \"퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"source_ids\": [\"E45311b6fb83d4f528d1c7a2ee57e30c0\"]}, {\"text\": \"드라이버 제외도 유지해 주세요.\", \"source_ids\": [\"E45311b6fb83d4f528d1c7a2ee57e30c0\"]}, {\"text\": \"드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r2_0\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r2_0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"총 45분이며 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이고 드라이버는 제외된다.\", \"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\", \"웹 검색이나 파일 조회를 하지 않는다.\"], \"unresolved\": [], \"answer\": \"주말 골프 연습 45분 (드라이버 제외)\\n\\n시간표\\n- 0–20분 퍼팅 20분. 목표: 1–2m 거리에서 방향과 거리감을 맞춰 홀 주변 3퍼트 이내로 마무리한다.\\n- 20–32.5분 어프로치 12.5분. 목표: 그린 주변 짧은 어프로치에서 탄도와 착지를 일정하게 맞춘다.\\n- 32.5–45분 아이언 12.5분. 목표: 한 아이언으로 스윙 템포와 방향만 반복해 중심 타격을 맞춘다.\\n\\n배분: 퍼팅 20 + 어프로치 12.5 + 아이언 12.5 = 45. 드라이버 없음.\", \"completion_specs\": [{\"check\": \"총 45분이며 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이고 드라이버는 제외된다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 12.5, \"아이언\": 12.5}, \"total\": 45, \"excluded\": [\"드라이버\"]}}, {\"check\": \"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"웹 검색이나 파일 조회를 하지 않는다.\", \"result_kind\": \"execution_result\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"keep_constraints\": [\"드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"인터넷 검색은 필요 없습니다.\", \"드라이버 제외도 유지해 주세요.\", \"퍼팅 20분은 유지하고\"], \"change_constraints\": [\"방금 계획을 45분으로 줄여 주세요.\", \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\"], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "45분 골프 연습 계획으로 수정: 퍼팅 20분 유지, 남은 25분을 어프로치와 아이언에 균등 배분, 드라이버 제외, 시간표와 목표 하나씩",
+      "request_type": "modify",
+      "task_relation": "unknown",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "방금 계획을 45분으로 줄여 주세요.",
+        "source_ids": [
+         "E45311b6fb83d4f528d1c7a2ee57e30c0"
+        ]
+       },
+       {
+        "text": "퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "E45311b6fb83d4f528d1c7a2ee57e30c0"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E45311b6fb83d4f528d1c7a2ee57e30c0"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r2_0"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r2_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "총 45분이며 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이고 드라이버는 제외된다.",
+       "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.",
+       "웹 검색이나 파일 조회를 하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": "주말 골프 연습 45분 (드라이버 제외)\n\n시간표\n- 0–20분 퍼팅 20분. 목표: 1–2m 거리에서 방향과 거리감을 맞춰 홀 주변 3퍼트 이내로 마무리한다.\n- 20–32.5분 어프로치 12.5분. 목표: 그린 주변 짧은 어프로치에서 탄도와 착지를 일정하게 맞춘다.\n- 32.5–45분 아이언 12.5분. 목표: 한 아이언으로 스윙 템포와 방향만 반복해 중심 타격을 맞춘다.\n\n배분: 퍼팅 20 + 어프로치 12.5 + 아이언 12.5 = 45. 드라이버 없음.",
+      "completion_specs": [
+       {
+        "check": "총 45분이며 퍼팅 20분, 어프로치 12.5분, 아이언 12.5분이고 드라이버는 제외된다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "웹 검색이나 파일 조회를 하지 않는다.",
+        "result_kind": "execution_result"
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다.",
+        "드라이버 제외도 유지해 주세요.",
+        "퍼팅 20분은 유지하고"
+       ],
+       "change_constraints": [
+        "방금 계획을 45분으로 줄여 주세요.",
+        "나머지는 어프로치와 아이언에 같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-B-r3-t1": {
+   "request": "Q2",
+   "content": "{\"goal\": \"기존 60분 골프 연습 계획을 총 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 동일하게 나누며 드라이버 제외·시간표·연습별 목표 1개 형식을 유지한 수정안을 답으로 제시한다.\", \"request_type\": \"other\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"퍼팅 20분은 유지하고\", \"source_ids\": [\"E7234f727dfbe429f902f826dba7bd19f\"]}, {\"text\": \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"source_ids\": [\"E7234f727dfbe429f902f826dba7bd19f\"]}, {\"text\": \"드라이버 제외도 유지해 주세요.\", \"source_ids\": [\"E7234f727dfbe429f902f826dba7bd19f\"]}, {\"text\": \"45분으로 줄여 주세요.\", \"source_ids\": [\"E7234f727dfbe429f902f826dba7bd19f\"]}, {\"text\": \"드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r3_0\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Eseed_t29-p1-q2-B-r3_0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.\", \"드라이버 연습은 포함하지 않는다.\", \"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\", \"인터넷 검색이나 외부 자료를 사용하지 않는다.\"], \"unresolved\": [], \"answer\": \"총 45분입니다. 퍼팅 20분을 유지하고, 남은 25분을 어프로치 12.5분·아이언 12.5분으로 똑같이 나눴습니다. 드라이버 연습은 제외합니다.\\n\\n시간표\\n- 0:00–20:00 퍼팅 (20분)\\n- 20:00–32:30 어프로치 (12.5분)\\n- 32:30–45:00 아이언 (12.5분)\\n\\n목표\\n- 퍼팅: 2미터 안팎에서 방향과 거리감을 맞춰 홀에 붙이는 감각을 안정시킨다.\\n- 어프로치: 짧은 칩·피치로 그린 위에 공을 멈추는 탄도와 착지 지점을 맞춘다.\\n- 아이언: 한 가지 아이언으로 스윙 템포와 방향만 일정하게 맞춘다.\", \"completion_specs\": [{\"check\": \"총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 12.5, \"아이언\": 12.5}, \"total\": 45, \"excluded\": [\"드라이버\"]}}, {\"check\": \"드라이버 연습은 포함하지 않는다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.\", \"result_kind\": \"answer_content\"}, {\"check\": \"인터넷 검색이나 외부 자료를 사용하지 않는다.\", \"result_kind\": \"semantic\"}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"keep_constraints\": [\"퍼팅 20분은 유지하고\", \"드라이버 제외도 유지해 주세요.\", \"인터넷 검색은 필요 없습니다.\", \"시간표와 각 연습의 목표를 하나씩 적어 주세요.\"], \"change_constraints\": [\"45분으로 줄여 주세요.\", \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"target_ref\": \"Eseed_t29-p1-q2-B-r3_1\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"퍼팅 20분은 유지하고\", \"condition\": \"퍼팅은 20분 고정\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"condition\": \"남은 25분을 어프로치와 아이언에 균등 배분\"}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"forbidden\", \"source_span\": \"드라이버 제외도 유지해 주세요.\", \"condition\": \"드라이버 항목을 넣지 않음\"}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "기존 60분 골프 연습 계획을 총 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 동일하게 나누며 드라이버 제외·시간표·연습별 목표 1개 형식을 유지한 수정안을 답으로 제시한다.",
+      "request_type": "other",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "퍼팅 20분은 유지하고",
+        "source_ids": [
+         "E7234f727dfbe429f902f826dba7bd19f"
+        ]
+       },
+       {
+        "text": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+        "source_ids": [
+         "E7234f727dfbe429f902f826dba7bd19f"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E7234f727dfbe429f902f826dba7bd19f"
+        ]
+       },
+       {
+        "text": "45분으로 줄여 주세요.",
+        "source_ids": [
+         "E7234f727dfbe429f902f826dba7bd19f"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r3_0"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-B-r3_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.",
+       "드라이버 연습은 포함하지 않는다.",
+       "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.",
+       "인터넷 검색이나 외부 자료를 사용하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": "총 45분입니다. 퍼팅 20분을 유지하고, 남은 25분을 어프로치 12.5분·아이언 12.5분으로 똑같이 나눴습니다. 드라이버 연습은 제외합니다.\n\n시간표\n- 0:00–20:00 퍼팅 (20분)\n- 20:00–32:30 어프로치 (12.5분)\n- 32:30–45:00 아이언 (12.5분)\n\n목표\n- 퍼팅: 2미터 안팎에서 방향과 거리감을 맞춰 홀에 붙이는 감각을 안정시킨다.\n- 어프로치: 짧은 칩·피치로 그린 위에 공을 멈추는 탄도와 착지 지점을 맞춘다.\n- 아이언: 한 가지 아이언으로 스윙 템포와 방향만 일정하게 맞춘다.",
+      "completion_specs": [
+       {
+        "check": "총 45분이고 퍼팅은 20분이며 어프로치와 아이언은 각 12.5분으로 같다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 포함하지 않는다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "시간표와 퍼팅·어프로치·아이언 각각의 목표가 하나씩 있다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "인터넷 검색이나 외부 자료를 사용하지 않는다.",
+        "result_kind": "semantic"
+       }
+      ],
+      "obligations": {
+       "target": "prior_answer",
+       "lookup": "unneeded",
+       "external_change": "none",
+       "source_span": "방금 계획을 45분으로 줄여 주세요.",
+       "keep_constraints": [
+        "퍼팅 20분은 유지하고",
+        "드라이버 제외도 유지해 주세요.",
+        "인터넷 검색은 필요 없습니다.",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요."
+       ],
+       "change_constraints": [
+        "45분으로 줄여 주세요.",
+        "나머지는 어프로치와 아이언에 같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "prior_answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": "Eseed_t29-p1-q2-B-r3_1"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 유지하고",
+         "condition": "퍼팅은 20분 고정"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "나머지는 어프로치와 아이언에 같이 배분해 주세요.",
+         "condition": "남은 25분을 어프로치와 아이언에 균등 배분"
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "forbidden",
+         "source_span": "드라이버 제외도 유지해 주세요.",
+         "condition": "드라이버 항목을 넣지 않음"
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다."
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p1-q2-C-r1-t1": {
+   "request": "Q2",
+   "content": "{\"goal\": \"60분 골프 연습 계획을 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 목표를 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"퍼팅 20분은 유지하고\", \"source_ids\": [\"E96d9346ff230437a8025616f3dfe5b27\"]}, {\"text\": \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"source_ids\": [\"E96d9346ff230437a8025616f3dfe5b27\"]}, {\"text\": \"드라이버 제외도 유지해 주세요.\", \"source_ids\": [\"E96d9346ff230437a8025616f3dfe5b27\"]}, {\"text\": \"45분으로 줄여 주세요.\", \"source_ids\": [\"E96d9346ff230437a8025616f3dfe5b27\"]}, {\"text\": \"드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.\", \"source_ids\": [\"Eseed_t29-p1-q2-C-r1_0\"]}, {\"text\": \"인터넷 검색은 필요 없습니다.\", \"source_ids\": [\"Eseed_t29-p1-q2-C-r1_0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"45분 합계, 퍼팅 20분, 어프로치와 아이언 각 12.5분, 드라이버 제외, 시간표와 목표 하나씩\"], \"unresolved\": [], \"answer\": \"총 45분 연습입니다. 드라이버는 제외합니다.\\n\\n- 0–20분 퍼팅 20분: 짧은 퍼트 거리감을 일정하게 맞춘다.\\n- 20–32.5분 어프로치 12.5분: 그린 주변에서 볼을 홀 근처에 붙인다.\\n- 32.5–45분 아이언 12.5분: 같은 클럽으로 방향과 탄도를 안정시킨다.\\n\\n배분: 퍼팅 20 + 어프로치 12.5 + 아이언 12.5 = 45. 드라이버 0.\", \"completion_specs\": [{\"check\": \"45분 합계, 퍼팅 20분, 어프로치와 아이언 각 12.5분, 드라이버 제외, 시간표와 목표 하나씩\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"퍼팅\": 20, \"어프로치\": 12.5, \"아이언\": 12.5}, \"total\": 45, \"excluded\": [\"드라이버\"]}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"keep_constraints\": [\"퍼팅 20분은 유지하고\", \"드라이버 제외도 유지해 주세요.\", \"인터넷 검색은 필요 없습니다.\"], \"change_constraints\": [\"45분으로 줄여 주세요.\", \"나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 계획을 45분으로 줄여 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 필요 없습니다.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "60분 골프 연습 계획을 45분으로 줄이되 퍼팅 20분을 유지하고 남은 25분을 어프로치와 아이언에 똑같이 나누며 드라이버는 제외한 시간표와 목표를 제시한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "퍼팅 20분은 유지하고",
+        "source_ids": [
+         "E96d9346ff230437a8025616f3dfe5b27"
+        ]
+       },
+       {
+        "text": "나머지는 어프로치와 아이언에 똑같이 배분해 주세요.",
+        "source_ids": [
+         "E96d9346ff230437a8025616f3dfe5b27"
+        ]
+       },
+       {
+        "text": "드라이버 제외도 유지해 주세요.",
+        "source_ids": [
+         "E96d9346ff230437a8025616f3dfe5b27"
+        ]
+       },
+       {
+        "text": "45분으로 줄여 주세요.",
+        "source_ids": [
+         "E96d9346ff230437a8025616f3dfe5b27"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고, 시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-C-r1_0"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "Eseed_t29-p1-q2-C-r1_0"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "45분 합계, 퍼팅 20분, 어프로치와 아이언 각 12.5분, 드라이버 제외, 시간표와 목표 하나씩"
+      ],
+      "unresolved": [],
+      "answer": "총 45분 연습입니다. 드라이버는 제외합니다.\n\n- 0–20분 퍼팅 20분: 짧은 퍼트 거리감을 일정하게 맞춘다.\n- 20–32.5분 어프로치 12.5분: 그린 주변에서 볼을 홀 근처에 붙인다.\n- 32.5–45분 아이언 12.5분: 같은 클럽으로 방향과 탄도를 안정시킨다.\n\n배분: 퍼팅 20 + 어프로치 12.5 + 아이언 12.5 = 45. 드라이버 0.",
+      "completion_specs": [
+       {
+        "check": "45분 합계, 퍼팅 20분, 어프로치와 아이언 각 12.5분, 드라이버 제외, 시간표와 목표 하나씩",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 12.5,
+          "아이언": 12.5
+         },
+         "total": 45,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       }
+      ],
+      "obligations": {
+       "target": "prior_answer",
+       "lookup": "unneeded",
+       "external_change": "none",
+       "source_span": "방금 계획을 45분으로 줄여 주세요.",
+       "keep_constraints": [
+        "퍼팅 20분은 유지하고",
+        "드라이버 제외도 유지해 주세요.",
+        "인터넷 검색은 필요 없습니다."
+       ],
+       "change_constraints": [
+        "45분으로 줄여 주세요.",
+        "나머지는 어프로치와 아이언에 똑같이 배분해 주세요."
+       ],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "prior_answer",
+         "necessity": "required",
+         "source_span": "방금 계획을 45분으로 줄여 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "퍼팅 20분은 유지하고 나머지는 어프로치와 아이언에 똑같이 배분해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-rent-r1-t1": {
+   "request": "RENT",
+   "content": "{\"goal\": \"48,000원을 6명이 똑같이 나눌 때 1인당 금액을 계산해 답한다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"6명이 똑같이 부담합니다\", \"source_ids\": [\"Eb1ba37fa3fb74f309332824621cc1c7a\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"1인당 금액이 48,000÷6=8,000원으로 제시된다.\"], \"unresolved\": [], \"answer\": \"1인당 8,000원입니다. (48,000원 ÷ 6명 = 8,000원, 나누어떨어짐)\", \"completion_specs\": [{\"check\": \"1인당 금액이 48,000÷6=8,000원으로 제시된다.\", \"result_kind\": \"computed\", \"expected_values\": {\"values\": {\"1인당\": 8000}, \"total\": 48000, \"excluded\": []}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": null, \"keep_constraints\": [\"6명이 똑같이 부담합니다\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"1인당 금액을 알려주세요\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"optional\", \"source_span\": \"필요하면 검색해도 됩니다\", \"target_ref\": null, \"condition\": \"계산에 외부 정보가 필요할 때만\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "48,000원을 6명이 똑같이 나눌 때 1인당 금액을 계산해 답한다.",
+      "request_type": "explain",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "6명이 똑같이 부담합니다",
+        "source_ids": [
+         "Eb1ba37fa3fb74f309332824621cc1c7a"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "1인당 금액이 48,000÷6=8,000원으로 제시된다."
+      ],
+      "unresolved": [],
+      "answer": "1인당 8,000원입니다. (48,000원 ÷ 6명 = 8,000원, 나누어떨어짐)",
+      "completion_specs": [
+       {
+        "check": "1인당 금액이 48,000÷6=8,000원으로 제시된다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "1인당": 8000
+         },
+         "total": 48000,
+         "excluded": []
+        }
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "unneeded",
+       "external_change": "none",
+       "source_span": null,
+       "keep_constraints": [
+        "6명이 똑같이 부담합니다"
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "1인당 금액을 알려주세요",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "optional",
+         "source_span": "필요하면 검색해도 됩니다",
+         "target_ref": null,
+         "condition": "계산에 외부 정보가 필요할 때만"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-perm-r1-t1": {
+   "request": "PERM1",
+   "content": "{\"goal\": \"notes.md의 회의 시간을 11시로 바꾸는 변경안만 답변으로 보여주고, 파일은 수정하지 않는다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"retrieve\", \"constraints\": [{\"text\": \"지금은 파일을 수정하지 마세요.\", \"source_ids\": [\"E2352ce409c814822b4600ad647465a3f\"]}, {\"text\": \"notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.\", \"source_ids\": [\"E2352ce409c814822b4600ad647465a3f\"]}], \"information_needs\": [{\"id\": \"notes_meeting_time\", \"required\": true, \"question\": \"notes.md에서 회의 시간이 적힌 현재 문구와 주변 문맥은 무엇인가?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"회의 시간\", \"source_ids\": [], \"acceptance\": \"notes.md에서 회의 시간 문구의 현재 텍스트와 변경 전후를 대조할 수 있는 문맥을 읽었다.\", \"target\": \"notes.md\", \"required_range\": {\"unit\": \"all\", \"start\": 1, \"end\": null}}], \"capabilities_needed\": [\"read_file\", \"grep\", \"find_files\"], \"completion_checks\": [\"답변에 notes.md의 회의 시간을 11시로 바꾸는 변경안(변경 전 문구와 변경 후 문구)이 포함된다.\", \"notes.md를 포함한 어떤 파일도 수정·저장하지 않는다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"답변에 notes.md의 회의 시간을 11시로 바꾸는 변경안(변경 전 문구와 변경 후 문구)이 포함된다.\", \"result_kind\": \"answer_content\", \"target\": \"notes.md\"}, {\"check\": \"notes.md를 포함한 어떤 파일도 수정·저장하지 않는다.\", \"result_kind\": \"mutation_result\", \"target\": \"notes.md\", \"expected_values\": {\"mutated\": false}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"required\", \"external_change\": \"none\", \"source_span\": \"notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.\", \"keep_constraints\": [\"지금은 파일을 수정하지 마세요.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"lookup\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.\", \"target_ref\": \"notes.md\", \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"변경안을 보여주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"지금은 파일을 수정하지 마세요.\", \"target_ref\": \"notes.md\", \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "notes.md의 회의 시간을 11시로 바꾸는 변경안만 답변으로 보여주고, 파일은 수정하지 않는다.",
+      "request_type": "explain",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "retrieve",
+      "constraints": [
+       {
+        "text": "지금은 파일을 수정하지 마세요.",
+        "source_ids": [
+         "E2352ce409c814822b4600ad647465a3f"
+        ]
+       },
+       {
+        "text": "notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.",
+        "source_ids": [
+         "E2352ce409c814822b4600ad647465a3f"
+        ]
+       }
+      ],
+      "information_needs": [
+       {
+        "id": "notes_meeting_time",
+        "required": true,
+        "question": "notes.md에서 회의 시간이 적힌 현재 문구와 주변 문맥은 무엇인가?",
+        "source_kind": "file",
+        "scope": "current_task",
+        "query": "회의 시간",
+        "source_ids": [],
+        "acceptance": "notes.md에서 회의 시간 문구의 현재 텍스트와 변경 전후를 대조할 수 있는 문맥을 읽었다.",
+        "target": "notes.md",
+        "required_range": {
+         "unit": "all",
+         "start": 1,
+         "end": null
+        }
+       }
+      ],
+      "capabilities_needed": [
+       "read_file",
+       "grep",
+       "find_files"
+      ],
+      "completion_checks": [
+       "답변에 notes.md의 회의 시간을 11시로 바꾸는 변경안(변경 전 문구와 변경 후 문구)이 포함된다.",
+       "notes.md를 포함한 어떤 파일도 수정·저장하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": null,
+      "completion_specs": [
+       {
+        "check": "답변에 notes.md의 회의 시간을 11시로 바꾸는 변경안(변경 전 문구와 변경 후 문구)이 포함된다.",
+        "result_kind": "answer_content",
+        "target": "notes.md"
+       },
+       {
+        "check": "notes.md를 포함한 어떤 파일도 수정·저장하지 않는다.",
+        "result_kind": "mutation_result",
+        "target": "notes.md",
+        "expected_values": {
+         "mutated": false
+        }
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "required",
+       "external_change": "none",
+       "source_span": "notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.",
+       "keep_constraints": [
+        "지금은 파일을 수정하지 마세요."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "lookup",
+         "target": "external_resource",
+         "necessity": "required",
+         "source_span": "notes.md의 회의 시간을 11시로 바꾸는 변경안을 보여주세요.",
+         "target_ref": "notes.md",
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "변경안을 보여주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "write",
+         "target": "external_resource",
+         "necessity": "forbidden",
+         "source_span": "지금은 파일을 수정하지 마세요.",
+         "target_ref": "notes.md",
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-perm-r1-t2": {
+   "request": "PERM2",
+   "content": "{\"goal\": \"\\uc0ac\\uc6a9\\uc790\\uac00 \\ud655\\uc778\\ud55c \\ubcc0\\uacbd\\uc548(\\ud68c\\uc758 \\uc2dc\\uac04 10\\uc2dc\\u219211\\uc2dc)\\uc744 notes.md\\uc5d0 \\uc801\\uc6a9\\ud55c\\ub2e4.\", \"request_type\": \"modify\", \"task_relation\": \"change\", \"task_id\": \"3d8ff9cf2aa7454e921f6c5ccc5e8a6f\", \"route\": \"execute\", \"constraints\": [{\"text\": \"\\uc774\\uc81c \\uadf8 \\ubcc0\\uacbd\\uc548\\uc744 notes.md\\uc5d0 \\uc801\\uc6a9\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"E46eb6a6b77b44b46bb3fa5a02fdc3d2d\"]}, {\"text\": \"notes.md\\uc758 \\ud68c\\uc758 \\uc2dc\\uac04\\uc744 11\\uc2dc\\ub85c \\ubc14\\uafb8\\ub294 \\ubcc0\\uacbd\\uc548\", \"source_ids\": [\"E2352ce409c814822b4600ad647465a3f\"]}], \"information_needs\": [{\"id\": \"current-notes\", \"required\": true, \"question\": \"notes.md\\uc758 \\ud604\\uc7ac \\ud68c\\uc758 \\uc2dc\\uac04 \\ubb38\\uad6c\\ub294 \\ubb34\\uc5c7\\uc778\\uac00?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"notes.md \\ud68c\\uc758 \\uc2dc\\uac04\", \"source_ids\": [], \"acceptance\": \"\\uc801\\uc6a9 \\uc804 notes.md\\uc5d0\\uc11c \\ud68c\\uc758 \\uc2dc\\uac04 \\ud589\\uc758 \\uc815\\ud655\\ud55c \\ud604\\uc7ac \\ubb38\\uad6c\\ub97c \\uc77d\\ub294\\ub2e4.\", \"target\": \"notes.md\", \"required_range\": {\"unit\": \"all\", \"start\": 1, \"end\": null}}], \"capabilities_needed\": [\"read_file\", \"edit_file\", \"code-modify\"], \"completion_checks\": [\"notes.md\\uc758 \\ud68c\\uc758 \\uc2dc\\uac04\\uc774 11\\uc2dc\\ub85c \\ubc14\\ub00c\\uc5b4 \\uc800\\uc7a5\\ub41c\\ub2e4.\", \"\\ub2f5\\ubcc0\\uc5d0 \\ubcc0\\uacbd \\uc804\\u00b7\\ud6c4 \\ubb38\\uad6c\\uc640 \\ud30c\\uc77c\\uc5d0 \\uc801\\uc6a9\\ud588\\uc74c\\uc774 \\ud3ec\\ud568\\ub41c\\ub2e4.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"notes.md\\uc758 \\ud68c\\uc758 \\uc2dc\\uac04\\uc774 11\\uc2dc\\ub85c \\ubc14\\ub00c\\uc5b4 \\uc800\\uc7a5\\ub41c\\ub2e4.\", \"result_kind\": \"file_content\", \"target\": \"notes.md\", \"expected_values\": {\"contains\": \"\\ud68c\\uc758 \\uc2dc\\uac04: 11\\uc2dc\"}}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"required\", \"external_change\": \"required\", \"source_span\": \"\\uc774\\uc81c \\uadf8 \\ubcc0\\uacbd\\uc548\\uc744 notes.md\\uc5d0 \\uc801\\uc6a9\\ud574 \\uc8fc\\uc138\\uc694.\", \"keep_constraints\": [\"notes.md\\uc758 \\ud68c\\uc758 \\uc2dc\\uac04\\uc744 11\\uc2dc\\ub85c \\ubc14\\uafb8\\ub294 \\ubcc0\\uacbd\\uc548\"], \"change_constraints\": [\"\\uc9c0\\uae08\\uc740 \\ud30c\\uc77c\\uc744 \\uc218\\uc815\\ud558\\uc9c0 \\ub9c8\\uc138\\uc694.\"], \"relations\": [{\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"\\uc774\\uc81c \\uadf8 \\ubcc0\\uacbd\\uc548\\uc744 notes.md\\uc5d0 \\uc801\\uc6a9\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"notes.md\", \"condition\": null}, {\"action\": \"lookup\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"\\uc774\\uc81c \\uadf8 \\ubcc0\\uacbd\\uc548\\uc744 notes.md\\uc5d0 \\uc801\\uc6a9\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"notes.md\", \"condition\": \"\\uc801\\uc6a9 \\uc804 \\ud604\\uc7ac \\ubb38\\uad6c \\ud655\\uc778\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "사용자가 확인한 변경안(회의 시간 10시→11시)을 notes.md에 적용한다.",
+      "request_type": "modify",
+      "task_relation": "change",
+      "task_id": "3d8ff9cf2aa7454e921f6c5ccc5e8a6f",
+      "route": "execute",
+      "constraints": [
+       {
+        "text": "이제 그 변경안을 notes.md에 적용해 주세요.",
+        "source_ids": [
+         "E46eb6a6b77b44b46bb3fa5a02fdc3d2d"
+        ]
+       },
+       {
+        "text": "notes.md의 회의 시간을 11시로 바꾸는 변경안",
+        "source_ids": [
+         "E2352ce409c814822b4600ad647465a3f"
+        ]
+       }
+      ],
+      "information_needs": [
+       {
+        "id": "current-notes",
+        "required": true,
+        "question": "notes.md의 현재 회의 시간 문구는 무엇인가?",
+        "source_kind": "file",
+        "scope": "current_task",
+        "query": "notes.md 회의 시간",
+        "source_ids": [],
+        "acceptance": "적용 전 notes.md에서 회의 시간 행의 정확한 현재 문구를 읽는다.",
+        "target": "notes.md",
+        "required_range": {
+         "unit": "all",
+         "start": 1,
+         "end": null
+        }
+       }
+      ],
+      "capabilities_needed": [
+       "read_file",
+       "edit_file",
+       "code-modify"
+      ],
+      "completion_checks": [
+       "notes.md의 회의 시간이 11시로 바뀌어 저장된다.",
+       "답변에 변경 전·후 문구와 파일에 적용했음이 포함된다."
+      ],
+      "unresolved": [],
+      "answer": null,
+      "completion_specs": [
+       {
+        "check": "notes.md의 회의 시간이 11시로 바뀌어 저장된다.",
+        "result_kind": "file_content",
+        "target": "notes.md",
+        "expected_values": {
+         "contains": "회의 시간: 11시"
+        }
+       }
+      ],
+      "obligations": {
+       "target": "external_resource",
+       "lookup": "required",
+       "external_change": "required",
+       "source_span": "이제 그 변경안을 notes.md에 적용해 주세요.",
+       "keep_constraints": [
+        "notes.md의 회의 시간을 11시로 바꾸는 변경안"
+       ],
+       "change_constraints": [
+        "지금은 파일을 수정하지 마세요."
+       ],
+       "relations": [
+        {
+         "action": "write",
+         "target": "external_resource",
+         "necessity": "required",
+         "source_span": "이제 그 변경안을 notes.md에 적용해 주세요.",
+         "target_ref": "notes.md",
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "external_resource",
+         "necessity": "required",
+         "source_span": "이제 그 변경안을 notes.md에 적용해 주세요.",
+         "target_ref": "notes.md",
+         "condition": "적용 전 현재 문구 확인"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-museum-r1-t1": {
+   "request": "MUSEUM",
+   "content": "{\"goal\": \"국립중앙박물관 공식 홈페이지를 조회해 상설전시 관람시간과 기본 관람료를 특별전과 구분해 공식 출처 링크와 확인 날짜와 함께 답한다. 예약·결제·파일 저장은 하지 않는다.\", \"request_type\": \"investigate\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"retrieve\", \"constraints\": [{\"text\": \"국립중앙박물관 공식 홈페이지를 실제로 조회해\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"]}, {\"text\": \"상설전시의 관람시간과 기본 관람료를 알려주세요. 특별전과 구분하고\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"]}, {\"text\": \"공식 출처 링크와 확인 날짜를 표시해 주세요.\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"]}, {\"text\": \"예약·결제·파일 저장은 하지 마세요.\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"]}], \"information_needs\": [{\"id\": \"permanent_hours_fee\", \"required\": true, \"question\": \"공식 홈페이지에 적힌 상설전시 관람시간과 기본 관람료(무료/유료, 대상별 요금이 있으면 포함)는 무엇인가?\", \"source_kind\": \"tool\", \"scope\": \"current_task\", \"query\": \"국립중앙박물관 상설전시 관람시간 관람료 site:museum.go.kr\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"], \"acceptance\": \"공식 도메인 페이지에서 상설전시 관람시간과 기본 관람료 문구를 확인하고 URL을 확보한다.\", \"target\": null, \"result_kind\": \"sourced\"}, {\"id\": \"special_vs_permanent\", \"required\": true, \"question\": \"같은 공식 출처에서 특별전 관람 조건이 상설전시와 어떻게 구분되는가?\", \"source_kind\": \"tool\", \"scope\": \"current_task\", \"query\": \"국립중앙박물관 특별전시 관람료 관람시간 상설전시 구분\", \"source_ids\": [\"Ef9eb777d0178478bb524bce9530ddb74\"], \"acceptance\": \"상설전시와 특별전을 혼동하지 않도록 공식 문구 기준으로 구분 근거를 확보한다.\", \"target\": null, \"result_kind\": \"sourced\"}], \"capabilities_needed\": [\"web_search\", \"web_fetch\", \"research-brief\"], \"completion_checks\": [\"상설전시 관람시간과 기본 관람료를 공식 페이지 기준으로 답한다.\", \"특별전과 구분한다.\", \"공식 출처 URL과 확인 날짜를 표시한다.\", \"예약, 결제, 파일 저장은 수행하지 않는다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"상설전시 관람시간과 기본 관람료를 공식 페이지 기준으로 답한다.\", \"result_kind\": \"sourced\", \"target\": null, \"expected_values\": {}}, {\"check\": \"특별전과 구분한다.\", \"result_kind\": \"answer_content\", \"target\": null, \"expected_values\": {}}, {\"check\": \"공식 출처 URL과 확인 날짜를 표시한다.\", \"result_kind\": \"sourced\", \"target\": null, \"expected_values\": {}}, {\"check\": \"예약, 결제, 파일 저장은 수행하지 않는다.\", \"result_kind\": \"execution_result\", \"target\": null, \"expected_values\": {}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"required\", \"external_change\": \"none\", \"source_span\": \"국립중앙박물관 공식 홈페이지를 실제로 조회해\", \"keep_constraints\": [\"예약·결제·파일 저장은 하지 마세요.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"required\", \"source_span\": \"국립중앙박물관 공식 홈페이지를 실제로 조회해\", \"target_ref\": \"국립중앙박물관 공식 홈페이지\", \"condition\": null}, {\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"상설전시의 관람시간과 기본 관람료를 알려주세요. 특별전과 구분하고 공식 출처 링크와 확인 날짜를 표시해 주세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"예약·결제·파일 저장은 하지 마세요.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"send\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"예약·결제·파일 저장은 하지 마세요.\", \"target_ref\": null, \"condition\": null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "국립중앙박물관 공식 홈페이지를 조회해 상설전시 관람시간과 기본 관람료를 특별전과 구분해 공식 출처 링크와 확인 날짜와 함께 답한다. 예약·결제·파일 저장은 하지 않는다.",
+      "request_type": "investigate",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "retrieve",
+      "constraints": [
+       {
+        "text": "국립중앙박물관 공식 홈페이지를 실제로 조회해",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ]
+       },
+       {
+        "text": "상설전시의 관람시간과 기본 관람료를 알려주세요. 특별전과 구분하고",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ]
+       },
+       {
+        "text": "공식 출처 링크와 확인 날짜를 표시해 주세요.",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ]
+       },
+       {
+        "text": "예약·결제·파일 저장은 하지 마세요.",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ]
+       }
+      ],
+      "information_needs": [
+       {
+        "id": "permanent_hours_fee",
+        "required": true,
+        "question": "공식 홈페이지에 적힌 상설전시 관람시간과 기본 관람료(무료/유료, 대상별 요금이 있으면 포함)는 무엇인가?",
+        "source_kind": "tool",
+        "scope": "current_task",
+        "query": "국립중앙박물관 상설전시 관람시간 관람료 site:museum.go.kr",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ],
+        "acceptance": "공식 도메인 페이지에서 상설전시 관람시간과 기본 관람료 문구를 확인하고 URL을 확보한다.",
+        "target": null,
+        "result_kind": "sourced"
+       },
+       {
+        "id": "special_vs_permanent",
+        "required": true,
+        "question": "같은 공식 출처에서 특별전 관람 조건이 상설전시와 어떻게 구분되는가?",
+        "source_kind": "tool",
+        "scope": "current_task",
+        "query": "국립중앙박물관 특별전시 관람료 관람시간 상설전시 구분",
+        "source_ids": [
+         "Ef9eb777d0178478bb524bce9530ddb74"
+        ],
+        "acceptance": "상설전시와 특별전을 혼동하지 않도록 공식 문구 기준으로 구분 근거를 확보한다.",
+        "target": null,
+        "result_kind": "sourced"
+       }
+      ],
+      "capabilities_needed": [
+       "web_search",
+       "web_fetch",
+       "research-brief"
+      ],
+      "completion_checks": [
+       "상설전시 관람시간과 기본 관람료를 공식 페이지 기준으로 답한다.",
+       "특별전과 구분한다.",
+       "공식 출처 URL과 확인 날짜를 표시한다.",
+       "예약, 결제, 파일 저장은 수행하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": null,
+      "completion_specs": [
+       {
+        "check": "상설전시 관람시간과 기본 관람료를 공식 페이지 기준으로 답한다.",
+        "result_kind": "sourced",
+        "target": null,
+        "expected_values": {}
+       },
+       {
+        "check": "특별전과 구분한다.",
+        "result_kind": "answer_content",
+        "target": null,
+        "expected_values": {}
+       },
+       {
+        "check": "공식 출처 URL과 확인 날짜를 표시한다.",
+        "result_kind": "sourced",
+        "target": null,
+        "expected_values": {}
+       },
+       {
+        "check": "예약, 결제, 파일 저장은 수행하지 않는다.",
+        "result_kind": "execution_result",
+        "target": null,
+        "expected_values": {}
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "required",
+       "external_change": "none",
+       "source_span": "국립중앙박물관 공식 홈페이지를 실제로 조회해",
+       "keep_constraints": [
+        "예약·결제·파일 저장은 하지 마세요."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "required",
+         "source_span": "국립중앙박물관 공식 홈페이지를 실제로 조회해",
+         "target_ref": "국립중앙박물관 공식 홈페이지",
+         "condition": null
+        },
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "상설전시의 관람시간과 기본 관람료를 알려주세요. 특별전과 구분하고 공식 출처 링크와 확인 날짜를 표시해 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "write",
+         "target": "external_resource",
+         "necessity": "forbidden",
+         "source_span": "예약·결제·파일 저장은 하지 마세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "send",
+         "target": "external_resource",
+         "necessity": "forbidden",
+         "source_span": "예약·결제·파일 저장은 하지 마세요.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-file-r1-t1": {
+   "request": "FILE1",
+   "content": "{\"goal\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354(\\uc6cc\\ud06c\\uc2a4\\ud398\\uc774\\uc2a4) \\uc548\\uc5d0 notes.md\\ub97c \\uc0dd\\uc131\\ud558\\uace0 \\ub0b4\\uc6a9\\uc744 \\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\ub85c \\uc800\\uc7a5\\ud55c\\ub2e4.\", \"request_type\": \"execute\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"execute\", \"constraints\": [{\"text\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc5d0 notes.md\\ub97c \\ub9cc\\ub4e4\\uace0\", \"source_ids\": [\"E57e7aa38882e4c30865df741875c821c\"]}, {\"text\": \"\\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\ub97c \\uc800\\uc7a5\\ud574 \\uc8fc\\uc138\\uc694.\", \"source_ids\": [\"E57e7aa38882e4c30865df741875c821c\"]}], \"information_needs\": [{\"id\": \"exam-folder\", \"required\": true, \"question\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc778 \\uc6cc\\ud06c\\uc2a4\\ud398\\uc774\\uc2a4 /workspace/t29/runs/ws/p2-file-r1 \\uac00 \\uc874\\uc7ac\\ud558\\uace0 notes.md\\ub97c \\uc4f8 \\uc218 \\uc788\\ub294\\uac00?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"/workspace/t29/runs/ws/p2-file-r1\", \"source_ids\": [\"E57e7aa38882e4c30865df741875c821c\"], \"acceptance\": \"\\ub514\\ub809\\ud130\\ub9ac \\ubaa9\\ub85d\\uc73c\\ub85c \\ud3f4\\ub354 \\uc874\\uc7ac\\uac00 \\ud655\\uc778\\ub418\\uace0, \\uc4f0\\uae30 \\ud6c4 notes.md \\ub0b4\\uc6a9\\uc774 \\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\uc784\\uc774 \\uc7ac\\uc77d\\uae30\\ub85c \\ud655\\uc778\\ub41c\\ub2e4.\", \"target\": \"/workspace/t29/runs/ws/p2-file-r1\"}], \"capabilities_needed\": [\"list_dir\", \"write_file\", \"read_file\"], \"completion_checks\": [\"notes.md exists in the designated exam folder\", \"file content is exactly \\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"notes.md exists in the designated exam folder\", \"result_kind\": \"file_content\", \"target\": \"/workspace/t29/runs/ws/p2-file-r1/notes.md\", \"expected_values\": {\"path\": \"/workspace/t29/runs/ws/p2-file-r1/notes.md\"}}, {\"check\": \"file content is exactly \\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\", \"result_kind\": \"file_content\", \"target\": \"/workspace/t29/runs/ws/p2-file-r1/notes.md\", \"expected_values\": {\"content\": \"\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\"}}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"conditional\", \"external_change\": \"required\", \"source_span\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc5d0 notes.md\\ub97c \\ub9cc\\ub4e4\\uace0 \\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\ub97c \\uc800\\uc7a5\\ud574 \\uc8fc\\uc138\\uc694.\", \"keep_constraints\": [\"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc5d0 notes.md\\ub97c \\ub9cc\\ub4e4\\uace0\", \"\\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\ub97c \\uc800\\uc7a5\\ud574 \\uc8fc\\uc138\\uc694.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc5d0 notes.md\\ub97c \\ub9cc\\ub4e4\\uace0\", \"target_ref\": \"/workspace/t29/runs/ws/p2-file-r1/notes.md\", \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"\\u2018\\ud68c\\uc758 \\uc2dc\\uac04: 10\\uc2dc\\u2019\\ub97c \\uc800\\uc7a5\\ud574 \\uc8fc\\uc138\\uc694.\", \"target_ref\": \"/workspace/t29/runs/ws/p2-file-r1/notes.md\", \"condition\": null}, {\"action\": \"inspect\", \"target\": \"external_resource\", \"necessity\": \"conditional\", \"source_span\": \"\\uc9c0\\uc815\\ub41c \\uc2dc\\ud5d8 \\ud3f4\\ub354\\uc5d0 notes.md\\ub97c \\ub9cc\\ub4e4\\uace0\", \"target_ref\": \"/workspace/t29/runs/ws/p2-file-r1\", \"condition\": \"\\ud3f4\\ub354 \\uc874\\uc7ac\\uac00 \\ubd88\\ud655\\uc2e4\\ud560 \\ub54c\\ub9cc \\ubaa9\\ub85d\\uc73c\\ub85c \\ud655\\uc778\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "지정된 시험 폴더(워크스페이스) 안에 notes.md를 생성하고 내용을 ‘회의 시간: 10시’로 저장한다.",
+      "request_type": "execute",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "execute",
+      "constraints": [
+       {
+        "text": "지정된 시험 폴더에 notes.md를 만들고",
+        "source_ids": [
+         "E57e7aa38882e4c30865df741875c821c"
+        ]
+       },
+       {
+        "text": "‘회의 시간: 10시’를 저장해 주세요.",
+        "source_ids": [
+         "E57e7aa38882e4c30865df741875c821c"
+        ]
+       }
+      ],
+      "information_needs": [
+       {
+        "id": "exam-folder",
+        "required": true,
+        "question": "지정된 시험 폴더인 워크스페이스 /workspace/t29/runs/ws/p2-file-r1 가 존재하고 notes.md를 쓸 수 있는가?",
+        "source_kind": "file",
+        "scope": "current_task",
+        "query": "/workspace/t29/runs/ws/p2-file-r1",
+        "source_ids": [
+         "E57e7aa38882e4c30865df741875c821c"
+        ],
+        "acceptance": "디렉터리 목록으로 폴더 존재가 확인되고, 쓰기 후 notes.md 내용이 ‘회의 시간: 10시’임이 재읽기로 확인된다.",
+        "target": "/workspace/t29/runs/ws/p2-file-r1"
+       }
+      ],
+      "capabilities_needed": [
+       "list_dir",
+       "write_file",
+       "read_file"
+      ],
+      "completion_checks": [
+       "notes.md exists in the designated exam folder",
+       "file content is exactly ‘회의 시간: 10시’"
+      ],
+      "unresolved": [],
+      "answer": null,
+      "completion_specs": [
+       {
+        "check": "notes.md exists in the designated exam folder",
+        "result_kind": "file_content",
+        "target": "/workspace/t29/runs/ws/p2-file-r1/notes.md",
+        "expected_values": {
+         "path": "/workspace/t29/runs/ws/p2-file-r1/notes.md"
+        }
+       },
+       {
+        "check": "file content is exactly ‘회의 시간: 10시’",
+        "result_kind": "file_content",
+        "target": "/workspace/t29/runs/ws/p2-file-r1/notes.md",
+        "expected_values": {
+         "content": "회의 시간: 10시"
+        }
+       }
+      ],
+      "obligations": {
+       "target": "external_resource",
+       "lookup": "conditional",
+       "external_change": "required",
+       "source_span": "지정된 시험 폴더에 notes.md를 만들고 ‘회의 시간: 10시’를 저장해 주세요.",
+       "keep_constraints": [
+        "지정된 시험 폴더에 notes.md를 만들고",
+        "‘회의 시간: 10시’를 저장해 주세요."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "write",
+         "target": "external_resource",
+         "necessity": "required",
+         "source_span": "지정된 시험 폴더에 notes.md를 만들고",
+         "target_ref": "/workspace/t29/runs/ws/p2-file-r1/notes.md",
+         "condition": null
+        },
+        {
+         "action": "write",
+         "target": "external_resource",
+         "necessity": "required",
+         "source_span": "‘회의 시간: 10시’를 저장해 주세요.",
+         "target_ref": "/workspace/t29/runs/ws/p2-file-r1/notes.md",
+         "condition": null
+        },
+        {
+         "action": "inspect",
+         "target": "external_resource",
+         "necessity": "conditional",
+         "source_span": "지정된 시험 폴더에 notes.md를 만들고",
+         "target_ref": "/workspace/t29/runs/ws/p2-file-r1",
+         "condition": "폴더 존재가 불확실할 때만 목록으로 확인"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "p2-golf-r1-t1": {
+   "request": "GOLF_T1",
+   "content": "{\"goal\":\"주말 60분 골프 연습 시간표(퍼팅·어프로치·아이언 각 20분, 드라이버 제외)와 연습별 목표 하나를 답으로 제시한다.\",\"request_type\":\"explain\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]},{\"text\":\"드라이버 연습은 제외하고\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]},{\"text\":\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]},{\"text\":\"인터넷 검색은 필요 없습니다.\",\"source_ids\":[\"E3abc1e495d7f4969ad59f2c7ba9108db\"]}],\"information_needs\":[],\"capabilities_needed\":[],\"completion_checks\":[\"시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로 합계 60분이다.\",\"드라이버 연습은 포함하지 않는다.\",\"퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.\",\"인터넷 검색이나 외부 자료를 사용하지 않는다.\"],\"unresolved\":[],\"answer\":\"주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았고, 퍼팅·어프로치·아이언만 각 20분입니다.\\n\\n시간표\\n- 0–20분: 퍼팅\\n- 20–40분: 어프로치\\n- 40–60분: 아이언\\n\\n연습별 목표 (각 하나)\\n- 퍼팅: 2미터 안팎에서 같은 스트로크 길이로 홀을 지나치지 않게 굴려 넣는다.\\n- 어프로치: 그린 가장자리 10–20미터에서 캐리와 런을 나눠 보고 볼을 홀 주변에 멈춘다.\\n- 아이언: 한 클럽으로 스윙 크기와 방향을 맞춰 같은 탄도로 목표 지점에 반복해서 보낸다.\",\"completion_specs\":[{\"check\":\"시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로 합계 60분이다.\",\"result_kind\":\"computed\",\"expected_values\":{\"values\":{\"퍼팅\":20,\"어프로치\":20,\"아이언\":20},\"total\":60,\"excluded\":[\"드라이버\"]}},{\"check\":\"드라이버 연습은 포함하지 않는다.\",\"result_kind\":\"answer_content\"},{\"check\":\"퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.\",\"result_kind\":\"answer_content\"},{\"check\":\"인터넷 검색이나 외부 자료를 사용하지 않는다.\",\"result_kind\":\"semantic\"}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"forbidden\",\"external_change\":\"none\",\"source_span\":\"인터넷 검색은 필요 없습니다.\",\"keep_constraints\":[\"퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.\",\"드라이버 연습은 제외하고\",\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"인터넷 검색은 필요 없습니다.\"],\"change_constraints\":[],\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"시간표와 각 연습의 목표를 하나씩 적어 주세요.\",\"target_ref\":null,\"condition\":null},{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"forbidden\",\"source_span\":\"인터넷 검색은 필요 없습니다.\",\"target_ref\":null,\"condition\":null}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "주말 60분 골프 연습 시간표(퍼팅·어프로치·아이언 각 20분, 드라이버 제외)와 연습별 목표 하나를 답으로 제시한다.",
+      "request_type": "explain",
+      "task_relation": "new",
+      "task_id": null,
+      "route": "direct",
+      "constraints": [
+       {
+        "text": "퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       },
+       {
+        "text": "드라이버 연습은 제외하고",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       },
+       {
+        "text": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       },
+       {
+        "text": "인터넷 검색은 필요 없습니다.",
+        "source_ids": [
+         "E3abc1e495d7f4969ad59f2c7ba9108db"
+        ]
+       }
+      ],
+      "information_needs": [],
+      "capabilities_needed": [],
+      "completion_checks": [
+       "시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로 합계 60분이다.",
+       "드라이버 연습은 포함하지 않는다.",
+       "퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.",
+       "인터넷 검색이나 외부 자료를 사용하지 않는다."
+      ],
+      "unresolved": [],
+      "answer": "주말 골프 연습 60분 계획입니다. 드라이버는 넣지 않았고, 퍼팅·어프로치·아이언만 각 20분입니다.\n\n시간표\n- 0–20분: 퍼팅\n- 20–40분: 어프로치\n- 40–60분: 아이언\n\n연습별 목표 (각 하나)\n- 퍼팅: 2미터 안팎에서 같은 스트로크 길이로 홀을 지나치지 않게 굴려 넣는다.\n- 어프로치: 그린 가장자리 10–20미터에서 캐리와 런을 나눠 보고 볼을 홀 주변에 멈춘다.\n- 아이언: 한 클럽으로 스윙 크기와 방향을 맞춰 같은 탄도로 목표 지점에 반복해서 보낸다.",
+      "completion_specs": [
+       {
+        "check": "시간표가 퍼팅 20분, 어프로치 20분, 아이언 20분으로 합계 60분이다.",
+        "result_kind": "computed",
+        "expected_values": {
+         "values": {
+          "퍼팅": 20,
+          "어프로치": 20,
+          "아이언": 20
+         },
+         "total": 60,
+         "excluded": [
+          "드라이버"
+         ]
+        }
+       },
+       {
+        "check": "드라이버 연습은 포함하지 않는다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "퍼팅, 어프로치, 아이언 각각에 목표가 하나씩만 있다.",
+        "result_kind": "answer_content"
+       },
+       {
+        "check": "인터넷 검색이나 외부 자료를 사용하지 않는다.",
+        "result_kind": "semantic"
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "forbidden",
+       "external_change": "none",
+       "source_span": "인터넷 검색은 필요 없습니다.",
+       "keep_constraints": [
+        "퍼팅 20분, 어프로치 20분, 아이언 20분으로 계획해 주세요.",
+        "드라이버 연습은 제외하고",
+        "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+        "인터넷 검색은 필요 없습니다."
+       ],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "answer",
+         "target": "answer",
+         "necessity": "required",
+         "source_span": "시간표와 각 연습의 목표를 하나씩 적어 주세요.",
+         "target_ref": null,
+         "condition": null
+        },
+        {
+         "action": "lookup",
+         "target": "web",
+         "necessity": "forbidden",
+         "source_span": "인터넷 검색은 필요 없습니다.",
+         "target_ref": null,
+         "condition": null
+        }
+       ]
+      }
+     }
+    }
+   ]
+  },
+  "t30-p2-multi-r1-t1": {
+   "request": "MULTI",
+   "content": "{\"goal\": \"\\uc544\\uae4c \\ub9cc\\ub4e0 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\ubc14\\uafb8\\ub824\\ub294 \\uc694\\uccad\\uc774\\ub098, \\ub300\\uc0c1 \\ubb38\\uc11c\\uac00 \\ub450 \\uac1c\\uc774\\uace0 \\uc0c8 \\uc81c\\ubaa9\\uc774 \\uc5c6\\uc5b4 \\uc218\\uc815 \\uc804\\uc5d0 \\ud55c \\ubc88\\ub9cc \\ud655\\uc778\\ud55c\\ub2e4.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": null, \"route\": \"clarify\", \"constraints\": [], \"information_needs\": [{\"id\": \"which_doc_and_title\", \"required\": true, \"question\": \"weekly_meeting.md\\uc640 trip_plan.md \\uc911 \\uc5b4\\ub290 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\uc5b4\\ub5a4 \\ubb38\\uad6c\\ub85c \\ubc14\\uafc0\\uae4c?\", \"source_kind\": \"current_request\", \"scope\": \"current_task\", \"query\": \"\", \"source_ids\": [\"Ef048c79b5c224258bae89f589006f6be\"], \"acceptance\": \"\\ub300\\uc0c1 \\ud30c\\uc77c \\ud558\\ub098\\uc640 \\uc0c8 \\uc81c\\ubaa9 \\ubb38\\uad6c\\uac00 \\uc0ac\\uc6a9\\uc790 \\ub2f5\\ubcc0\\uc73c\\ub85c \\ud2b9\\uc815\\ub41c\\ub2e4.\"}], \"capabilities_needed\": [\"genie-agent\"], \"completion_checks\": [\"\\ud504\\ub7ad\\ud06c\\uc5d0\\uac8c weekly_meeting.md\\uc640 trip_plan.md \\uc911 \\uc5b4\\ub290 \\ubb38\\uc11c\\uc778\\uc9c0\\uc640 \\ubc14\\uafc0 \\uc81c\\ubaa9\\uc744 \\ud55c \\ubc88\\ub9cc \\ubb3b\\uace0, \\uc9c0\\uc815 \\uc804\\uc5d0\\ub294 \\ud30c\\uc77c\\uc744 \\uc218\\uc815\\ud558\\uc9c0 \\uc54a\\ub294\\ub2e4.\"], \"unresolved\": [\"\\ub300\\uc0c1\\uc774 weekly_meeting.md\\uc778\\uc9c0 trip_plan.md\\uc778\\uc9c0 \\ubd88\\uba85\", \"\\uc0c8 \\uc81c\\ubaa9 \\ubb38\\uad6c\\uac00 \\uc5c6\\uc74c\"], \"answer\": \"\\ud504\\ub7ad\\ud06c, \\uc544\\uae4c \\ub9cc\\ub4e0 \\ubb38\\uc11c\\ub294 weekly_meeting.md\\uc640 trip_plan.md \\ub450 \\uac1c\\uc785\\ub2c8\\ub2e4. \\uc5b4\\ub290 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\uc5b4\\ub5a4 \\ubb38\\uad6c\\ub85c \\ubc14\\uafc0\\uae4c\\uc694?\", \"completion_specs\": [{\"check\": \"\\ud504\\ub7ad\\ud06c\\uc5d0\\uac8c weekly_meeting.md\\uc640 trip_plan.md \\uc911 \\uc5b4\\ub290 \\ubb38\\uc11c\\uc778\\uc9c0\\uc640 \\ubc14\\uafc0 \\uc81c\\ubaa9\\uc744 \\ud55c \\ubc88\\ub9cc \\ubb3b\\uace0, \\uc9c0\\uc815 \\uc804\\uc5d0\\ub294 \\ud30c\\uc77c\\uc744 \\uc218\\uc815\\ud558\\uc9c0 \\uc54a\\ub294\\ub2e4.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"asks_which_file\": true, \"asks_new_title\": true, \"edits_file\": false}}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"\\uc544\\uae4c \\ub9cc\\ub4e0 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\ubc14\\uafd4 \\uc8fc\\uc138\\uc694.\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"edit\", \"target\": \"external_resource\", \"necessity\": \"conditional\", \"source_span\": \"\\uc544\\uae4c \\ub9cc\\ub4e0 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\ubc14\\uafd4 \\uc8fc\\uc138\\uc694.\", \"target_ref\": null, \"condition\": \"\\ub300\\uc0c1 \\ubb38\\uc11c\\uc640 \\uc0c8 \\uc81c\\ubaa9\\uc774 \\ud558\\ub098\\ub85c \\ud2b9\\uc815\\ub41c \\ub4a4\\uc5d0\\ub9cc\"}]}}",
+   "tool_calls": [
+    {
+     "name": "submit_context_design",
+     "arguments": {
+      "goal": "아까 만든 문서의 제목을 바꾸려는 요청이나, 대상 문서가 두 개이고 새 제목이 없어 수정 전에 한 번만 확인한다.",
+      "request_type": "modify",
+      "task_relation": "continue",
+      "task_id": null,
+      "route": "clarify",
+      "constraints": [],
+      "information_needs": [
+       {
+        "id": "which_doc_and_title",
+        "required": true,
+        "question": "weekly_meeting.md와 trip_plan.md 중 어느 문서의 제목을 어떤 문구로 바꿀까?",
+        "source_kind": "current_request",
+        "scope": "current_task",
+        "query": "",
+        "source_ids": [
+         "Ef048c79b5c224258bae89f589006f6be"
+        ],
+        "acceptance": "대상 파일 하나와 새 제목 문구가 사용자 답변으로 특정된다."
+       }
+      ],
+      "capabilities_needed": [
+       "genie-agent"
+      ],
+      "completion_checks": [
+       "프랭크에게 weekly_meeting.md와 trip_plan.md 중 어느 문서인지와 바꿀 제목을 한 번만 묻고, 지정 전에는 파일을 수정하지 않는다."
+      ],
+      "unresolved": [
+       "대상이 weekly_meeting.md인지 trip_plan.md인지 불명",
+       "새 제목 문구가 없음"
+      ],
+      "answer": "\\ud504\\ub7ad\\ud06c, \\uc544\\uae4c \\ub9cc\\ub4e0 \\ubb38\\uc11c\\ub294 weekly_meeting.md\\uc640 trip_plan.md \\ub450 \\uac1c\\uc785\\ub2c8\\ub2e4. \\uc5b4\\ub290 \\ubb38\\uc11c\\uc758 \\uc81c\\ubaa9\\uc744 \\uc5b4\\ub5a4 \\ubb38\\uad6c\\ub85c \\ubc14\\uafc0\\uae4c\\uc694?",
+      "completion_specs": [
+       {
+        "check": "프랭크에게 weekly_meeting.md와 trip_plan.md 중 어느 문서인지와 바꿀 제목을 한 번만 묻고, 지정 전에는 파일을 수정하지 않는다.",
+        "result_kind": "answer_content",
+        "expected_values": {
+         "asks_which_file": true,
+         "asks_new_title": true,
+         "edits_file": false
+        }
+       }
+      ],
+      "obligations": {
+       "target": "answer",
+       "lookup": "unneeded",
+       "external_change": "none",
+       "source_span": "아까 만든 문서의 제목을 바꿔 주세요.",
+       "keep_constraints": [],
+       "change_constraints": [],
+       "relations": [
+        {
+         "action": "edit",
+         "target": "external_resource",
+         "necessity": "conditional",
+         "source_span": "아까 만든 문서의 제목을 바꿔 주세요.",
+         "target_ref": null,
+         "condition": "대상 문서와 새 제목이 하나로 특정된 뒤에만"
+        }
+       ]
+      }
+     }
+    }
+   ]
+  }
+ }
+}

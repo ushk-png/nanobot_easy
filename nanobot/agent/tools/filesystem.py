@@ -1,6 +1,7 @@
 """File system tools: read, write, edit, list."""
 
 import difflib
+import hashlib
 import mimetypes
 import os
 from dataclasses import dataclass
@@ -311,7 +312,8 @@ class ReadFileTool(_FsTool):
 
             raw = fp.read_bytes()
             if not raw:
-                return f"(Empty file: {path})"
+                return self._with_read_evidence(f"(Empty file: {path})", fp, "lines", 1, 0, 0,
+                                                expected_hash=hashlib.sha256(raw).hexdigest())
 
             mime = detect_image_mime(raw) or mimetypes.guess_type(path)[0]
             if mime and mime.startswith("image/"):
@@ -398,7 +400,8 @@ class ReadFileTool(_FsTool):
             else:
                 result += f"\n\n(End of file — {total} lines total)"
             self._file_states.record_read(fp, offset=offset, limit=limit)
-            return result
+            return self._with_read_evidence(result, fp, "lines", offset, end, total,
+                                            expected_hash=hashlib.sha256(raw).hexdigest())
         except PermissionError as e:
             return ToolResult.error(f"Error: {e}")
         except Exception as e:
@@ -433,11 +436,14 @@ class ReadFileTool(_FsTool):
             end = start + self._MAX_PDF_PAGES - 1
 
         parts: list[str] = []
+        extraction_ok = True
         for i in range(start, end + 1):
             page = doc[i]
             text = page.get_text().strip()
             if text:
                 parts.append(f"--- Page {i + 1} ---\n{text}")
+            else:
+                extraction_ok = False
         doc.close()
 
         if not parts:
@@ -448,7 +454,27 @@ class ReadFileTool(_FsTool):
             result += f"\n\n(Showing pages {start + 1}-{end + 1} of {total_pages}. Use pages='{end + 2}-{min(end + 1 + self._MAX_PDF_PAGES, total_pages)}' to continue.)"
         if len(result) > self._MAX_CHARS:
             result = result[:self._MAX_CHARS] + "\n\n(PDF text truncated at ~128K chars)"
-        return result
+            extraction_ok = False
+        return self._with_read_evidence(
+            result, fp, "pages", start + 1, end + 1, total_pages, extraction_ok,
+        )
+
+    @staticmethod
+    def _with_read_evidence(result, fp, unit, start, end, total, extraction_ok=True, expected_hash=None):
+        from nanobot.agent.context_evidence import active_evidence_capture, fingerprint
+        from nanobot.agent.task_note import active_task_note, file_version
+
+        if active_task_note.get() is None and not active_evidence_capture.get():
+            return result
+        version = fingerprint(fp) if active_evidence_capture.get() else file_version(str(fp))
+        if active_evidence_capture.get() and expected_hash is not None and (version or {}).get("sha256") != expected_hash:
+            extraction_ok = False
+        output = ToolResult(result)
+        output.read_evidence = {
+            "target": str(fp.resolve()), "unit": unit, "start": start, "end": end,
+            "total": total, "extraction_ok": extraction_ok, "version": version,
+        }
+        return output
 
     def _read_office_doc(self, fp: Path) -> str:
         from nanobot.utils.document import extract_text
@@ -507,7 +533,17 @@ class WriteFileTool(_FsTool):
                 raise ValueError("Unknown content")
             fp = self._resolve_write(path)
             fp.parent.mkdir(parents=True, exist_ok=True)
-            fp.write_text(content, encoding="utf-8")
+            from nanobot.agent.context_evidence import exclusive_create_paths
+            if str(fp.resolve()) in exclusive_create_paths.get():
+                # A requested new file: create exclusively, never replace one that appeared meanwhile.
+                try:
+                    with fp.open("x", encoding="utf-8") as stream:
+                        stream.write(content)
+                except FileExistsError:
+                    return ToolResult.error(f"Error: {fp} already exists; it was expected to be new and was "
+                                            "not overwritten. Confirm with the user before replacing it.")
+            else:
+                fp.write_text(content, encoding="utf-8")
             self._file_states.record_write(fp)
             return f"Successfully wrote {len(content)} characters to {fp}"
         except PermissionError as e:

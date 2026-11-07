@@ -2,6 +2,52 @@
 
 This page collects contributor-facing notes for extending nanobot. User-facing setup and runtime options live in [`configuration.md`](./configuration.md).
 
+## Coding Guidance and Evaluation
+
+The coding section of `nanobot/templates/agent/tool_contract.md` incorporates
+principles inspired by the community
+[Karpathy guidelines](https://github.com/multica-ai/andrej-karpathy-skills):
+explicit assumptions, simple solutions, focused changes, and verified outcomes.
+Small, reversible decisions should not require clarification; ask when missing
+information materially affects the requested behavior, APIs, data, or permission.
+Repository architecture and security requirements still apply.
+
+Both `ContextBuilder.build_system_prompt` and `build_selected_system_prompt`
+include this contract, even when no coding skill is selected. Task-specific
+completion criteria live in `code-debugging`, `code-review`, and `debug-procedure`.
+The latter two preserve review-only and plan-only requests. This does not change
+skill routing or make all `always`/hot-path skills load in selected-context mode.
+Workspace copies with the same skill name override the bundled task-specific
+skills; inspect the resolved skill path when checking an existing installation.
+
+Run the prompt-delivery regression checks with:
+
+```bash
+pytest tests/agent/test_context_builder.py tests/agent/test_context_selection.py -q
+```
+
+These checks verify prompt delivery, not improved coding performance.
+`scripts/skill_execution_ab.py` compares generated answers with an LLM judge;
+it does not execute patches or establish coding success rates. For a behavioral
+comparison, use the following protocol:
+
+1. Prepare representative bug fixes and small feature tasks with acceptance
+   tests fixed in advance, plus review-only and plan-only cases to check scope.
+2. Run the baseline and updated guidance in separate disposable checkouts of
+   the same task revision, with fresh sessions and identical model, tools,
+   context-selection settings, token limits, and time budgets. Keep acceptance
+   tests outside the agent's writable checkout and exclude live services.
+3. Repeat each pair and alternate run order. Save the resulting patches, tool
+   traces, actual verification output, elapsed time, and token usage. Check
+   which guidance reached the executor before attributing a result to it.
+4. Execute the fixed acceptance tests and relevant existing tests against each
+   resulting checkout. Review diffs without knowing the variant; count unrelated
+   edits, unnecessary clarification turns, and premature completion separately.
+   Smaller diffs alone do not imply correctness.
+5. Report per-task outcomes, completed-run counts, regressions, and cost alongside
+   aggregate success rates. Include failures and timeouts. Do not claim an
+   improvement from prompt-loading tests or answer quality scores alone.
+
 ## Adding an LLM Provider
 
 nanobot uses the provider registry in `nanobot/providers/registry.py` as the source of truth for LLM provider metadata. Most OpenAI-compatible providers need only two changes.

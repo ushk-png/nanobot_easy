@@ -1,0 +1,91 @@
+{
+ "source": "/workspace/t62/run/LIVE-new-S24_conflict-t1.json (t62 real xAI, 2026-10-29 KST, design call_sequence 1)",
+ "request": "퍼팅, 어프로치, 아이언으로 총 45분 연습 계획을 만들어 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 해 주세요.",
+ "design_arguments": {
+  "goal": "퍼팅·어프로치·아이언 연습 계획을 만들되, 총 45분과 항목 합 50분(20+15+15)이 충돌하므로 사용자 확인 전에는 계획을 확정하지 않는다.",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "clarify",
+  "constraints": [
+   {
+    "text": "퍼팅, 어프로치, 아이언으로 총 45분 연습 계획을 만들어 주세요",
+    "source_ids": [
+     "E93388279fe5d4988a859553b1c2e8374"
+    ]
+   },
+   {
+    "text": "퍼팅 20분, 어프로치 15분, 아이언 15분으로 해 주세요.",
+    "source_ids": [
+     "E93388279fe5d4988a859553b1c2e8374"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [
+   "answer-howto"
+  ],
+  "unresolved": [
+   "총 45분과 퍼팅 20분+어프로치 15분+아이언 15분(합 50분)이 동시에 성립하지 않아, 어느 숫자를 유지할지 사용자 확인이 필요하다."
+  ],
+  "answer": null,
+  "quantity_relations": [
+   {
+    "kind": "unclear",
+    "kind_span": "총 45분"
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "연습 계획을 만들어 주세요",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "연습 계획을 만들어 주세요",
+     "target_ref": null,
+     "condition": "총시간과 항목 시간이 일치하도록 사용자가 숫자를 정한 뒤에만"
+    }
+   ]
+  },
+  "reference": {
+   "relation": "new",
+   "task_id": null,
+   "response_id": null,
+   "artifact_ids": [],
+   "changed_conditions": [],
+   "kept_conditions": [],
+   "needed_sources": [],
+   "basis_span": "퍼팅, 어프로치, 아이언으로 총 45분 연습 계획을 만들어 주세요"
+  }
+ },
+ "t62_rejection": {
+  "schema_issues": [
+   {
+    "path": [
+     "quantity_relations",
+     0,
+     "unit"
+    ],
+    "code": "missing"
+   },
+   {
+    "path": [
+     "quantity_relations",
+     0,
+     "unknown_field"
+    ],
+    "code": "missing"
+   }
+  ],
+  "missing_keys": [
+   "completion_checks",
+   "completion_specs",
+   "request_type"
+  ]
+ }
+}

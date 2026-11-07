@@ -219,3 +219,112 @@ async def test_relay_streams_sse(
     for line in text.splitlines():
         if line.startswith("data: ") and line != "data: [DONE]":
             json.loads(line.removeprefix("data: "))
+
+
+async def _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, *, stream, timeout):
+    store = SkillStore(tmp_path)
+    issued = store.issue_relay_client(client_id="grok-build", model_preset="relay-coding")
+    config = _config(tmp_path)
+    config.relay.timeout = timeout
+    monkeypatch.setattr(
+        relay_api,
+        "build_provider_snapshot",
+        lambda _config, preset_name=None: ProviderSnapshot(
+            provider=provider,
+            model="openai-codex/gpt-5.5",
+            context_window_tokens=200_000,
+            signature=("test", preset_name),
+        ),
+    )
+    client = await aiohttp_client(create_relay_app(config, store))
+    return await client.post(
+        "/v1/chat/completions",
+        headers={"Authorization": f"Bearer {issued.token}"},
+        json={
+            "model": "openai-codex/gpt-5.5",
+            "stream": stream,
+            "messages": [{"role": "user", "content": "hi"}],
+        },
+    )
+
+
+@dataclass
+class PacedProvider:
+    """Streams `steps` deltas, sleeping `gap` seconds before each one."""
+
+    gap: float
+    steps: int
+    cancelled: bool = False
+
+    async def chat_with_retry(self, **kwargs):
+        import asyncio
+
+        try:
+            await asyncio.sleep(self.gap * self.steps)
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return LLMResponse(content="late", finish_reason="stop")
+
+    async def chat_stream_with_retry(self, **kwargs):
+        import asyncio
+
+        on_content_delta = kwargs["on_content_delta"]
+        try:
+            for i in range(self.steps):
+                await asyncio.sleep(self.gap)
+                await on_content_delta(f"p{i}")
+        except asyncio.CancelledError:
+            self.cancelled = True
+            raise
+        return LLMResponse(content="done", finish_reason="stop")
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_stream_with_progress_outlives_timeout(tmp_path, aiohttp_client, monkeypatch):
+    # Total duration (~0.6s) exceeds the timeout (0.3s), but every gap is shorter.
+    provider = PacedProvider(gap=0.1, steps=6)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=True, timeout=0.3)
+    text = await resp.text()
+    assert "p5" in text
+    assert "data: [DONE]" in text
+    assert "idle" not in text
+    assert provider.cancelled is False
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_stream_silent_gap_aborts_and_cancels_provider(tmp_path, aiohttp_client, monkeypatch):
+    provider = PacedProvider(gap=5.0, steps=1)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=True, timeout=0.2)
+    text = await resp.text()
+    assert "Relay stream idle for 0.2s" in text
+    assert "data: [DONE]" not in text
+    for line in text.splitlines():
+        if line.startswith("data: "):
+            json.loads(line.removeprefix("data: "))
+    assert provider.cancelled is True
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_non_stream_keeps_total_deadline(tmp_path, aiohttp_client, monkeypatch):
+    provider = PacedProvider(gap=5.0, steps=1)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=False, timeout=0.2)
+    assert resp.status == 504
+    assert provider.cancelled is True
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_client_disconnect_cancels_active_provider(tmp_path, aiohttp_client, monkeypatch):
+    import asyncio
+
+    provider = PacedProvider(gap=0.01, steps=1000)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=True, timeout=5)
+    assert await resp.content.readline()  # A real stream was established.
+    resp.close()
+    async with asyncio.timeout(1):
+        while not provider.cancelled:
+            await asyncio.sleep(0.01)

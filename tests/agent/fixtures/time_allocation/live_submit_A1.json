@@ -1,0 +1,140 @@
+{
+  "provenance": "saved_actual_A1_submission",
+  "product_commit": "72d16b39268b2fa6848cdaa45d095e255187dd09",
+  "source_record_sha256": "a84a4862b2cfbc29cc846694233dfd4ef729e52be800c926a7a2ee63fdc06c75",
+  "request": "총 60분 연습 계획. 퍼팅 20분 고정. 드라이버 제외. 남은 시간을 어프로치와 아이언에 균등 배분해 주세요. 인터넷 검색은 하지 마세요.",
+  "raw_submission": "{\"goal\":\"60\\ubd84 \\uc5f0\\uc2b5 \\uacc4\\ud68d\\uc5d0\\uc11c \\ud37c\\ud305 20\\ubd84\\uc744 \\uace0\\uc815\\ud558\\uace0 \\ub4dc\\ub77c\\uc774\\ubc84\\ub97c \\uc81c\\uc678\\ud55c \\ub4a4 \\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\\ud55c\\ub2e4. \\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud558\\uc9c0 \\uc54a\\ub294\\ub2e4.\",\"request_type\":\"execute\",\"task_relation\":\"new\",\"task_id\":null,\"route\":\"direct\",\"constraints\":[{\"text\":\"\\ud37c\\ud305 20\\ubd84 \\uace0\\uc815\",\"source_ids\":[\"E9d3b5ad363a742ef8632b165e305f01d\"]},{\"text\":\"\\ub4dc\\ub77c\\uc774\\ubc84 \\uc81c\\uc678\",\"source_ids\":[\"E9d3b5ad363a742ef8632b165e305f01d\"]},{\"text\":\"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\",\"source_ids\":[\"E9d3b5ad363a742ef8632b165e305f01d\"]},{\"text\":\"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud558\\uc9c0 \\ub9c8\\uc138\\uc694\",\"source_ids\":[\"E9d3b5ad363a742ef8632b165e305f01d\"]}],\"information_needs\":[],\"capabilities_needed\":[],\"completion_checks\":[],\"unresolved\":[],\"answer\":null,\"allocation_result\":{\"items\":[{\"item_id\":\"aebbaeafa3f64b8e841029025206574e\",\"value\":\"20\"},{\"item_id\":\"96c247ba5a5a4abb90894b61cea07822\",\"value\":\"0\"},{\"item_id\":\"e71e7076c7504fea987e454e58de0764\",\"value\":\"20\"},{\"item_id\":\"0e36c972de984f01870a5d2947ea0a09\",\"value\":\"20\"}],\"total\":\"60\",\"remaining\":\"0\"},\"allocation_explanations\":[{\"item_id\":\"aebbaeafa3f64b8e841029025206574e\",\"purpose\":\"consistency\",\"method\":\"focus_on_form\"},{\"item_id\":\"e71e7076c7504fea987e454e58de0764\",\"purpose\":\"accuracy\",\"method\":\"repeat_and_review\"},{\"item_id\":\"0e36c972de984f01870a5d2947ea0a09\",\"purpose\":\"control\",\"method\":\"compare_attempts\"}],\"quantity_relations\":[{\"kind\":\"remainder\",\"kind_span\":\"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\",\"unit\":\"minute\",\"total\":{\"value\":60,\"source_span\":\"\\ucd1d 60\\ubd84\"},\"items\":[{\"label\":\"\\ud37c\\ud305\",\"value\":20,\"source_span\":\"\\ud37c\\ud305 20\\ubd84 \\uace0\\uc815\"},{\"label\":\"\\uc5b4\\ud504\\ub85c\\uce58\",\"remainder\":true,\"source_span\":\"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\",\"parallel_group\":\"equal_rest\"},{\"label\":\"\\uc544\\uc774\\uc5b8\",\"remainder\":true,\"source_span\":\"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\",\"parallel_group\":\"equal_rest\"}]}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"forbidden\",\"external_change\":\"none\",\"source_span\":\"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud558\\uc9c0 \\ub9c8\\uc138\\uc694\",\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"\\ub0a8\\uc740 \\uc2dc\\uac04\\uc744 \\uc5b4\\ud504\\ub85c\\uce58\\uc640 \\uc544\\uc774\\uc5b8\\uc5d0 \\uade0\\ub4f1 \\ubc30\\ubd84\\ud574 \\uc8fc\\uc138\\uc694\"},{\"action\":\"lookup\",\"target\":\"web\",\"necessity\":\"forbidden\",\"source_span\":\"\\uc778\\ud130\\ub137 \\uac80\\uc0c9\\uc740 \\ud558\\uc9c0 \\ub9c8\\uc138\\uc694\"}]},\"reference\":{\"relation\":\"new\"}}",
+  "snapshot": {
+    "instruction_version": 1,
+    "requirements": [
+      {
+        "id": "a978fc911bbc48339a65c2c713e6be7c",
+        "kind": "total",
+        "target": "total",
+        "expected_values": {
+          "value": "60",
+          "unit": "minute"
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "총 60분"
+          }
+        ]
+      },
+      {
+        "id": "aebbaeafa3f64b8e841029025206574e",
+        "kind": "item",
+        "target": "aebbaeafa3f64b8e841029025206574e",
+        "expected_values": {
+          "label": "퍼팅",
+          "mode": "fixed",
+          "value": "20"
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": " 퍼팅 20분"
+          }
+        ]
+      },
+      {
+        "id": "96c247ba5a5a4abb90894b61cea07822",
+        "kind": "item",
+        "target": "96c247ba5a5a4abb90894b61cea07822",
+        "expected_values": {
+          "label": "드라이버",
+          "mode": "excluded",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "드라이버 제외"
+          }
+        ]
+      },
+      {
+        "id": "e71e7076c7504fea987e454e58de0764",
+        "kind": "item",
+        "target": "e71e7076c7504fea987e454e58de0764",
+        "expected_values": {
+          "label": "어프로치",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "남은 시간을 어프로치와 아이언에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "0e36c972de984f01870a5d2947ea0a09",
+        "kind": "item",
+        "target": "0e36c972de984f01870a5d2947ea0a09",
+        "expected_values": {
+          "label": "아이언",
+          "mode": "adjustable",
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "남은 시간을 어프로치와 아이언에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "7c7866b42b2941a5a8dfd130c9d43902",
+        "kind": "relation",
+        "target": "allocation",
+        "expected_values": {
+          "kind": "remainder",
+          "total_id": "a978fc911bbc48339a65c2c713e6be7c",
+          "item_ids": [
+            "e71e7076c7504fea987e454e58de0764",
+            "0e36c972de984f01870a5d2947ea0a09"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "남은 시간을 어프로치와 아이언에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      },
+      {
+        "id": "6f08e00f8a27467a9f7dcd8f3368f2f3",
+        "kind": "relation",
+        "target": "equal",
+        "expected_values": {
+          "kind": "equal",
+          "total_id": null,
+          "item_ids": [
+            "e71e7076c7504fea987e454e58de0764",
+            "0e36c972de984f01870a5d2947ea0a09"
+          ],
+          "value": null
+        },
+        "sources": [
+          {
+            "event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+            "source_span": "남은 시간을 어프로치와 아이언에 균등 배분해 주세요. 인터넷 검색은 하지 마세요."
+          }
+        ]
+      }
+    ],
+    "unresolved": [],
+    "through_sequence": 1
+  },
+  "user_event_id": "E9d3b5ad363a742ef8632b165e305f01d",
+  "observed_before": {
+    "decision": "result_error",
+    "reason": "item_identity_mismatch",
+    "reply": "요청을 완료하지 못했습니다: result_error (required_result_missing:answer) (incomplete)",
+    "task_status": "IN_PROGRESS"
+  }
+}

@@ -1,0 +1,251 @@
+{
+ "case": "E1_single_artifact",
+ "turn": 2,
+ "request": "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.",
+ "design": {
+  "goal": "기존 t24_todo.md를 읽어 오늘 할 일 세 개를 유지한 채 할 일 하나를 더 추가한다.",
+  "request_type": "modify",
+  "task_relation": "continue",
+  "task_id": "b465cd1b3cc54bf8a20abb9c74e42c68",
+  "route": "execute",
+  "constraints": [
+   {
+    "text": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+    "source_ids": [
+     "E15c28f435a2b4637a0441f0043fe385a"
+    ]
+   },
+   {
+    "text": "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.",
+    "source_ids": [
+     "E9f79b85891b44a898b35c6cc568956f1"
+    ]
+   }
+  ],
+  "information_needs": [
+   {
+    "id": "current_todo",
+    "required": true,
+    "question": "t24_todo.md의 현재 내용과 기존 할 일 세 개는 무엇인가?",
+    "source_kind": "file",
+    "scope": "current_task",
+    "query": "t24_todo.md",
+    "source_ids": [
+     "E15c28f435a2b4637a0441f0043fe385a"
+    ],
+    "acceptance": "파일을 다시 읽어 기존 할 일 목록 전문을 확인한 뒤에만 수정한다.",
+    "target": "t24_todo.md",
+    "required_range": {
+     "unit": "all",
+     "start": 1,
+     "end": null
+    },
+    "result_kind": null,
+    "expected_values": {}
+   }
+  ],
+  "capabilities_needed": [
+   "read_file",
+   "edit_file",
+   "code-modify"
+  ],
+  "completion_checks": [
+   "t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다."
+  ],
+  "unresolved": [],
+  "answer": null,
+  "completion_specs": [
+   {
+    "check": "t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.",
+    "result_kind": "file_content",
+    "target": "t24_todo.md",
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "external_resource",
+   "lookup": "required",
+   "external_change": "required",
+   "source_span": "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.",
+   "keep_constraints": [
+    "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘."
+   ],
+   "change_constraints": [
+    "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘."
+   ],
+   "relations": [
+    {
+     "action": "edit",
+     "target": "external_resource",
+     "necessity": "required",
+     "source_span": "아까 만든 문서를 수정해서",
+     "target_ref": "t24_todo.md",
+     "condition": null
+    },
+    {
+     "action": "lookup",
+     "target": "external_resource",
+     "necessity": "required",
+     "source_span": "아까 만든 문서를 수정해서",
+     "target_ref": "t24_todo.md",
+     "condition": "수정 전에 현재 파일 내용을 읽는다"
+    },
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "required",
+     "source_span": "할 일을 하나 더 추가해 줘.",
+     "target_ref": "t24_todo.md",
+     "condition": "기존 세 항목은 유지하고 항목 하나만 추가한다"
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "edit",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘",
+   "target_ref": "아까 만든 문서",
+   "origin": "parser",
+   "bound_id": "t24_todo.md",
+   "resolved": true
+  },
+  {
+   "action": "write",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘",
+   "target_ref": "아까 만든 문서",
+   "origin": "parser",
+   "bound_id": "t24_todo.md",
+   "resolved": true
+  },
+  {
+   "action": "lookup",
+   "target": "external_resource",
+   "necessity": "required",
+   "source_span": "아까 만든 문서를 수정해서",
+   "target_ref": "t24_todo.md",
+   "condition": "수정 전에 현재 파일 내용을 읽는다",
+   "origin": "model",
+   "bound_id": "t24_todo.md",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [
+  {
+   "name": "read_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "resolve_context_need",
+   "params": {
+    "need_id": "current_todo",
+    "finding": "t24_todo.md는 제목과 오늘 할 일 세 개로 구성되어 있다. 1) 오늘 일정과 우선순위를 확인한다. 2) 가장 중요한 업무 하나를 끝까지 처리한다. 3) 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.",
+    "tool_call_id": "call-b7ec44a0-9609-44a6-87a5-3f49d801d4b7-1|fc_6389ec90-fc29-9530-bb36-f49b33931736_1"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "read_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md",
+    "force": true
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "resolve_context_need",
+   "params": {
+    "need_id": "current_todo",
+    "finding": "강제 재읽기 결과 t24_todo.md는 제목과 오늘 할 일 세 개다. 1) 오늘 일정과 우선순위를 확인한다. 2) 가장 중요한 업무 하나를 끝까지 처리한다. 3) 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.",
+    "tool_call_id": "call-6a19ba2f-f464-4aff-91d5-0da854dd7c98-3|fc_e1e04e59-e578-9f03-9b75-41b9879c7f85_0"
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "edit_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md",
+    "old_text": "3. 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.\n",
+    "new_text": "3. 하루를 마무리하며 남은 일과 내일 할 일을 정리한다.\n4. 처리한 일과 미완료 항목을 짧게 기록한다.\n"
+   },
+   "mutating": true,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "read_file",
+   "params": {
+    "path": "/workspace/e2e/ws/t24_todo.md",
+    "force": true
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  },
+  {
+   "name": "record_context_completion",
+   "params": {
+    "check": "t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.",
+    "tool_call_ids": [
+     "call-5ab3ae83-95a3-4f04-aa57-33eb0e4cb102-5|fc_a6ca618e-cdf1-9770-9847-53c8dec09652_0",
+     "call-210b00a8-de3d-4f60-98ad-0b07ec1386d7-6|fc_80f44e3e-0134-9fc5-995d-98e0ad94580d_0"
+    ],
+    "status": "passed",
+    "finding": "기존 세 항목은 그대로이고, 네 번째 항목 '처리한 일과 미완료 항목을 짧게 기록한다'가 추가되어 총 네 개다."
+   },
+   "mutating": false,
+   "blocked": null,
+   "error": null
+  }
+ ],
+ "reply": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n이미 완료된 실행(취소로 되돌리지 않음): skill_decision [call-7cbe0dfb-707a-49ea-af8c-91e3112b7689-0|fc_4933cbf0-6777-9a52-be2b-cb39863bc38b_0], write_file [call-7cbe0dfb-707a-49ea-af8c-91e3112b7689-1|fc_4933cbf0-6777-9a52-be2b-cb39863bc38b_1], edit_file [call-5ab3ae83-95a3-4f04-aa57-33eb0e4cb102-5|fc_a6ca618e-cdf1-9770-9847-53c8dec09652_0]\n남은 조건: requirement_unmet:lookup, completion_evidence_invalid_or_insufficient",
+ "unmet_reasons": [
+  "requirement_unmet:lookup"
+ ],
+ "unresolved_conditions": [
+  {
+   "kind": "evidence",
+   "code": "evidence_unresolved",
+   "detail": "required evidence version changed: current_todo"
+  }
+ ],
+ "validations": [
+  {
+   "route": "execute",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"기존 t24_todo.md를 읽어 오늘 할 일 세 개를 유지한 채 할 일 하나를 더 추가한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"b465cd1b3cc54bf8a20abb9c74e42c68\", \"route\": \"execute\", \"constraints\": [{\"text\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"]}, {\"text\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"source_ids\": [\"E9f79b85891b44a898b35c6cc568956f1\"]}], \"information_needs\": [{\"id\": \"current_todo\", \"required\": true, \"question\": \"t24_todo.md의 현재 내용과 기존 할 일 세 개는 무엇인가?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"t24_todo.md\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"], \"acceptance\": \"파일을 다시 읽어 기존 할 일 목록 전문을 확인한 뒤에만 수정한다.\", \"target\": \"t24_todo.md\", \"required_range\": {\"unit\": \"all\", \"start\": 1, \"end\": null}}], \"capabilities_needed\": [\"read_file\", \"edit_file\", \"code-modify\"], \"completion_checks\": [\"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\", \"result_kind\": \"file_content\", \"target\": \"t24_todo.md\"}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"required\", \"external_change\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"keep_constraints\": [\"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\"], \"change_constraints\": [\"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": null}, {\"action\": \"lookup\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": \"수정 전에 현재 파일 내용을 읽는다\"}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"할 일을 하나 더 추가해 줘.\", \"target_ref\": \"t24_todo.md\", \"condition\": \"기존 세 항목은 유지하고 항목 하나만 추가한다\"}",
+   "parsed": false,
+   "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 1960 (char 1959)"
+  },
+  {
+   "raw": "{\"goal\": \"기존 t24_todo.md를 읽어 오늘 할 일 세 개를 유지한 채 할 일 하나를 더 추가한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"b465cd1b3cc54bf8a20abb9c74e42c68\", \"route\": \"execute\", \"constraints\": [{\"text\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"]}, {\"text\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"source_ids\": [\"E9f79b85891b44a898b35c6cc568956f1\"]}], \"information_needs\": [{\"id\": \"current_todo\", \"required\": true, \"question\": \"t24_todo.md의 현재 내용과 기존 할 일 세 개는 무엇인가?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"t24_todo.md\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"], \"acceptance\": \"파일을 다시 읽어 기존 할 일 목록 전문을 확인한 뒤에만 수정한다.\", \"target\": \"t24_todo.md\", \"required_range\": {\"unit\": \"all\", \"start\": 1, \"end\": null}}], \"capabilities_needed\": [\"read_file\", \"edit_file\", \"code-modify\"], \"completion_checks\": [\"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\", \"result_kind\": \"file_content\", \"target\": \"t24_todo.md\"}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"required\", \"external_change\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"keep_constraints\": [\"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\"], \"change_constraints\": [\"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": null}, {\"action\": \"lookup\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": \"수정 전에 현재 파일 내용을 읽는다\"}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"할 일을 하나 더 추가해 줘.\", \"target_ref\": \"t24_todo.md\", \"condition\": \"기존 세 항목은 유지하고 항목 하나만 추가한다\"}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"기존 t24_todo.md를 읽어 오늘 할 일 세 개를 유지한 채 할 일 하나를 더 추가한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"b465cd1b3cc54bf8a20abb9c74e42c68\", \"route\": \"execute\", \"constraints\": [{\"text\": \"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"]}, {\"text\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"source_ids\": [\"E9f79b85891b44a898b35c6cc568956f1\"]}], \"information_needs\": [{\"id\": \"current_todo\", \"required\": true, \"question\": \"t24_todo.md의 현재 내용과 기존 할 일 세 개는 무엇인가?\", \"source_kind\": \"file\", \"scope\": \"current_task\", \"query\": \"t24_todo.md\", \"source_ids\": [\"E15c28f435a2b4637a0441f0043fe385a\"], \"acceptance\": \"파일을 다시 읽어 기존 할 일 목록 전문을 확인한 뒤에만 수정한다.\", \"target\": \"t24_todo.md\", \"required_range\": {\"unit\": \"all\", \"start\": 1, \"end\": null}}], \"capabilities_needed\": [\"read_file\", \"edit_file\", \"code-modify\"], \"completion_checks\": [\"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\"], \"unresolved\": [], \"answer\": null, \"completion_specs\": [{\"check\": \"t24_todo.md를 현재 내용 기준으로 수정했고, 기존 오늘 할 일 세 개는 유지한 채 할 일이 하나 더 추가되어 총 네 개이다.\", \"result_kind\": \"file_content\", \"target\": \"t24_todo.md\"}], \"obligations\": {\"target\": \"external_resource\", \"lookup\": \"required\", \"external_change\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\", \"keep_constraints\": [\"t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.\"], \"change_constraints\": [\"아까 만든 문서를 수정해서 할 일을 하나 더 추가해 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": null}, {\"action\": \"lookup\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"아까 만든 문서를 수정해서\", \"target_ref\": \"t24_todo.md\", \"condition\": \"수정 전에 현재 파일 내용을 읽는다\"}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"required\", \"source_span\": \"할 일을 하나 더 추가해 줘.\", \"target_ref\": \"t24_todo.md\", \"condition\": \"기존 세 항목은 유지하고 항목 하나만 추가한다\"}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "execute",
+ "stop_reason": "incomplete",
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

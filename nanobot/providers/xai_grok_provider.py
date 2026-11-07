@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import re
 import time
@@ -27,6 +28,7 @@ from nanobot.providers.base import (
     hosted_tools_enabled,
     resolve_stream_idle_timeout_s,
 )
+from nanobot.providers.call_observation import observe, schedule_cleanup, transport_trace
 from nanobot.providers.openai_responses import (
     consume_sse_with_reasoning,
     convert_messages,
@@ -124,7 +126,9 @@ class XAIGrokProvider(LLMProvider):
 
         stage = "oauth_token"
         try:
+            observe("authentication_started")
             token = await asyncio.to_thread(get_xai_oauth_token, proxy=self.proxy)
+            observe("authentication_finished")
             supports_backend_search = False
             if self._hosted_search and hosted_tools_enabled():
                 stage = "model_capabilities"
@@ -154,6 +158,13 @@ class XAIGrokProvider(LLMProvider):
                         "stream_tool_calls": True,
                     }
                 )
+                # The restricted designer has exactly one valid delivery function.
+                # Select it explicitly instead of allowing message text before a later call.
+                if (tool_choice == "required" and len(converted_tools) == 1
+                        and converted_tools[0].get("type") == "function"
+                        and converted_tools[0].get("name") == "submit_context_design"):
+                    body["tool_choice"] = {"type": "function", "name": "submit_context_design"}
+                    body["parallel_tool_calls"] = False
             # Without tools, xAI rejects tool_choice ("no tools were specified", HTTP 400).
             reasoning = _build_reasoning_options(reasoning_effort)
             if reasoning:
@@ -163,6 +174,18 @@ class XAIGrokProvider(LLMProvider):
             # so callers must not treat this as a guaranteed disable.
             if self._extra_body:
                 body.update(self._extra_body)
+
+            observe("wire_options", model=body.get("model"), stream=body.get("stream"),
+                    reasoning_effort=(body.get("reasoning") or {}).get("effort"),
+                    max_output_tokens=body.get("max_output_tokens"),
+                    tool_choice=body.get("tool_choice"), tool_count=len(body.get("tools") or []))
+            wire_tools = body.get("tools") or []
+            if len(wire_tools) == 1 and wire_tools[0].get("name") == "submit_context_design":
+                from nanobot.agent.context_trace import estimate_component
+
+                observe("wire_schema", schema_hash=hashlib.sha256(json.dumps(
+                    wire_tools[0].get("parameters") or {}, sort_keys=True).encode()).hexdigest(),
+                    bytes=len(json.dumps(body).encode()), estimated_tokens=estimate_component(body))
 
             headers = _build_headers(token.access, wire_model)
             stage = "xai_request"
@@ -180,6 +203,7 @@ class XAIGrokProvider(LLMProvider):
                 if exc.status_code != 401:
                     raise
                 stage = "oauth_refresh"
+                observe("authentication_retry_started", http_status=401)
                 token = await asyncio.to_thread(
                     get_xai_oauth_token,
                     proxy=self.proxy,
@@ -189,6 +213,7 @@ class XAIGrokProvider(LLMProvider):
                 self._model_capabilities_fetched_at = 0.0
                 headers = _build_headers(token.access, wire_model)
                 stage = "xai_request_retry"
+                observe("authentication_retry_finished")
                 result = await _request_xai(
                     DEFAULT_XAI_GROK_URL,
                     headers,
@@ -442,18 +467,32 @@ async def _request_xai(
     client_kwargs: dict[str, Any] = {"timeout": resolve_stream_idle_timeout_s()}
     if proxy:
         client_kwargs.update(proxy=proxy, trust_env=False)
-    async with httpx.AsyncClient(**client_kwargs) as client:
-        async with client.stream("POST", url, headers=headers, json=body) as response:
-            if response.status_code != 200:
-                content = await response.aread()
-                raw = content.decode("utf-8", "ignore")
-                raise _build_xai_http_error(response.status_code, response.headers, raw)
-            return await consume_sse_with_reasoning(
-                response,
-                on_content_delta=on_content_delta,
-                on_tool_call_delta=on_tool_call_delta,
-                on_reasoning_delta=on_thinking_delta,
-            )
+    client = httpx.AsyncClient(**client_kwargs)
+    stream_context = None
+    try:
+        await client.__aenter__()
+        observe("request_dispatch", timeout_seconds=client_kwargs["timeout"])
+        stream_context = client.stream("POST", url, headers=headers, json=body,
+                                       extensions={"trace": transport_trace})
+        response = await stream_context.__aenter__()
+        observe("response_headers", http_status=response.status_code)
+        if response.status_code != 200:
+            content = await response.aread()
+            raw = content.decode("utf-8", "ignore")
+            raise _build_xai_http_error(response.status_code, response.headers, raw)
+        return await consume_sse_with_reasoning(
+            response,
+            on_content_delta=on_content_delta,
+            on_tool_call_delta=on_tool_call_delta,
+            on_reasoning_delta=on_thinking_delta,
+        )
+    finally:
+        # Async context-manager exits may themselves hang or raise. A completed
+        # terminal result must return before disposal and its independent budget.
+        closers = [lambda: client.__aexit__(None, None, None)]
+        if stream_context is not None:
+            closers.insert(0, lambda: stream_context.__aexit__(None, None, None))
+        schedule_cleanup(*closers)
 
 
 def _build_xai_http_error(

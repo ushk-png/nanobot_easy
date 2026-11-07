@@ -18,6 +18,7 @@ from nanobot.providers.base import (
     ToolCallRequest,
     resolve_stream_idle_timeout_s,
 )
+from nanobot.providers.call_observation import observe, schedule_cleanup, transport_trace
 from nanobot.providers.openai_responses import (
     consume_sse_with_reasoning,
     convert_messages,
@@ -220,27 +221,39 @@ async def _request_codex(
     if proxy:
         client_kwargs["proxy"] = proxy
         client_kwargs["trust_env"] = False
-    async with httpx.AsyncClient(**client_kwargs) as client:
-        async with client.stream("POST", url, headers=headers, json=body) as response:
-            if response.status_code != 200:
-                text = await response.aread()
-                raw = text.decode("utf-8", "ignore")
-                retry_after = LLMProvider._extract_retry_after_from_headers(response.headers)
-                error_type, error_code = LLMProvider._extract_error_type_code(raw)
-                raise _CodexHTTPError(
-                    _friendly_error(response.status_code, raw),
-                    status_code=response.status_code,
-                    retry_after=retry_after,
-                    error_type=error_type,
-                    error_code=error_code,
-                    should_retry=_should_retry_status(response.status_code, error_type, error_code, raw),
-                )
-            return await consume_sse_with_reasoning(
-                response,
-                on_content_delta=on_content_delta,
-                on_tool_call_delta=on_tool_call_delta,
-                on_reasoning_delta=on_thinking_delta,
+    client = httpx.AsyncClient(**client_kwargs)
+    stream_context = None
+    try:
+        await client.__aenter__()
+        observe("request_dispatch", timeout_seconds=idle_timeout_s)
+        stream_context = client.stream("POST", url, headers=headers, json=body,
+                                       extensions={"trace": transport_trace})
+        response = await stream_context.__aenter__()
+        observe("response_headers", http_status=response.status_code)
+        if response.status_code != 200:
+            text = await response.aread()
+            raw = text.decode("utf-8", "ignore")
+            retry_after = LLMProvider._extract_retry_after_from_headers(response.headers)
+            error_type, error_code = LLMProvider._extract_error_type_code(raw)
+            raise _CodexHTTPError(
+                _friendly_error(response.status_code, raw),
+                status_code=response.status_code,
+                retry_after=retry_after,
+                error_type=error_type,
+                error_code=error_code,
+                should_retry=_should_retry_status(response.status_code, error_type, error_code, raw),
             )
+        return await consume_sse_with_reasoning(
+            response,
+            on_content_delta=on_content_delta,
+            on_tool_call_delta=on_tool_call_delta,
+            on_reasoning_delta=on_thinking_delta,
+        )
+    finally:
+        closers = [lambda: client.__aexit__(None, None, None)]
+        if stream_context is not None:
+            closers.insert(0, lambda: stream_context.__aexit__(None, None, None))
+        schedule_cleanup(*closers)
 
 
 def _prompt_cache_key(messages: list[dict[str, Any]]) -> str:

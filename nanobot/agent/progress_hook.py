@@ -108,8 +108,11 @@ class AgentProgressHook(AgentHook):
         )
 
     async def before_execute_tools(self, context: AgentHookContext) -> None:
+        from nanobot.agent.task_note import active_task_note
+
         if self._on_progress:
-            if not self._on_stream and not context.streamed_content:
+            if (not self._on_stream and not context.streamed_content
+                    and active_task_note.get() is None):
                 thought = self._strip_think(context.response.content if context.response else None)
                 if thought:
                     await self._on_progress(thought)
@@ -121,9 +124,13 @@ class AgentProgressHook(AgentHook):
                 tool_hint=True,
                 tool_events=tool_events,
             )
+        from nanobot.agent.context_trace import active_context_trace
         for tc in context.tool_calls:
-            args_str = json.dumps(tc.arguments, ensure_ascii=False)
-            logger.info("Tool call: {}({})", tc.name, args_str[:200])
+            if active_context_trace.get() is not None:
+                logger.info("Tool call: {} (arguments omitted for context selection privacy)", tc.name)
+            else:
+                args_str = json.dumps(tc.arguments, ensure_ascii=False)
+                logger.info("Tool call: {}({})", tc.name, args_str[:200])
         if self._set_tool_context:
             self._set_tool_context(
                 self._channel,

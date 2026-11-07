@@ -25,7 +25,7 @@ _FORUM_HOST_RE = re.compile(r"(^|\.)(reddit\.com|stackoverflow\.com|stackexchang
 
 
 def normalize_independence_key(url_or_path: str) -> str:
-    """Return a coarse origin key for duplicate/independence grouping."""
+    """Return a coarse origin hint, not proof that documents are independent."""
     parsed = urlparse(url_or_path)
     host = (parsed.netloc or "").lower()
     if host.startswith("www."):
@@ -114,11 +114,15 @@ class FreshnessPolicy:
         return item
 
 
-def dedupe_by_independence(items: Iterable[EvidenceItem]) -> list[EvidenceItem]:
-    """Keep the strongest item for each origin/independence key."""
-    best: dict[str, EvidenceItem] = {}
+def dedupe_by_document(items: Iterable[EvidenceItem]) -> list[EvidenceItem]:
+    """Collapse repeated locators without discarding other documents by that source.
+
+    Preserve query strings and fragments: they may identify distinct records.
+    Provenance grouping remains available separately via independence_key.
+    """
+    best: dict[tuple[str, str], EvidenceItem] = {}
     for item in items:
-        key = item.independence_key or normalize_independence_key(item.url_or_path) or item.id
+        key = (item.source_type, item.url_or_path.strip() or item.id)
         previous = best.get(key)
         if previous is None:
             best[key] = item

@@ -4,6 +4,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from contextlib import contextmanager, suppress
@@ -643,13 +644,56 @@ class LLMProvider(ABC):
         return found
 
     async def _safe_chat(self, **kwargs: Any) -> LLMResponse:
-        """Call chat() and convert unexpected exceptions to error responses."""
+        """Journal the attempt before sending, independently of turn completion."""
+        from nanobot.agent.context_trace import active_context_trace
+        trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
+        from nanobot.agent.task_budget import active_budget
+        budget = active_budget()
+        if budget is not None and (refused := budget.acquire()) is not None:
+            # t54: checked and decremented right before the actual send; nothing is sent.
+            return LLMResponse(content="Error calling LLM: request budget exhausted (" + refused + ")",
+                               finish_reason="error", error_kind="budget_exhausted", error_should_retry=False)
+        attempt = trace.begin(kwargs) if trace else None
+        from functools import partial
+
+        from nanobot.providers.call_observation import call_clock, observe, observer
+        observation_token = observer.set(partial(trace.mark, attempt=attempt) if trace else None)
+        started = time.monotonic()
+        clock_token = call_clock.set((started, time.time()))
         try:
-            return await self.chat(**kwargs)
+            observe("provider_call_started", provider=type(self).__name__, model=kwargs.get("model"),
+                    reasoning_effort=kwargs.get("reasoning_effort"),
+                    max_output_tokens=kwargs.get("max_tokens"), tool_choice=kwargs.get("tool_choice"),
+                    tool_count=len(kwargs.get("tools") or []))
+            limit = budget.cap(None) if budget is not None else None
+            if limit is not None:
+                async with asyncio.timeout(limit):     # whole-request deadline caps this wait
+                    response = await self.chat(**kwargs)
+            else:
+                response = await self.chat(**kwargs)
         except asyncio.CancelledError:
+            observe("cancellation_received")
+            if trace:
+                trace.end(attempt, None, time.monotonic() - started, "cancelled")
             raise
+        except TimeoutError:
+            if budget is None or budget.cap(None) is None or budget.remaining_s() > 0:
+                raise
+            budget.stop("budget_deadline")
+            response = LLMResponse(content="Error calling LLM: request deadline reached", finish_reason="error",
+                                   error_kind="budget_exhausted", error_should_retry=False)
         except Exception as exc:
-            return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+        finally:
+            observe("provider_call_returned")
+            observer.reset(observation_token)
+            call_clock.reset(clock_token)
+        if budget is not None:
+            # t55: every SENT call is accounted; a call cut at the deadline has unknown usage (not 0).
+            budget.record_usage(getattr(response, "usage", None))
+        if trace:
+            trace.end(attempt, response, time.monotonic() - started)
+        return response
 
     async def chat_stream(
         self,
@@ -687,13 +731,56 @@ class LLMProvider(ABC):
         return response
 
     async def _safe_chat_stream(self, **kwargs: Any) -> LLMResponse:
-        """Call chat_stream() and convert unexpected exceptions to error responses."""
+        """Journal the attempt before sending, independently of turn completion."""
+        from nanobot.agent.context_trace import active_context_trace
+        trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
+        from nanobot.agent.task_budget import active_budget
+        budget = active_budget()
+        if budget is not None and (refused := budget.acquire()) is not None:
+            # t54: checked and decremented right before the actual send; nothing is sent.
+            return LLMResponse(content="Error calling LLM: request budget exhausted (" + refused + ")",
+                               finish_reason="error", error_kind="budget_exhausted", error_should_retry=False)
+        attempt = trace.begin(kwargs) if trace else None
+        from functools import partial
+
+        from nanobot.providers.call_observation import call_clock, observe, observer
+        observation_token = observer.set(partial(trace.mark, attempt=attempt) if trace else None)
+        started = time.monotonic()
+        clock_token = call_clock.set((started, time.time()))
         try:
-            return await self.chat_stream(**kwargs)
+            observe("provider_call_started", provider=type(self).__name__, model=kwargs.get("model"),
+                    reasoning_effort=kwargs.get("reasoning_effort"),
+                    max_output_tokens=kwargs.get("max_tokens"), stream=True,
+                    tool_choice=kwargs.get("tool_choice"), tool_count=len(kwargs.get("tools") or []))
+            limit = budget.cap(None) if budget is not None else None
+            if limit is not None:
+                async with asyncio.timeout(limit):     # whole-request deadline caps this wait
+                    response = await self.chat_stream(**kwargs)
+            else:
+                response = await self.chat_stream(**kwargs)
         except asyncio.CancelledError:
+            observe("cancellation_received")
+            if trace:
+                trace.end(attempt, None, time.monotonic() - started, "cancelled")
             raise
+        except TimeoutError:
+            if budget is None or budget.cap(None) is None or budget.remaining_s() > 0:
+                raise
+            budget.stop("budget_deadline")
+            response = LLMResponse(content="Error calling LLM: request deadline reached", finish_reason="error",
+                                   error_kind="budget_exhausted", error_should_retry=False)
         except Exception as exc:
-            return LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+            response = LLMResponse(content=f"Error calling LLM: {exc}", finish_reason="error")
+        finally:
+            observe("provider_call_returned")
+            observer.reset(observation_token)
+            call_clock.reset(clock_token)
+        if budget is not None:
+            # t55: every SENT call is accounted; a call cut at the deadline has unknown usage (not 0).
+            budget.record_usage(getattr(response, "usage", None))
+        if trace:
+            trace.end(attempt, response, time.monotonic() - started)
+        return response
 
     async def chat_stream_with_retry(
         self,
@@ -710,8 +797,18 @@ class LLMProvider(ABC):
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
         retry_mode: str = "standard",
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
+        max_retries: int | None = None,
+        max_retry_delay_s: float | None = None,
+        retry_after_streamed_content: bool = False,
     ) -> LLMResponse:
-        """Call chat_stream() with retry on transient provider failures."""
+        """Call chat_stream() with retry on transient provider failures.
+
+        ``max_retries`` / ``max_retry_delay_s`` bound the schedule as in
+        :meth:`chat_with_retry`; ``None`` keeps the default schedule.
+        ``retry_after_streamed_content`` lets a caller whose deltas are internal
+        (not shown to a user) keep chat_with_retry's retry rule after text was
+        streamed; it must then reset its own buffer in ``on_retry_wait``.
+        """
         if max_tokens is self._SENTINEL or max_tokens is None:
             max_tokens = self.generation.max_tokens
         if temperature is self._SENTINEL or temperature is None:
@@ -750,8 +847,10 @@ class LLMProvider(ABC):
             messages,
             retry_mode=retry_mode,
             on_retry_wait=on_retry_wait,
-            should_retry_guard=lambda: not has_streamed_content,
+            should_retry_guard=None if retry_after_streamed_content else (lambda: not has_streamed_content),
             on_stream_recover=_recover_stream if on_stream_recover else None,
+            max_retries=max_retries,
+            max_retry_delay_s=max_retry_delay_s,
         )
 
     async def chat_with_retry(
@@ -765,8 +864,14 @@ class LLMProvider(ABC):
         tool_choice: str | dict[str, Any] | None = None,
         retry_mode: str = "standard",
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
+        max_retries: int | None = None,
+        max_retry_delay_s: float | None = None,
     ) -> LLMResponse:
         """Call chat() with retry on transient provider failures.
+
+        ``max_retries`` / ``max_retry_delay_s`` optionally bound the standard
+        retry schedule (number of re-sends, and the wait before each). ``None``
+        keeps the default schedule, so existing callers are unchanged.
 
         Parameters default to ``self.generation`` when not explicitly passed,
         so callers no longer need to thread temperature / max_tokens /
@@ -793,6 +898,8 @@ class LLMProvider(ABC):
             messages,
             retry_mode=retry_mode,
             on_retry_wait=on_retry_wait,
+            max_retries=max_retries,
+            max_retry_delay_s=max_retry_delay_s,
         )
 
     @classmethod
@@ -879,6 +986,12 @@ class LLMProvider(ABC):
         on_retry_wait: Callable[[str], Awaitable[None]] | None = None,
     ) -> None:
         remaining = max(0.0, delay)
+        from nanobot.agent.task_budget import active_budget
+        budget = active_budget()
+        if budget is not None and budget.cap(None) is not None and budget.cap(None) <= remaining:
+            # t54: a retry wait never outlives the request deadline; the next send is then refused.
+            budget.stop("budget_deadline")
+            return
         while remaining > 0:
             if on_retry_wait:
                 kind = "persistent retry" if persistent else "retry"
@@ -890,6 +1003,13 @@ class LLMProvider(ABC):
             await asyncio.sleep(chunk)
             remaining -= chunk
 
+    @staticmethod
+    def _retry_log_preview(response: LLMResponse) -> str:
+        from nanobot.agent.context_trace import active_context_trace
+        if active_context_trace.get() is not None:
+            return "[provider error text omitted for context selection privacy]"
+        return (response.content or "")[:120].lower()
+
     async def _run_with_retry(
         self,
         call: Callable[..., Awaitable[LLMResponse]],
@@ -900,9 +1020,13 @@ class LLMProvider(ABC):
         on_retry_wait: Callable[[str], Awaitable[None]] | None,
         should_retry_guard: Callable[[], bool] | None = None,
         on_stream_recover: Callable[[], Awaitable[None]] | None = None,
+        max_retries: int | None = None,
+        max_retry_delay_s: float | None = None,
     ) -> LLMResponse:
         attempt = 0
         delays = list(self._CHAT_RETRY_DELAYS)
+        if max_retries is not None:
+            delays = delays[:max(0, max_retries)]
         persistent = retry_mode == "persistent"
         last_response: LLMResponse | None = None
         last_error_key: str | None = None
@@ -964,7 +1088,7 @@ class LLMProvider(ABC):
                 logger.warning(
                     "Stopping persistent retry after {} identical transient errors: {}",
                     identical_error_count,
-                    (response.content or "")[:120].lower(),
+                    self._retry_log_preview(response),
                 )
                 if on_retry_wait:
                     await on_retry_wait(
@@ -976,7 +1100,7 @@ class LLMProvider(ABC):
                 logger.warning(
                     "LLM request failed after {} retries, giving up: {}",
                     attempt,
-                    (response.content or "")[:120].lower(),
+                    self._retry_log_preview(response),
                 )
                 if on_retry_wait:
                     await on_retry_wait(
@@ -988,20 +1112,29 @@ class LLMProvider(ABC):
             delay = self._extract_retry_after_from_response(response) or base_delay
             if persistent:
                 delay = min(delay, self._PERSISTENT_MAX_DELAY)
+            if max_retry_delay_s is not None:
+                delay = min(delay, max_retry_delay_s)
 
             logger.warning(
                 "LLM transient error (attempt {}{}), retrying in {}s: {}",
                 attempt,
                 "+" if persistent and attempt > len(delays) else f"/{len(delays)}",
                 int(round(delay)),
-                (response.content or "")[:120].lower(),
+                self._retry_log_preview(response),
             )
+            from nanobot.agent.context_trace import active_context_trace
+            trace = active_context_trace.get()
+            if trace and trace.calls:
+                trace.mark("retry_wait_started", attempt=trace.calls[-1]["attempt_id"],
+                           delay_ms=round(delay * 1000))
             await self._sleep_with_heartbeat(
                 delay,
                 attempt=attempt,
                 persistent=persistent,
                 on_retry_wait=on_retry_wait,
             )
+            if trace and trace.calls:
+                trace.mark("retry_wait_finished", attempt=trace.calls[-1]["attempt_id"])
 
         return last_response if last_response is not None else await call(**kw)
 

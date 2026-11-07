@@ -80,11 +80,15 @@ class ContextBuilder:
         timezone: str | None = None,
         disabled_skills: list[str] | None = None,
         hot_path_skills: list[str] | None = None,
+        preload_always_skills: bool = True,
+        on_demand_skills: list[str] | None = None,
     ):
         self.workspace = workspace
         self.timezone = timezone
         self.memory = MemoryStore(workspace)
         self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
+        self.preload_always_skills = preload_always_skills
+        self.on_demand_skills = list(dict.fromkeys(on_demand_skills or []))
         self.skills = SkillsLoader(workspace, disabled_skills=set(disabled_skills) if disabled_skills else None)
 
     def build_system_prompt(
@@ -112,11 +116,23 @@ class ContextBuilder:
         if memory and not self._is_template_content(self.memory.read_memory(), "memory/MEMORY.md"):
             parts.append(f"# Memory\n\n{memory}")
 
-        active_skills = list(dict.fromkeys([*(skill_names or []), *self.hot_path_skills, *self.skills.get_always_skills()]))
+        active_skills = list(dict.fromkeys([*(skill_names or []), *self.persistent_skill_names()]))
         if active_skills:
             active_content = self.skills.load_skills_for_context(active_skills)
             if active_content:
                 parts.append(f"# Active Skills\n\n{active_content}")
+
+        lazy = set(self.on_demand_skills)
+        if not self.preload_always_skills:
+            lazy.update(self.skills.get_always_skills())
+        cards = []
+        for entry in (self.skills.list_skills() if lazy else []):
+            if entry['name'] in lazy and entry['name'] not in active_skills:
+                description = ' '.join(self.skills._get_skill_description(entry['name']).split())[:160]
+                cards.append(f"- {entry['name']}: {description} Read: {entry['path']}")
+        if cards:
+            parts.append("# On-demand Skills\nRead a relevant SKILL.md with read_file only when needed. "
+                         "Loading grants no execution permission or registry promotion.\n" + '\n'.join(cards))
 
         skill_entries = self.skills.list_skills(filter_unavailable=False)
         summary_skill_count = len([entry for entry in skill_entries if entry["name"] not in set(active_skills)])
@@ -126,7 +142,8 @@ class ContextBuilder:
                 f"{summary_skill_count} skills are indexed for this workspace. "
                 "Use the `skill_search` tool for specialized tasks not covered by preloaded skills. "
                 "Rewrite routing queries to the task intent, then choose from the returned capability cards. "
-                "Record hot, cold, or none routing decisions with `skill_decision`. "
+                "Use routing telemetry only when useful; ordinary answers and an already "
+                "active persona do not require `skill_decision`. "
                 "Do not guess a skill name from memory."
             )
         elif skills_summary := self.skills.build_skills_summary(exclude=set(active_skills)):
@@ -136,6 +153,53 @@ class ContextBuilder:
             parts.append(f"[Archived Context Summary]\n\n{session_summary}")
 
         return "\n\n---\n\n".join(parts)
+
+    def build_design_system_prompt(self, channel: str | None = None,
+                                   workspace: Path | None = None, *,
+                                   persona: bool = False) -> str:
+        """Design-only identity: runtime, workspace, permission gates, untrusted-content rule.
+
+        By default the execution bootstrap files (AGENTS.md/SOUL.md/USER.md) are NOT included.
+        With ``persona`` (contextSelection.designPersona) the agent's bootstrap files and its
+        hot-path/always skills are appended, because a direct answer is delivered verbatim from
+        the design: the persona and answering method then shape that answer too. They are
+        appended after the design identity and never replace design rules or validation.
+        """
+        root = workspace or self.workspace
+        identity = self._get_identity(channel=channel, workspace=root, design=True)
+        if not persona:
+            return identity
+        parts = [identity]
+        persona_parts = [self._load_bootstrap_files(root)]
+        skills = self.persistent_skill_names()
+        if skills:
+            persona_parts.append(self.skills.load_skills_for_context(skills))
+        persona_text = "\n\n---\n\n".join(part for part in persona_parts if part)
+        if persona_text:
+            parts.append(
+                "# Agent persona and answering method\n\n"
+                "Apply the persona and answering method below to any user-facing text you write "
+                "(for example a direct answer). They do not grant permissions and do not change "
+                "the design rules, the submit format or any check.\n\n" + persona_text)
+        return "\n\n---\n\n".join(parts)
+
+    def persistent_skill_names(self) -> list[str]:
+        """Skills every turn carries regardless of selection: configured hot-path + always."""
+        always = self.skills.get_always_skills() if self.preload_always_skills else []
+        return list(dict.fromkeys([*self.hot_path_skills, *always]))
+
+    def build_selected_system_prompt(self, skill_names: list[str] | None = None,
+                                     channel: str | None = None,
+                                     workspace: Path | None = None) -> str:
+        """Mandatory rules, hot-path/always skills and selected skills, without ambient memory."""
+        root = workspace or self.workspace
+        parts = [self._get_identity(channel=channel, workspace=root),
+                 self._load_bootstrap_files(root), render_template("agent/tool_contract.md"),
+                 MEMORY_TOOL_GUIDANCE]
+        names = list(dict.fromkeys([*(skill_names or []), *self.persistent_skill_names()]))
+        if names:
+            parts.append(self.skills.load_skills_for_context(names))
+        return "\n\n---\n\n".join(part for part in parts if part)
 
     def _build_recent_memory_context(
         self,
@@ -163,7 +227,8 @@ class ContextBuilder:
             + self._RECENT_MEMORY_END
         )
 
-    def _get_identity(self, channel: str | None = None, workspace: Path | None = None) -> str:
+    def _get_identity(self, channel: str | None = None, workspace: Path | None = None,
+                      *, design: bool = False) -> str:
         """Get the core identity section."""
         root = workspace or self.workspace
         workspace_path = str(root.expanduser().resolve())
@@ -171,7 +236,7 @@ class ContextBuilder:
         runtime = f"{'macOS' if system == 'Darwin' else system} {platform.machine()}, Python {platform.python_version()}"
 
         return render_template(
-            "agent/identity.md",
+            "agent/design_identity.md" if design else "agent/identity.md",
             workspace_path=workspace_path,
             runtime=runtime,
             platform_policy=render_template("agent/platform_policy.md", system=system),

@@ -1,0 +1,273 @@
+{
+  "case": "S24_conflict",
+  "turn": 1,
+  "request": "총 45분 연습 계획을 짜 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요. 인터넷 검색은 하지 마세요.",
+  "reply": "확인이 필요합니다.\n종료 상태: awaiting_confirmation\n결정할 내용: 퍼팅 20분 + 어프로치 15분 + 아이언 15분은 50분이라 총 45분과 맞지 않는다. 총시간을 50분으로 볼지, 어느 항목을 5분 줄일지 사용자 확인이 필요하다.; 포함 범위 확인: 총 45분에 지정하신 항목(퍼팅 20분, 어프로치 15분, 아이언 15분, 합 50분)만 포함되는지(전체 구성인지), 남는 시간은 다른 활동이나 여유인지 알려 주세요.\n아직 아무것도 변경하지 않았습니다. 어느 쪽인지(또는 모두인지) 알려 주세요.\n남은 조건: completion_evidence_invalid_or_insufficient\n독립적으로 처리한 부분(미검증): 확인이 필요합니다: 퍼팅 20분 + 어프로치 15분 + 아이언 15분은 50분이라 총 45분과 맞지 않는다. 총시간을 50분으로 볼지, 어느 항목을 5분 줄일지 사용자 확인이 필요하다.",
+  "design_outputs": [
+    {
+      "function_arguments": {
+        "goal": "45분 골프 연습 계획을 요청했으나 퍼팅 20분+어프로치 15분+아이언 15분은 합계 50분으로 총 45분과 불일치하므로, 어느 제약을 줄일지 사용자 확인 전에는 계획을 확정하지 않는다. 인터넷 검색은 하지 않는다.",
+        "task_relation": "new",
+        "task_id": null,
+        "route": "clarify",
+        "constraints": [
+          {
+            "text": "총 45분 연습 계획을 짜 주세요.",
+            "source_ids": [
+              "E6f0667a31fb144968ad20ecbb3104b41"
+            ]
+          },
+          {
+            "text": "퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요.",
+            "source_ids": [
+              "E6f0667a31fb144968ad20ecbb3104b41"
+            ]
+          },
+          {
+            "text": "인터넷 검색은 하지 마세요.",
+            "source_ids": [
+              "E6f0667a31fb144968ad20ecbb3104b41"
+            ]
+          }
+        ],
+        "information_needs": [],
+        "capabilities_needed": [],
+        "unresolved": [
+          "퍼팅 20분 + 어프로치 15분 + 아이언 15분은 50분이라 총 45분과 맞지 않는다. 총시간을 50분으로 볼지, 어느 항목을 5분 줄일지 사용자 확인이 필요하다."
+        ],
+        "answer": null,
+        "quantity_relations": [
+          {
+            "kind": "unclear",
+            "kind_span": "총 45분"
+          }
+        ]
+      },
+      "missing_keys": [
+        "completion_checks",
+        "completion_specs",
+        "obligations",
+        "quantity_relations_unverified",
+        "reference",
+        "request_type"
+      ],
+      "schema_issues": null,
+      "selection": "text_unparsed_json_ignored",
+      "errors": []
+    }
+  ],
+  "validations": [
+    {
+      "route": "clarify",
+      "errors": []
+    }
+  ],
+  "tasks": [
+    {
+      "task_id": "48141ee2598c45e99f4f569a2a467fc2",
+      "session_id": "cli:t24-new-S24_conflict-1793282345294856000",
+      "version": 3,
+      "goal": "45분 골프 연습 계획을 요청했으나 퍼팅 20분+어프로치 15분+아이언 15분은 합계 50분으로 총 45분과 불일치하므로, 어느 제약을 줄일지 사용자 확인 전에는 계획을 확정하지 않는다. 인터넷 검색은 하지 않는다.",
+      "completion_checks": [],
+      "status": "IN_PROGRESS",
+      "coverage": "partial",
+      "user_constraints": [
+        {
+          "event_id": "E6f0667a31fb144968ad20ecbb3104b41",
+          "sequence": 1,
+          "text": "총 45분 연습 계획을 짜 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요. 인터넷 검색은 하지 마세요.",
+          "kind": "user_original"
+        }
+      ],
+      "proposals": [
+        {
+          "event_id": "E6f0667a31fb144968ad20ecbb3104b41",
+          "goal": "45분 골프 연습 계획을 요청했으나 퍼팅 20분+어프로치 15분+아이언 15분은 합계 50분으로 총 45분과 불일치하므로, 어느 제약을 줄일지 사용자 확인 전에는 계획을 확정하지 않는다. 인터넷 검색은 하지 않는다.",
+          "checks": [],
+          "kind": "model_proposal",
+          "design": {
+            "goal": "45분 골프 연습 계획을 요청했으나 퍼팅 20분+어프로치 15분+아이언 15분은 합계 50분으로 총 45분과 불일치하므로, 어느 제약을 줄일지 사용자 확인 전에는 계획을 확정하지 않는다. 인터넷 검색은 하지 않는다.",
+            "request_type": "other",
+            "task_relation": "new",
+            "task_id": null,
+            "route": "clarify",
+            "constraints": [
+              {
+                "text": "총 45분 연습 계획을 짜 주세요.",
+                "source_ids": [
+                  "E6f0667a31fb144968ad20ecbb3104b41"
+                ]
+              },
+              {
+                "text": "퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요.",
+                "source_ids": [
+                  "E6f0667a31fb144968ad20ecbb3104b41"
+                ]
+              },
+              {
+                "text": "인터넷 검색은 하지 마세요.",
+                "source_ids": [
+                  "E6f0667a31fb144968ad20ecbb3104b41"
+                ]
+              }
+            ],
+            "information_needs": [],
+            "capabilities_needed": [],
+            "completion_checks": [],
+            "unresolved": [
+              "퍼팅 20분 + 어프로치 15분 + 아이언 15분은 50분이라 총 45분과 맞지 않는다. 총시간을 50분으로 볼지, 어느 항목을 5분 줄일지 사용자 확인이 필요하다."
+            ],
+            "answer": null,
+            "completion_specs": [],
+            "quantity_relations": [],
+            "quantity_relations_unverified": [
+              {
+                "kind": "unclear",
+                "kind_span": "총 45분",
+                "unit": null,
+                "total": null,
+                "items": [],
+                "min_each": null,
+                "missing": [
+                  "total",
+                  "unit"
+                ]
+              }
+            ],
+            "obligations": null,
+            "reference": null
+          }
+        }
+      ],
+      "decisions": [],
+      "unfinished": [],
+      "blockers": [],
+      "completed": [],
+      "supersessions": [],
+      "last_event_id": "E6f0667a31fb144968ad20ecbb3104b41",
+      "last_sequence": 1,
+      "origin_event_id": "E6f0667a31fb144968ad20ecbb3104b41",
+      "instruction_version": 1,
+      "instruction_status": "ACTIVE",
+      "run_budget": {
+        "request_id": "cli:t24-new-S24_conflict-1793282345294856000:1793282423922889000",
+        "sends": 1,
+        "refused": 0,
+        "non_generation": 0,
+        "tokens_known": 9736,
+        "unknown_usage_calls": 0,
+        "token_cap": "unset",
+        "elapsed_s": 26.041,
+        "max_sends": 204,
+        "deadline_s": null,
+        "stop_reason": null,
+        "segments": [],
+        "start": {
+          "call_cap": 204,
+          "call_cap_source": "default:max_tool_iterations+4",
+          "time_cap_s": null,
+          "time_cap": "전체 마감 없음",
+          "time_cap_source": "unset",
+          "deadline_applied": false,
+          "token_cap": "unset"
+        },
+        "last_progress": null,
+        "no_progress_basis": [],
+        "judgment_limits": {}
+      },
+      "request_id": "cli:t24-new-S24_conflict-1793282345294856000:1793282423922889000",
+      "work_records": [
+        {
+          "request_id": "cli:t24-new-S24_conflict-1793282345294856000:1793282423922889000",
+          "event_id": "E6f0667a31fb144968ad20ecbb3104b41",
+          "instruction_version": 1,
+          "source_text": "총 45분 연습 계획을 짜 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요. 인터넷 검색은 하지 마세요.",
+          "requirements": {
+            "answer": "open"
+          },
+          "supplements": [],
+          "intended_target": null,
+          "artifacts": [],
+          "results": [],
+          "unresolved": [
+            {
+              "code": "design_unresolved",
+              "text": "퍼팅 20분 + 어프로치 15분 + 아이언 15분은 50분이라 총 45분과 맞지 않는다. 총시간을 50분으로 볼지, 어느 항목을 5분 줄일지 사용자 확인이 필요하다."
+            },
+            {
+              "code": "requirement_relation_insufficient_info",
+              "affects": [
+                "answer"
+              ]
+            },
+            {
+              "code": "external_change_ungrounded"
+            }
+          ],
+          "stop_reason": "awaiting_confirmation"
+        }
+      ]
+    }
+  ],
+  "relation_checks": [
+    {
+      "kind": "unclear",
+      "origin": "user_text",
+      "unit": "분",
+      "total": "45",
+      "total_span": "총 45분",
+      "sum": "50",
+      "items": {
+        "퍼팅": "20",
+        "어프로치": "15",
+        "아이언": "15"
+      },
+      "superseded": {},
+      "source_text": "총 45분 연습 계획을 짜 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요. 인터넷 검색은 하지 마세요.",
+      "reason": null,
+      "status": "insufficient_info",
+      "essential": true,
+      "recovered_partial": {
+        "kind": "unclear",
+        "kind_span": "총 45분",
+        "missing": [
+          "total",
+          "unit"
+        ]
+      }
+    }
+  ],
+  "calculation_report": {
+    "overall": "unverified",
+    "relations": "unverified",
+    "relation_results": [
+      {
+        "kind": "unclear",
+        "origin": "user_text",
+        "total": "45",
+        "sum": "50",
+        "unit": "분",
+        "status": "insufficient_info",
+        "essential": true,
+        "recovered_partial": true,
+        "reason": null
+      }
+    ],
+    "calc_specs": "none",
+    "calc_spec_checks": {},
+    "calc_spec_missing": [],
+    "answer_values": "not_checked",
+    "answer_relation_findings": [],
+    "basis": {
+      "instruction_version": 1,
+      "task_id": "48141ee2598c45e99f4f569a2a467fc2",
+      "relation_checks": "completion_verdict",
+      "calc_spec_missing": "completion_verdict"
+    }
+  },
+  "provenance": {
+    "source_file": "LIVE-new-S24_conflict-t1.json",
+    "sha256": "98a72233ca6d21db512e9fd7d7ef9ba4f21262191d8044dc9da9762b3865d82c",
+    "projection": "unchanged fields; transport telemetry omitted, no response or task editing"
+  }
+}

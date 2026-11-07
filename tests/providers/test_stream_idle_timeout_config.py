@@ -127,7 +127,11 @@ async def test_codex_stream_ignores_invalid_idle_timeout_env(monkeypatch) -> Non
     seen: dict[str, float] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, request=request)
+        # A complete stream: an empty body is now (correctly) missing_terminal_event.
+        body = ('data: {"type": "response.completed", "response": {"status": "completed", '
+                '"output": [], "usage": {"input_tokens": 1, "output_tokens": 1}}}\n\n')
+        return httpx.Response(200, request=request, content=body.encode(),
+                              headers={"content-type": "text/event-stream"})
 
     def fake_client(*, timeout: float, verify: bool) -> httpx.AsyncClient:
         seen["timeout"] = timeout

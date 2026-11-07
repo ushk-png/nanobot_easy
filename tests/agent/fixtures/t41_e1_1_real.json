@@ -1,0 +1,86 @@
+{
+ "source": "t41 real xAI run, /workspace/t41/cand/LIVE-new-E1_single_artifact-t1.json",
+ "source_sha256": "03a3e203a04bb20fe65d6a518c0f9436744d45ea6ae3f5991032450b0adeabd6",
+ "request": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+ "design": {
+  "goal": "t24_todo.md 파일을 새로 만들고 오늘 할 일 세 개를 적는다.",
+  "request_type": "other",
+  "task_relation": "new",
+  "task_id": null,
+  "route": "execute",
+  "constraints": [
+   {
+    "text": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+    "source_ids": [
+     "E2b58fd1558424a09820849922e2a4591"
+    ]
+   }
+  ],
+  "information_needs": [
+   {
+    "id": "verify_todo_file",
+    "required": true,
+    "question": "t24_todo.md가 생성되었고 할 일 세 개가 적혀 있는가?",
+    "source_kind": "file",
+    "scope": "current_task",
+    "query": "t24_todo.md",
+    "source_ids": [],
+    "acceptance": "파일이 존재하고 할 일 항목이 세 개이다.",
+    "target": "t24_todo.md",
+    "required_range": null,
+    "result_kind": "file_content",
+    "expected_values": {},
+    "stage": "after_change"
+   }
+  ],
+  "capabilities_needed": [
+   "write_file",
+   "read_file"
+  ],
+  "completion_checks": [],
+  "unresolved": [
+   "할 일의 구체 내용은 지정되지 않았다. 한국어로 일반적인 오늘 할 일 세 개를 적는다."
+  ],
+  "answer": null,
+  "completion_specs": [],
+  "obligations": {
+   "target": "external_resource",
+   "lookup": "unneeded",
+   "external_change": "required",
+   "source_span": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+   "keep_constraints": [
+    "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘."
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "required",
+     "source_span": "t24_todo.md 파일을 만들어서 오늘 할 일 세 개를 적어 줘.",
+     "target_ref": "t24_todo.md",
+     "condition": null
+    }
+   ]
+  }
+ },
+ "mutation_gate": [
+  {
+   "tool": "write_file",
+   "result": "State-changing tool blocked until these conditions are resolved: design_unresolved. Resolve them (ask the user if needed) or answer without changing anything."
+  },
+  {
+   "tool": "write_file",
+   "result": "State-changing tool blocked until these conditions are resolved: design_unresolved. Resolve them (ask the user if needed) or answer without changing anything."
+  }
+ ],
+ "unresolved_conditions": [
+  {
+   "kind": "target",
+   "code": "design_unresolved",
+   "text": "할 일의 구체 내용은 지정되지 않았다. 한국어로 일반적인 오늘 할 일 세 개를 적는다."
+  }
+ ],
+ "write_file_content": "# 오늘 할 일\n\n- [ ] 오늘 일정과 우선순위를 정리한다\n- [ ] 받은 메시지와 메일을 확인한다\n- [ ] 하루를 마무리하며 남은 일을 점검한다\n",
+ "reply_head": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n상태 분류: failed\n이미 완료된 실행(취소로 되돌리지 않음): skill_decision [call-12a97c2e-e98f-474f-8e30-a9d3fca9f2f3-0|fc_e8530417-26bd-989a-a748-0db8384add0d_0]\n남은 조건: verify_todo_file, requirement_unmet:external_change, information_missing:verify_todo_file, required_result_missing:file_change:/workspace/t41/cand/ws/new-E1_single_artifact/t24_todo.md, verification_not_selected, compl"
+}

@@ -214,6 +214,8 @@ class ExecTool(Tool):
         self.allowed_env_keys = allowed_env_keys or []
         self._session_manager = session_manager or DEFAULT_EXEC_SESSION_MANAGER
 
+    supports_cancellation = True
+
     @property
     def name(self) -> str:
         return "exec"
@@ -302,7 +304,8 @@ class ExecTool(Tool):
                 await self._kill_process(process)
                 return ToolResult.error(f"Error: Command timed out after {prepared.timeout} seconds")
             except asyncio.CancelledError:
-                await self._kill_process(process)
+                # t55: the outcome of the stop is kept (confirmed or not) for the caller's record.
+                self.last_termination = dict(await self._kill_process(process), command=str(command)[:200])
                 raise
 
             output_parts = []
@@ -328,6 +331,18 @@ class ExecTool(Tool):
                     + result[-half:]
                 )
 
+            from nanobot.agent.context_evidence import active_evidence_capture, test_command
+            if active_evidence_capture.get():
+                output = ToolResult(result, is_error=process.returncode != 0)
+                evidence_text = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+                passed = re.search(r"\b(\d+) passed\b", evidence_text)
+                unittest_count = re.search(r"Ran (\d+) tests?", evidence_text)
+                count = int(passed[1]) if passed else int(unittest_count[1]) if unittest_count else 0
+                ran = test_command(command) and count > 0
+                output.execution_evidence = {"exit_code": process.returncode,
+                    "result_kind": "test_result" if ran else "execution_result",
+                    "tests_executed": ran, "test_counts": {"observed_executed": count}}
+                return output
             return result
 
         except Exception as e:
@@ -599,7 +614,7 @@ class ExecTool(Tool):
         return resolved, None
 
     @staticmethod
-    async def _kill_process(process: asyncio.subprocess.Process) -> None:
+    async def _kill_process(process: asyncio.subprocess.Process) -> dict:
         """Kill a subprocess and reap it to prevent zombies.
 
         Unix commands run in their own session, so a timeout also signals the
@@ -619,6 +634,21 @@ class ExecTool(Tool):
                     os.waitpid(process.pid, os.WNOHANG)
                 except (ProcessLookupError, ChildProcessError) as e:
                     logger.debug("Process already reaped or not found: {}", e)
+        # t55: confirm only what this tool started - its own process and its process group (the pid is
+        # the group id: start_new_session). Bounded check; no search by name.
+        confirmed = process.returncode is not None
+        if confirmed and not _IS_WINDOWS and process.pid:
+            confirmed = False
+            for _ in range(20):
+                try:
+                    os.killpg(process.pid, 0)
+                except ProcessLookupError:
+                    confirmed = True
+                    break
+                except PermissionError:
+                    break
+                await asyncio.sleep(0.05)
+        return {"pid": process.pid, "pgid": None if _IS_WINDOWS else process.pid, "confirmed": confirmed}
 
     def _build_env(self) -> dict[str, str]:
         """Build a minimal environment for subprocess execution.
@@ -806,3 +836,11 @@ class ExecTool(Tool):
         posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command) # POSIX: /absolute only
         home_paths = re.findall(r"(?:^|[\s>'\"])(~[^\s\"'>;|<]*)", command) # POSIX/Windows home shortcut: ~
         return win_paths + posix_paths + home_paths
+
+
+def termination_note(info: dict | None) -> str:
+    """t55: text for a stopped local process whose end could not be confirmed ('' when confirmed)."""
+    if not info or info.get("confirmed"):
+        return ""
+    return ("종료 확인 불가·결과 불명: pid=" + str(info.get("pid")) + " pgid=" + str(info.get("pgid"))
+            + " (" + str(info.get("command") or "")[:80] + "); 관련 대상을 다시 변경하기 전에 상태를 확인해야 합니다.")

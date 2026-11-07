@@ -7,7 +7,7 @@ description: >
 metadata:
   nanobot:
     id: builtin-code-review
-    version: 1.0.1
+    version: 1.0.2
     status: verified
     category: coding.review
     risk_level: low
@@ -50,8 +50,18 @@ metadata:
 2. Lead with findings ordered by severity.
 3. Reference files, functions, or snippets when available.
 4. Prioritize behavioral bugs, security issues, regressions, and missing tests.
-5. Prefer minimal-diff recommendations; keep style-only feedback secondary.
-6. If no issues are found, say so and name residual risks or test gaps.
+5. Separate confirmed defects from assumptions. Explain the triggering input or
+   scenario and its consequence; resolve uncertainty from available code first.
+6. Prefer minimal-diff recommendations; flag unnecessary complexity when it has
+   a concrete maintenance or correctness cost. Keep style-only feedback secondary.
+7. If no issues are found, say so and name residual risks or test gaps.
+
+## Done Criteria
+
+- Deliver actionable findings with locations, evidence, and consequences, or
+  explicitly state that no actionable issues were found in the reviewed scope.
+- Identify coverage limits and distinguish checks actually run from suggested
+  checks. Preserve the review-only scope without editing the implementation.
 
 ## Failure Rules
 

@@ -1,0 +1,220 @@
+{
+ "case": "B_q123_followups",
+ "turn": 2,
+ "request": "Q2",
+ "design": {
+  "goal": "이전 답의 Q2(마크다운 파일 관리 장단점)만 조건(무료·오프라인·회원가입 불필요)에 맞춰 다시 답하고, 앱 설치와 파일 생성은 하지 않는다.",
+  "request_type": "explain",
+  "task_relation": "continue",
+  "task_id": "f416533f5c9b418ba5490db10e8cf646",
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.",
+    "source_ids": [
+     "E4800ed4e2c024b69926304b700dd3f40"
+    ]
+   },
+   {
+    "text": "앱 설치나 파일 생성은 하지 마.",
+    "source_ids": [
+     "E4800ed4e2c024b69926304b700dd3f40"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.",
+   "무료, 오프라인, 회원가입 불필요 조건을 유지한다.",
+   "앱을 설치하거나 파일을 생성하지 않는다."
+  ],
+  "unresolved": [],
+  "answer": "Q2. 마크다운(.md)\n장점\n- 본질은 텍스트라 무료·오프라인·회원가입 불필요 조건은 그대로입니다. 전용 메모 앱이나 계정 없이 편집기만으로 열립니다.\n- 제목, 목록, 링크, 체크리스트를 텍스트만으로 남길 수 있어 긴 메모의 구조가 보입니다.\n- 많은 무료 편집기가 읽고, 나중에 HTML이나 PDF로 바꾸기 쉽습니다.\n단점\n- 표, 각주, 수식은 앱마다 문법이 달라 미리보기가 어긋날 수 있습니다.\n- 한 줄 낙서나 임시 캡처에는 .txt보다 한 단계 무겁습니다.\n- 이미지는 보통 별도 파일이라 상대 경로를 관리해야 합니다.\n리스크: 특정 앱 전용 문법에 기대면 그 앱을 버릴 때 일부 서식이 남습니다. 공통 문법(제목, 목록, 링크, 체크)만 쓰는 편이 안전합니다.",
+  "completion_specs": [
+   {
+    "check": "답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "includes": [
+      "Q2",
+      "장점",
+      "단점"
+     ]
+    }
+   },
+   {
+    "check": "무료, 오프라인, 회원가입 불필요 조건을 유지한다.",
+    "result_kind": "semantic",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "앱을 설치하거나 파일을 생성하지 않는다.",
+    "result_kind": "execution_result",
+    "target": null,
+    "expected_values": {}
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "Q2",
+   "keep_constraints": [
+    "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.",
+    "앱 설치나 파일 생성은 하지 마."
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "Q2",
+     "target_ref": "Q2. 마크다운 파일로 관리하면 어떤 장단점이 있어?",
+     "condition": null
+    },
+    {
+     "action": "run",
+     "target": "external_resource",
+     "necessity": "forbidden",
+     "source_span": "앱 설치나 파일 생성은 하지 마.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "forbidden",
+     "source_span": "앱 설치나 파일 생성은 하지 마.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "required",
+   "source_span": "Q2",
+   "target_ref": "Q2. 마크다운 파일로 관리하면 어떤 장단점이 있어?",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "Q2. 마크다운(.md)\n장점\n- 본질은 텍스트라 무료·오프라인·회원가입 불필요 조건은 그대로입니다. 전용 메모 앱이나 계정 없이 편집기만으로 열립니다.\n- 제목, 목록, 링크, 체크리스트를 텍스트만으로 남길 수 있어 긴 메모의 구조가 보입니다.\n- 많은 무료 편집기가 읽고, 나중에 HTML이나 PDF로 바꾸기 쉽습니다.\n단점\n- 표, 각주, 수식은 앱마다 문법이 달라 미리보기가 어긋날 수 있습니다.\n- 한 줄 낙서나 임시 캡처에는 .txt보다 한 단계 무겁습니다.\n- 이미지는 보통 별도 파일이라 상대 경로를 관리해야 합니다.\n리스크: 특정 앱 전용 문법에 기대면 그 앱을 버릴 때 일부 서식이 남습니다. 공통 문법(제목, 목록, 링크, 체크)만 쓰는 편이 안전합니다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"name\": \"submit_context_design\", \"arguments\": {\"goal\": \"이전 답의 Q2(마크다운 파일 관리 장단점)만 조건(무료·오프라인·회원가입 불필요)에 맞춰 다시 답하고, 앱 설치와 파일 생성은 하지 않는다.\", \"request_type\": \"explain\", \"task_relation\": \"continue\", \"task_id\": \"f416533f5c9b418ba5490db10e8cf646\", \"route\": \"direct\", \"constraints\": [{\"text\": \"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.\", \"source_ids\": [\"E4800ed4e2c024b69926304b700dd3f40\"]}, {\"text\": \"앱 설치나 파일 생성은 하지 마.\", \"source_ids\": [\"E4800ed4e2c024b69926304b700dd3f40\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.\", \"무료, 오프라인, 회원가입 불필요 조건을 유지한다.\", \"앱을 설치하거나 파일을 생성하지 않는다.\"], \"unresolved\": [], \"answer\": \"Q2. 마크다운(.md)\\n장점\\n- 본질은 텍스트라 무료·오프라인·회원가입 불필요 조건은 그대로입니다. 전용 메모 앱이나 계정 없이 편집기만으로 열립니다.\\n- 제목, 목록, 링크, 체크리스트를 텍스트만으로 남길 수 있어 긴 메모의 구조가 보입니다.\\n- 많은 무료 편집기가 읽고, 나중에 HTML이나 PDF로 바꾸기 쉽습니다.\\n단점\\n- 표, 각주, 수식은 앱마다 문법이 달라 미리보기가 어긋날 수 있습니다.\\n- 한 줄 낙서나 임시 캡처에는 .txt보다 한 단계 무겁습니다.\\n- 이미지는 보통 별도 파일이라 상대 경로를 관리해야 합니다.\\n리스크: 특정 앱 전용 문법에 기대면 그 앱을 버릴 때 일부 서식이 남습니다. 공통 문법(제목, 목록, 링크, 체크)만 쓰는 편이 안전합니다.\", \"completion_specs\": [{\"check\": \"답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"includes\": [\"Q2\", \"장점\", \"단점\"]}}, {\"check\": \"무료, 오프라인, 회원가입 불필요 조건을 유지한다.\", \"result_kind\": \"semantic\"}, {\"check\": \"앱을 설치하거나 파일을 생성하지 않는다.\", \"result_kind\": \"execution_result\"}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"Q2\", \"keep_constraints\": [\"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.\", \"앱 설치나 파일 생성은 하지 마.\"], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"Q2\", \"target_ref\": \"Q2. 마크다운 파일로 관리하면 어떤 장단점이 있어?\", \"condition\": null}, {\"action\": \"run\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"앱 설치나 파일 생성은 하지 마.\", \"target_ref\": null, \"condition\": null}, {\"action\": \"write\", \"target\": \"external_resource\", \"necessity\": \"forbidden\", \"source_span\": \"앱 설치나 파일 생성은 하지 마.\", \"target_ref\": null, \"condition\": null}]}}}",
+   "parsed": false,
+   "error": "ValidationError: 13 validation errors for IntentDesign\ngoal\n  Field required [type=missing, input_value={'name': 'submit_context_..., 'condition': None}]}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\nrequest_type\n  Field required [type=missing, input_value={'name': 'submit_context_..., 'condition': None}]}}}, input_type=dict]\n    For further information visit https://errors.pydantic.dev/2.14/v/missing\ntask_relation\n  Field required [type=missin"
+  },
+  {
+   "raw": {
+    "goal": "이전 답의 Q2(마크다운 파일 관리 장단점)만 조건(무료·오프라인·회원가입 불필요)에 맞춰 다시 답하고, 앱 설치와 파일 생성은 하지 않는다.",
+    "request_type": "explain",
+    "task_relation": "continue",
+    "task_id": "f416533f5c9b418ba5490db10e8cf646",
+    "route": "direct",
+    "constraints": [
+     {
+      "text": "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.",
+      "source_ids": [
+       "E4800ed4e2c024b69926304b700dd3f40"
+      ]
+     },
+     {
+      "text": "앱 설치나 파일 생성은 하지 마.",
+      "source_ids": [
+       "E4800ed4e2c024b69926304b700dd3f40"
+      ]
+     }
+    ],
+    "information_needs": [],
+    "capabilities_needed": [],
+    "completion_checks": [
+     "답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.",
+     "무료, 오프라인, 회원가입 불필요 조건을 유지한다.",
+     "앱을 설치하거나 파일을 생성하지 않는다."
+    ],
+    "unresolved": [],
+    "answer": "Q2. 마크다운(.md)\n장점\n- 본질은 텍스트라 무료·오프라인·회원가입 불필요 조건은 그대로입니다. 전용 메모 앱이나 계정 없이 편집기만으로 열립니다.\n- 제목, 목록, 링크, 체크리스트를 텍스트만으로 남길 수 있어 긴 메모의 구조가 보입니다.\n- 많은 무료 편집기가 읽고, 나중에 HTML이나 PDF로 바꾸기 쉽습니다.\n단점\n- 표, 각주, 수식은 앱마다 문법이 달라 미리보기가 어긋날 수 있습니다.\n- 한 줄 낙서나 임시 캡처에는 .txt보다 한 단계 무겁습니다.\n- 이미지는 보통 별도 파일이라 상대 경로를 관리해야 합니다.\n리스크: 특정 앱 전용 문법에 기대면 그 앱을 버릴 때 일부 서식이 남습니다. 공통 문법(제목, 목록, 링크, 체크)만 쓰는 편이 안전합니다.",
+    "completion_specs": [
+     {
+      "check": "답은 Q2(마크다운 파일 관리의 장점과 단점)만 다룬다.",
+      "result_kind": "answer_content",
+      "expected_values": {
+       "includes": [
+        "Q2",
+        "장점",
+        "단점"
+       ]
+      }
+     },
+     {
+      "check": "무료, 오프라인, 회원가입 불필요 조건을 유지한다.",
+      "result_kind": "semantic"
+     },
+     {
+      "check": "앱을 설치하거나 파일을 생성하지 않는다.",
+      "result_kind": "execution_result"
+     }
+    ],
+    "obligations": {
+     "target": "answer",
+     "lookup": "unneeded",
+     "external_change": "none",
+     "source_span": "Q2",
+     "keep_constraints": [
+      "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야.",
+      "앱 설치나 파일 생성은 하지 마."
+     ],
+     "change_constraints": [],
+     "relations": [
+      {
+       "action": "answer",
+       "target": "answer",
+       "necessity": "required",
+       "source_span": "Q2",
+       "target_ref": "Q2. 마크다운 파일로 관리하면 어떤 장단점이 있어?",
+       "condition": null
+      },
+      {
+       "action": "run",
+       "target": "external_resource",
+       "necessity": "forbidden",
+       "source_span": "앱 설치나 파일 생성은 하지 마.",
+       "target_ref": null,
+       "condition": null
+      },
+      {
+       "action": "write",
+       "target": "external_resource",
+       "necessity": "forbidden",
+       "source_span": "앱 설치나 파일 생성은 하지 마.",
+       "target_ref": null,
+       "condition": null
+      }
+     ]
+    }
+   },
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

@@ -9,8 +9,10 @@ See: https://github.com/HKUDS/nanobot/issues/2966
 
 from __future__ import annotations
 
-import asyncio
+import tempfile
 from pathlib import Path
+
+import asyncio
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -105,8 +107,9 @@ async def test_dispatch_cancellation_restores_checkpoint():
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    workspace = MagicMock()
-    workspace.__truediv__ = MagicMock(return_value=MagicMock())
+    # A real directory: AgentLoop opens SQLite stores under the workspace (a MagicMock path
+    # cannot be opened and used to leave "<MagicMock ...>" files in the repo).
+    workspace = Path(tempfile.mkdtemp(prefix="nanobot-cancel-"))
 
     with patch("nanobot.agent.loop.ContextBuilder"), \
          patch("nanobot.agent.loop.SessionManager"), \

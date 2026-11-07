@@ -1,0 +1,22 @@
+{
+  "LIVE-new-S24_conflict-t1.json": {
+    "source_sha256": "64989da41b88d4b8266c209164e142c6c1234bfe2a1cb62a7e52df94d0bb9b9e",
+    "retained_fields": [
+      "request",
+      "design_outputs",
+      "raw_designs",
+      "tasks"
+    ],
+    "kind": "saved_actual_response_extraction"
+  },
+  "LIVE-new-S24_conflict-t2.json": {
+    "source_sha256": "2532260622111394043b07cff9219da2b15204a1aeb25e512fcc9a1210c38682",
+    "retained_fields": [
+      "request",
+      "design_outputs",
+      "raw_designs",
+      "tasks"
+    ],
+    "kind": "saved_actual_response_extraction"
+  }
+}

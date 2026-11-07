@@ -187,8 +187,10 @@ class Session:
         for message in sliced:
             if message.get("_command"):
                 continue
-            content = message.get("content", "")
             role = message.get("role")
+            # A recorded correction (selective context) is the latest valid state of this answer.
+            fix = message.get("correction")
+            content = fix["answer"] if isinstance(fix, dict) and fix.get("answer") else message.get("content", "")
             if role == "assistant" and isinstance(content, str):
                 content = _sanitize_assistant_replay_text(content)
             # Synthesize an ``[image: path]`` breadcrumb from the persisted

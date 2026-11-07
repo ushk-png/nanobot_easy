@@ -1612,6 +1612,7 @@ class OpenAICompatProvider(LLMProvider):
                         _timed_stream(),
                         on_content_delta,
                         on_tool_call_delta=on_tool_call_delta,
+                        close=getattr(stream, "close", None) or getattr(stream, "aclose", None),
                     )
                     self._record_responses_success(model, reasoning_effort)
                     return LLMResponse(

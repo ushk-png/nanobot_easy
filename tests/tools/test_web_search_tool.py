@@ -99,6 +99,26 @@ async def test_brave_search_can_return_evidence_packet(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_search_evidence_preserves_same_site_candidates_without_verifying_them(monkeypatch):
+    async def mock_get(self, url, **kw):
+        return _response(json={"web": {"results": [
+            {"title": "Paper A", "url": "https://example.edu/papers/a",
+             "description": "First candidate"},
+            {"title": "Paper B", "url": "https://example.edu/papers/b",
+             "description": "Second candidate"},
+        ]}})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", mock_get)
+    tool = _tool(provider="brave", api_key="brave-key",
+                 evidence_config=WebEvidenceConfig(enabled=True, mode="packet"))
+    result = await tool.execute(query="paper second author undergraduate degree", count=2)
+
+    assert "https://example.edu/papers/a" in result
+    assert "https://example.edu/papers/b" in result
+    assert "Answerability: PARTIAL" in result
+
+
+@pytest.mark.asyncio
 async def test_brave_search_retries_rate_limit_once(monkeypatch):
     calls = {"n": 0}
     sleeps: list[float] = []

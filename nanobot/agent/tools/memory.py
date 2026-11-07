@@ -94,7 +94,10 @@ class SearchMemoryTool(_MemoryToolBase):
             max_context_tokens=int(kwargs.get("max_context_tokens") or 4000),
             exclude_event_ids=kwargs.get("exclude_event_ids") or None,
         )
-        return format_search_result(result)
+        from nanobot.agent.context_corrections import correction_notes
+
+        ids = [eid for window in getattr(result, "windows", []) for eid in getattr(window, "event_ids", [])]
+        return format_search_result(result) + correction_notes(self.store, self._scope(), ids)
 
 
 class ReadMemoryEventsTool(_MemoryToolBase):
@@ -127,7 +130,20 @@ class ReadMemoryEventsTool(_MemoryToolBase):
             [str(x) for x in kwargs.get("event_ids") or []],
             max_total_tokens=kwargs.get("max_total_tokens"),
         )
-        return format_raw_events(events)
+        from nanobot.agent.context_corrections import correction_notes
+        from nanobot.agent.context_evidence import active_evidence_capture
+
+        text = format_raw_events(events) + correction_notes(self.store, self._scope(), [e.event_id for e in events])
+        if not active_evidence_capture.get():
+            return text
+        originals = self.store.get_events(self._scope(), [e.event_id for e in events])
+        complete = (bool(events) and len(events) == len(originals) and all(
+            e.content is not None and not e.redacted_at and any(
+                raw.event_id == e.event_id and raw.content == e.content for raw in originals) for e in events))
+        result = ToolResult(text)
+        result.memory_evidence = {"result_kind": "memory_original", "memory_complete": complete,
+                                  "memory_source_ids": [e.event_id for e in events]}
+        return result
 
 
 class ForgetMemoryEventsTool(_MemoryToolBase):

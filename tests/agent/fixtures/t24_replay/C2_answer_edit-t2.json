@@ -1,0 +1,124 @@
+{
+ "case": "C2_answer_edit",
+ "turn": 2,
+ "request": "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.",
+ "design": {
+  "goal": "직전 아침 루틴 번호 목록에서 세 번째 항목만 운동 관련 내용으로 바꿔 다시 제시한다.",
+  "request_type": "modify",
+  "task_relation": "continue",
+  "task_id": "3de574ed31c04661b2f8a1619a00ae2b",
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "아침 루틴 세 가지를 번호 목록으로 알려 줘.",
+    "source_ids": [
+     "Ebe354ada12d64d4d94d699a82f4327ad"
+    ]
+   },
+   {
+    "text": "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.",
+    "source_ids": [
+     "E4939b558581849f7a6ad7fa2729012a0"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [],
+  "completion_checks": [
+   "번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.",
+   "첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다."
+  ],
+  "unresolved": [],
+  "answer": "1. 물 한 잔을 마시고 창을 열어 환기한다.\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\n3. 10분간 스쿼트와 제자리 걷기로 가볍게 운동한다.",
+  "completion_specs": [
+   {
+    "check": "번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "count": 3
+    }
+   },
+   {
+    "check": "첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "unchanged": [
+      "1. 물 한 잔을 마시고 창을 열어 환기한다.",
+      "2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다."
+     ],
+     "changed_item": 3,
+     "theme": "운동"
+    }
+   }
+  ],
+  "obligations": {
+   "target": "prior_answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.",
+   "keep_constraints": [
+    "아침 루틴 세 가지를 번호 목록으로 알려 줘."
+   ],
+   "change_constraints": [
+    "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘."
+   ],
+   "relations": [
+    {
+     "action": "edit",
+     "target": "prior_answer",
+     "necessity": "required",
+     "source_span": "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.",
+     "target_ref": "E6841f9e8b0094a468107b2424d43c935",
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "edit",
+   "target": "prior_answer",
+   "necessity": "required",
+   "source_span": "방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘",
+   "target_ref": "E6841f9e8b0094a468107b2424d43c935",
+   "origin": "parser",
+   "bound_id": "E6841f9e8b0094a468107b2424d43c935",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "1. 물 한 잔을 마시고 창을 열어 환기한다.\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\n3. 10분간 스쿼트와 제자리 걷기로 가볍게 운동한다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [
+  {
+   "kind": "permission",
+   "code": "answer_edit_only"
+  }
+ ],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\": \"직전 아침 루틴 번호 목록에서 세 번째 항목만 운동 관련 내용으로 바꿔 다시 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"3de574ed31c04661b2f8a1619a00ae2b\", \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}, {\"text\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"source_ids\": [\"E4939b558581849f7a6ad7fa2729012a0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 10분간 스쿼트와 제자리 걷기로 가볍게 운동한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3}}, {\"check\": \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"unchanged\": [\"1. 물 한 잔을 마시고 창을 열어 환기한다.\", \"2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\"], \"changed_item\": 3, \"theme\": \"운동\"}}",
+   "parsed": false,
+   "error": "JSONDecodeError: Expecting ',' delimiter: line 1 column 1032 (char 1031)"
+  },
+  {
+   "raw": "{\"goal\": \"직전 아침 루틴 번호 목록에서 세 번째 항목만 운동 관련 내용으로 바꿔 다시 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"3de574ed31c04661b2f8a1619a00ae2b\", \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}, {\"text\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"source_ids\": [\"E4939b558581849f7a6ad7fa2729012a0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 10분간 스쿼트와 제자리 걷기로 가볍게 운동한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3}}, {\"check\": \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"unchanged\": [\"1. 물 한 잔을 마시고 창을 열어 환기한다.\", \"2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\"], \"changed_item\": 3, \"theme\": \"운동\"}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"keep_constraints\": [\"아침 루틴 세 가지를 번호 목록으로 알려 줘.\"], \"change_constraints\": [\"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"target_ref\": \"E6841f9e8b0094a468107b2424d43c935\", \"condition\": null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\": \"직전 아침 루틴 번호 목록에서 세 번째 항목만 운동 관련 내용으로 바꿔 다시 제시한다.\", \"request_type\": \"modify\", \"task_relation\": \"continue\", \"task_id\": \"3de574ed31c04661b2f8a1619a00ae2b\", \"route\": \"direct\", \"constraints\": [{\"text\": \"아침 루틴 세 가지를 번호 목록으로 알려 줘.\", \"source_ids\": [\"Ebe354ada12d64d4d94d699a82f4327ad\"]}, {\"text\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"source_ids\": [\"E4939b558581849f7a6ad7fa2729012a0\"]}], \"information_needs\": [], \"capabilities_needed\": [], \"completion_checks\": [\"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\"], \"unresolved\": [], \"answer\": \"1. 물 한 잔을 마시고 창을 열어 환기한다.\\n2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\\n3. 10분간 스쿼트와 제자리 걷기로 가볍게 운동한다.\", \"completion_specs\": [{\"check\": \"번호 목록으로 아침 루틴이 정확히 세 가지 제시된다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"count\": 3}}, {\"check\": \"첫 번째와 두 번째 항목은 직전 답변과 같고 세 번째 항목만 운동 관련 내용으로 바뀐다.\", \"result_kind\": \"answer_content\", \"expected_values\": {\"unchanged\": [\"1. 물 한 잔을 마시고 창을 열어 환기한다.\", \"2. 5분 스트레칭이나 가벼운 산책으로 몸을 깨운다.\"], \"changed_item\": 3, \"theme\": \"운동\"}}], \"obligations\": {\"target\": \"prior_answer\", \"lookup\": \"unneeded\", \"external_change\": \"none\", \"source_span\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"keep_constraints\": [\"아침 루틴 세 가지를 번호 목록으로 알려 줘.\"], \"change_constraints\": [\"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\"], \"relations\": [{\"action\": \"edit\", \"target\": \"prior_answer\", \"necessity\": \"required\", \"source_span\": \"방금 답변에서 세 번째 항목을 운동 관련 내용으로 수정해 줘.\", \"target_ref\": \"E6841f9e8b0094a468107b2424d43c935\", \"condition\": null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

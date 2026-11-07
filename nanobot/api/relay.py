@@ -266,6 +266,10 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
     temperature = body.get("temperature")
     reasoning_effort = body.get("reasoning_effort")
     stream = bool(body.get("stream", False))
+    # relay.timeout bounds a *silent* provider: for streaming it is the longest
+    # allowed gap between provider deltas (a stream that keeps producing bytes
+    # is never cut off); for non-streaming calls, which expose no progress, it
+    # remains the total request deadline.
     timeout = float(request.app["relay_timeout"])
 
     provider = snapshot.provider
@@ -283,29 +287,35 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
         chunk_id = f"chatcmpl-{uuid.uuid4().hex[:12]}"
         queue: asyncio.Queue[bytes | None] = asyncio.Queue()
 
+        loop = asyncio.get_running_loop()
+        last_progress = loop.time()
+
+        def mark_progress() -> None:
+            nonlocal last_progress
+            last_progress = loop.time()
+
         async def on_content_delta(text: str) -> None:
+            mark_progress()
             if text:
                 await queue.put(_sse(_content_chunk(text, chunk_id=chunk_id, model=snapshot.model)))
 
         async def on_tool_call_delta(delta: dict[str, Any]) -> None:
+            mark_progress()
             await queue.put(_sse(_tool_delta_chunk(delta, chunk_id=chunk_id, model=snapshot.model)))
 
         async def run_provider() -> None:
             try:
-                result = await asyncio.wait_for(
-                    provider.chat_stream_with_retry(
-                        messages=messages,
-                        tools=tools,
-                        model=snapshot.model,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        reasoning_effort=reasoning_effort,
-                        tool_choice=tool_choice,
-                        retry_mode=retry_mode,
-                        on_content_delta=on_content_delta,
-                        on_tool_call_delta=on_tool_call_delta,
-                    ),
-                    timeout=timeout,
+                result = await provider.chat_stream_with_retry(
+                    messages=messages,
+                    tools=tools,
+                    model=snapshot.model,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    reasoning_effort=reasoning_effort,
+                    tool_choice=tool_choice,
+                    retry_mode=retry_mode,
+                    on_content_delta=on_content_delta,
+                    on_tool_call_delta=on_tool_call_delta,
                 )
                 await queue.put(_sse(_final_chunk(
                     chunk_id=chunk_id,
@@ -313,6 +323,8 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
                     finish_reason=result.finish_reason,
                 )))
                 await queue.put(_sse("[DONE]"))
+            except asyncio.CancelledError:
+                raise
             except Exception:
                 logger.exception("Relay streaming request failed for {}", client.client_id)
                 await queue.put(_sse({
@@ -327,7 +339,25 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
         task = asyncio.create_task(run_provider())
         try:
             while True:
-                item = await queue.get()
+                remaining = timeout - (loop.time() - last_progress)
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=max(remaining, 0.0))
+                except asyncio.TimeoutError:
+                    if loop.time() - last_progress < timeout:
+                        continue
+                    logger.warning(
+                        "Relay stream for {} silent for {}s; aborting", client.client_id, timeout
+                    )
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
+                    await response.write(_sse({
+                        "error": {
+                            "message": f"Relay stream idle for {timeout:g}s",
+                            "type": "timeout",
+                        }
+                    }))
+                    break
                 if item is None:
                     break
                 await response.write(item)

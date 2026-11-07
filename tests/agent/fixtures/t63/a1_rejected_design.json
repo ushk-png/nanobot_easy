@@ -1,0 +1,101 @@
+{
+ "source": "/workspace/t62/run/LIVE-new-S1_change-t1.json (t62 real xAI, 2026-10-29 KST, design call_sequence 1)",
+ "request": "퍼팅, 어프로치, 아이언으로 총 60분 연습 계획을 만들어 주세요. 퍼팅은 20분이고, 나머지 시간은 어프로치와 아이언에 똑같이 나눠 주세요. 드라이버는 제외하고 인터넷 검색은 하지 마세요.",
+ "design_arguments": {
+  "goal": "드라이버를 빼고 퍼팅 20분·어프로치 20분·아이언 20분으로 총 60분 연습 계획을 답으로 작성한다. 인터넷 검색은 하지 않는다.",
+  "answer": "총 60분 연습 계획입니다. 드라이버는 넣지 않았고, 퍼팅 20분 후 남은 40분을 어프로치와 아이언에 20분씩 똑같이 나눴습니다.\n\n1. 퍼팅 20분\n- 0–8분: 1–2m 짧은 퍼트. 같은 라인으로 10개씩, 스트로크 크기와 페이스 정렬만 확인.\n- 8–15분: 3–6m 거리 조절. 홀을 지나치거나 짧게 남는 정도를 한 클럽 길이 안으로 맞추기.\n- 15–20분: 오르막·내리막 또는 브레이크가 있는 퍼트 6–8개. 읽기와 속도만 점검.\n\n2. 어프로치 20분\n- 0–8분: 20–40m, 피치 또는 칩. 캐리와 런 비율을 일정하게.\n- 8–15분: 40–70m, 갭·피칭 웨지. 랜딩 지점을 정해 두고 거리만 바꾸기.\n- 15–20분: 라이가 다른 볼 6개(페어웨이, 러프, 짧은 칩). 그린 주변에서 홀까지 두 퍼트 안으로 붙이기.\n\n3. 아이언 20분\n- 0–7분: 짧은 아이언(9번·피칭) 하프 스윙으로 콘택트와 방향.\n- 7–14분: 미들 아이언(7번·6번) 풀 스윙. 같은 타깃에 8–10구, 탄도와 거리 편차 확인.\n- 14–20분: 한 클럽만 골라 타깃 두 곳(짧은 거리·긴 거리)으로 번갈아 치기. 미스 방향이 한쪽으로 몰리면 정렬만 고치고 끝.\n\n시간 합계: 퍼팅 20 + 어프로치 20 + 아이언 20 = 60분.",
+  "capabilities_needed": [],
+  "constraints": [
+   {
+    "text": "퍼팅, 어프로치, 아이언으로 총 60분 연습 계획을 만들어 주세요",
+    "source_ids": [
+     "E6805c0d052a449f89b07cef24b4c7a94"
+    ]
+   },
+   {
+    "text": "퍼팅은 20분이고, 나머지 시간은 어프로치와 아이언에 같이 나눠 주세요",
+    "source_ids": [
+     "E6805c0d052a449f89b07cef24b4c7a94"
+    ]
+   },
+   {
+    "text": "드라이버는 제외하고 인터넷 검색은 하지 마세요",
+    "source_ids": [
+     "E6805c0d052a449f89b07cef24b4c7a94"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "task_relation": "new",
+  "task_id": null,
+  "route": "direct",
+  "unresolved": [],
+  "completion_specs": [],
+  "quantity_relations": [
+   {
+    "kind": "composition",
+    "kind_span": "총 60분"
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "forbidden",
+   "external_change": "none",
+   "source_span": "인터넷 검색은 하지 마세요",
+   "keep_constraints": [],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "아이언으로 총 60분 연습 계획을 만들어 주세요",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "lookup",
+     "target": "web",
+     "necessity": "forbidden",
+     "source_span": "인터넷 검색은 하지 마세요",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  },
+  "reference": {
+   "relation": "new",
+   "task_id": null,
+   "response_id": null,
+   "artifact_ids": [],
+   "changed_conditions": [],
+   "kept_conditions": [],
+   "needed_sources": [],
+   "basis_span": "퍼팅, 어프로치, 아이언으로 총 60분 연습 계획을 만들어 주세요"
+  }
+ },
+ "t62_rejection": {
+  "schema_issues": [
+   {
+    "path": [
+     "quantity_relations",
+     0,
+     "unit"
+    ],
+    "code": "missing"
+   },
+   {
+    "path": [
+     "quantity_relations",
+     0,
+     "unknown_field"
+    ],
+    "code": "missing"
+   }
+  ],
+  "missing_keys": [
+   "completion_checks",
+   "request_type"
+  ]
+ }
+}

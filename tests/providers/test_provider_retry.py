@@ -730,3 +730,38 @@ async def test_chat_stream_with_retry_normalizes_explicit_none_max_tokens() -> N
     assert response.content == "ok"
     assert provider.last_kwargs["max_tokens"] == 4096
     assert provider.last_kwargs["temperature"] == 0.7
+
+
+@pytest.mark.asyncio
+async def test_chat_with_retry_bounded_retries_and_capped_delay(monkeypatch) -> None:
+    provider = ScriptedProvider([
+        LLMResponse(content="429 rate limit", finish_reason="error", retry_after=30),
+        LLMResponse(content="429 rate limit", finish_reason="error"),
+        LLMResponse(content="ok"),
+    ])
+    delays: list[float] = []
+
+    async def _fake_sleep(delay: float) -> None:
+        delays.append(delay)
+
+    monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+
+    response = await provider.chat_with_retry(
+        messages=[{"role": "user", "content": "hello"}], max_retries=1, max_retry_delay_s=2.0)
+
+    assert response.finish_reason == "error"
+    assert provider.calls == 2
+    assert delays == [2.0]
+
+
+@pytest.mark.asyncio
+async def test_chat_with_retry_zero_retries_makes_one_call(monkeypatch) -> None:
+    provider = ScriptedProvider([LLMResponse(content="429 rate limit", finish_reason="error")])
+
+    async def _fake_sleep(delay: float) -> None:
+        raise AssertionError("must not wait")
+
+    monkeypatch.setattr("nanobot.providers.base.asyncio.sleep", _fake_sleep)
+    response = await provider.chat_with_retry(messages=[{"role": "user", "content": "hi"}], max_retries=0)
+    assert response.finish_reason == "error"
+    assert provider.calls == 1

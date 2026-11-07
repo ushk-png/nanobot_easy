@@ -75,6 +75,57 @@ def test_reasoning_options_omit_disabled_effort() -> None:
     assert _build_reasoning_options("low") == {"summary": "concise", "effort": "low"}
 
 
+@pytest.mark.parametrize(("names", "choice", "expected", "parallel"), [
+    (["submit_context_design"], "required", {"type": "function", "name": "submit_context_design"}, False),
+    (["submit_context_design"], "auto", "auto", True),
+    (["submit_context_design"], "none", "none", True),
+    (["read_file"], "required", "required", True),
+    (["submit_context_design", "read_file"], "required", "required", True),
+    (["submit_context_design"], {"type": "function", "name": "submit_context_design"},
+     {"type": "function", "name": "submit_context_design"}, True),
+])
+async def test_required_designer_is_named_at_actual_http_boundary(
+    monkeypatch, names, choice, expected, parallel,
+):
+    """Real provider/request/parser; only final HTTP transport and credentials are synthetic."""
+    _mock_token(monkeypatch)
+    original_client = httpx.AsyncClient
+    sent = []
+    output = {"type": "function_call", "id": "fc-test", "call_id": "call-test",
+              "name": names[0], "arguments": '{"answer":"synthetic"}'}
+    terminal = {"type": "response.completed", "response": {
+        "status": "completed", "output": [output],
+        "usage": {"input_tokens": 10, "output_tokens": 5},
+    }}
+
+    def handle(request):
+        assert request.method == "POST" and request.url.path == "/v1/responses"
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, headers={"content-type": "text/event-stream"},
+                              content="data: " + json.dumps(terminal) + "\n\n")
+
+    def client(*args, **kwargs):
+        kwargs["transport"] = httpx.MockTransport(handle)
+        return original_client(*args, **kwargs)
+
+    monkeypatch.setattr("nanobot.providers.xai_grok_provider.httpx.AsyncClient", client)
+    tools = [{"type": "function", "function": {
+        "name": name, "parameters": {"type": "object", "additionalProperties": False},
+    }} for name in names]
+    response = await XAIGrokProvider(hosted_search=False).chat(
+        [{"role": "user", "content": "synthetic local request"}], tools=tools,
+        model="xai-grok/grok-4.7", tool_choice=choice, max_tokens=3000,
+        temperature=0, reasoning_effort="low",
+    )
+    assert len(sent) == 1 and len(response.tool_calls) == 1
+    body = sent[0]
+    assert body["tool_choice"] == expected and body["parallel_tool_calls"] is parallel
+    assert body["model"] == "grok-4.7" and body["max_output_tokens"] == 3000
+    assert body["temperature"] == 0 and body["reasoning"]["effort"] == "low"
+    assert [t["name"] for t in body["tools"]] == names
+    assert all(t["parameters"]["additionalProperties"] is False for t in body["tools"])
+
+
 @pytest.mark.asyncio
 async def test_provider_injects_hosted_x_search_and_required_proxy_headers(monkeypatch) -> None:
     _mock_token(monkeypatch)

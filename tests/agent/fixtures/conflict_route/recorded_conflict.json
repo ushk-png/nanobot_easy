@@ -1,0 +1,118 @@
+{
+  "request": "총 45분 연습 계획을 짜 주세요. 퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요. 인터넷 검색은 하지 마세요.",
+  "raw_designs": [
+    {
+      "raw": "{\"goal\": \"45분 골프 연습 계획을 퍼팅 20분·어프로치 15분·아이언 15분 고정으로 제시하되, 합계가 총시간과 맞지 않음을 드러내고 인터넷 검색은 하지 않는다.\", \"request_type\": \"explain\", \"task_relation\": \"new\", \"task_id\": null, \"route\": \"direct\", \"constraints\": [{\"text\": \"총 45분 연습 계획\", \"source_ids\": [\"E7655aa1906d74bf3a55df8b43f66bf17\"]}, {\"text\": \"퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요\", \"source_ids\": [\"E7655aa1906d74bf3a55df8b43f66bf17\"]}, {\"text\": \"인터넷 검색은 하지 마세요\", \"source_ids\": [\"E7655aa1906d74bf3a55df8b43f66bf17\"]}], \"information_needs\": [], \"capabilities_needed\": [\"answer-howto\"], \"completion_checks\": [], \"unresolved\": [\"퍼팅 20분 + 어프로치 15분 + 아이언 15분 = 50분으로 총 45분과 5분 불일치. 사용자는 세 구간을 고정하라고 했으므로 임의로 시간을 줄이지 말고 불일치를 명시한다.\"], \"answer\": null, \"quantity_relations\": [{\"kind\": \"composition\", \"kind_span\": \"총 45분\", \"unit\": \"분\", \"total\": {\"value\": 45, \"source_span\": \"총 45분\"}, \"items\": [{\"label\": \"퍼팅\", \"value\": 20, \"source_span\": \"퍼팅 20분\"}, {\"label\": \"어프로치\", \"value\": 15, \"source_span\": \"어프로치 15분\"}, {\"label\": \"아이언\", \"value\": 15, \"source_span\": \"아이언 15분\"}]}], \"obligations\": {\"target\": \"answer\", \"lookup\": \"forbidden\", \"external_change\": \"none\", \"source_span\": \"인터넷 검색은 하지 마세요\", \"keep_constraints\": [], \"change_constraints\": [], \"relations\": [{\"action\": \"answer\", \"target\": \"answer\", \"necessity\": \"required\", \"source_span\": \"총 45분 연습 계획을 짜 주세요\", \"target_ref\": null, \"condition\": null}, {\"action\": \"lookup\", \"target\": \"web\", \"necessity\": \"forbidden\", \"source_span\": \"인터넷 검색은 하지 마세요\", \"target_ref\": null, \"condition\": null}]}, \"reference\": {\"relation\": \"new\", \"task_id\": null, \"response_id\": null, \"artifact_ids\": [], \"changed_conditions\": [], \"kept_conditions\": [], \"needed_sources\": [], \"basis_span\": null}}",
+      "parsed": true
+    }
+  ],
+  "design_outputs": [
+    {
+      "function_arguments": {
+        "goal": "45분 골프 연습 계획을 퍼팅 20분·어프로치 15분·아이언 15분 고정으로 제시하되, 합계가 총시간과 맞지 않음을 드러내고 인터넷 검색은 하지 않는다.",
+        "task_relation": "new",
+        "task_id": null,
+        "route": "direct",
+        "constraints": [
+          {
+            "text": "총 45분 연습 계획",
+            "source_ids": [
+              "E7655aa1906d74bf3a55df8b43f66bf17"
+            ]
+          },
+          {
+            "text": "퍼팅 20분, 어프로치 15분, 아이언 15분으로 고정해 주세요",
+            "source_ids": [
+              "E7655aa1906d74bf3a55df8b43f66bf17"
+            ]
+          },
+          {
+            "text": "인터넷 검색은 하지 마세요",
+            "source_ids": [
+              "E7655aa1906d74bf3a55df8b43f66bf17"
+            ]
+          }
+        ],
+        "information_needs": [],
+        "capabilities_needed": [
+          "answer-howto"
+        ],
+        "unresolved": [
+          "퍼팅 20분 + 어프로치 15분 + 아이언 15분 = 50분으로 총 45분과 5분 불일치. 사용자는 세 구간을 고정하라고 했으므로 임의로 시간을 줄이지 말고 불일치를 명시한다."
+        ],
+        "answer": null,
+        "quantity_relations": [
+          {
+            "kind": "composition",
+            "kind_span": "총 45분"
+          }
+        ],
+        "obligations": {
+          "target": "answer",
+          "lookup": "forbidden",
+          "external_change": "none",
+          "source_span": "인터넷 검색은 하지 마세요",
+          "keep_constraints": [],
+          "change_constraints": [],
+          "relations": [
+            {
+              "action": "answer",
+              "target": "answer",
+              "necessity": "required",
+              "source_span": "총 45분 연습 계획을 짜 주세요",
+              "target_ref": null,
+              "condition": null
+            },
+            {
+              "action": "lookup",
+              "target": "web",
+              "necessity": "forbidden",
+              "source_span": "인터넷 검색은 하지 마세요",
+              "target_ref": null,
+              "condition": null
+            }
+          ]
+        },
+        "reference": {
+          "relation": "new",
+          "task_id": null,
+          "response_id": null,
+          "artifact_ids": [],
+          "changed_conditions": [],
+          "kept_conditions": [],
+          "needed_sources": [],
+          "basis_span": null
+        }
+      },
+      "missing_keys": [
+        "completion_checks",
+        "completion_specs",
+        "quantity_relations_unverified",
+        "request_type"
+      ],
+      "schema_issues": null,
+      "selection": "text_design_differs_ignored",
+      "errors": []
+    }
+  ],
+  "validations": [
+    {
+      "route": "direct",
+      "errors": [
+        {
+          "code": "unsafe_direct",
+          "class": "plan_conflict"
+        }
+      ]
+    }
+  ],
+  "blocked": "design_timeout_repair",
+  "reply": "요청을 완료하지 못했습니다.\n종료 상태: incomplete\n상태 분류: failed\n남은 조건: design_timeout_repair\n부분 응답(미검증): 문맥 선택 경로에서 실행을 중단했습니다 (design_timeout_repair). 원본은 보존되어 있습니다. contextSelection.failureMode=legacy로 명시적인 기존 경로 복구를 선택할 수 있습니다.",
+  "tasks": [],
+  "relation_checks": [],
+  "provenance": {
+    "source": "../followup-fixed-batch-retry-1/trial-1/LIVE-new-S24_conflict-t1.json",
+    "sha256": "d88d40ff221f52cd87924b25b53758b4f796a4a4c02fbdfdc4591f9ce21c6176",
+    "projection": "original fields copied without value or ID edits"
+  }
+}

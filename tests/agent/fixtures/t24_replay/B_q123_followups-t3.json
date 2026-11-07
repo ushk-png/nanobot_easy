@@ -1,0 +1,169 @@
+{
+ "case": "B_q123_followups",
+ "turn": 3,
+ "request": "Q1, Q3",
+ "design": {
+  "goal": "Q1과 Q3만 번호로 답한다. Q1은 일반 텍스트 파일 관리의 장단점, Q3는 일반 텍스트와 마크다운을 섞을 때의 폴더 구성이다. Q2는 넣지 않고 앱 설치와 파일 생성은 하지 않는다.",
+  "request_type": "explain",
+  "task_relation": "continue",
+  "task_id": "f416533f5c9b418ba5490db10e8cf646",
+  "route": "direct",
+  "constraints": [
+   {
+    "text": "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야",
+    "source_ids": [
+     "E4800ed4e2c024b69926304b700dd3f40"
+    ]
+   },
+   {
+    "text": "앱 설치나 파일 생성은 하지 마.",
+    "source_ids": [
+     "E4800ed4e2c024b69926304b700dd3f40"
+    ]
+   },
+   {
+    "text": "Q1, Q3",
+    "source_ids": [
+     "Eaf53b4bc770a4030b0bd52deff0624ba"
+    ]
+   }
+  ],
+  "information_needs": [],
+  "capabilities_needed": [
+   "pros-cons-decision"
+  ],
+  "completion_checks": [
+   "답변에 Q1과 Q3 번호가 있고 Q2는 없다.",
+   "Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.",
+   "Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.",
+   "무료·오프라인·회원가입 불필요 조건을 유지한다.",
+   "앱을 설치하거나 파일을 생성하지 않는다."
+  ],
+  "unresolved": [],
+  "answer": "Q1. 일반 텍스트(.txt)\n장점\n- 메모장만 있어도 열리고, 앱·계정·인터넷에 묶이지 않아 무료·오프라인·회원가입 불필요 조건을 그대로 충족합니다.\n- 용량이 작고, 파일 이름과 본문 검색이 단순합니다.\n- 문법 실수로 깨질 일이 없어 한 줄 낙서와 임시 캡처에 맞습니다.\n단점\n- 제목, 목록, 체크, 링크가 눈으로 잘 구분되지 않습니다.\n- 글이 길어지면 구조가 흐려지고, 나중에 PDF나 HTML로 옮기기 어렵습니다.\n- 이미지·표는 파일 안에 두기 어렵고, 옆 폴더로 빼야 합니다.\n리스크: 이름 규칙이 없으면 파일이 쌓일수록 찾기 어려워집니다.\n\nQ3. 두 방식을 섞을 때의 폴더\nnotes/\n  inbox/         당장 적는 짧은 메모. .txt\n  journal/       날짜가 있는 기록. YYYY-MM-DD.md\n  topics/        주제가 있는 글. .md\n  reference/     오래 보는 자료. .md\n  attachments/   이미지 등 첨부\n  archive/       끝난 메모\n\n운용 기준\n- 한 줄, 임시, 복붙 원문은 inbox의 .txt\n- 제목·목록·링크가 필요하면 topics 또는 journal의 .md\n- 파일명은 영문·숫자·하이픈. 예: 2026-10-28-meeting-notes.md\n- 이미지는 attachments에 두고, 마크다운에서는 상대 경로로만 연결\n- 끝난 글은 지우지 말고 archive로 이동\n\n기본 글은 마크다운, 순간 메모만 일반 텍스트로 두는 혼합이 맞습니다. 전용 앱 설치나 파일 생성은 하지 않았습니다.",
+  "completion_specs": [
+   {
+    "check": "답변에 Q1과 Q3 번호가 있고 Q2는 없다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {
+     "includes": [
+      "Q1",
+      "Q3"
+     ],
+     "excludes": [
+      "Q2"
+     ]
+    }
+   },
+   {
+    "check": "Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.",
+    "result_kind": "answer_content",
+    "target": null,
+    "expected_values": {}
+   },
+   {
+    "check": "앱을 설치하거나 파일을 생성하지 않는다.",
+    "result_kind": "execution_result",
+    "target": null,
+    "expected_values": {
+     "install": false,
+     "file_create": false
+    }
+   }
+  ],
+  "obligations": {
+   "target": "answer",
+   "lookup": "unneeded",
+   "external_change": "none",
+   "source_span": "Q1, Q3",
+   "keep_constraints": [
+    "조건은 무료, 오프라인 사용 가능, 회원가입 불필수야",
+    "앱 설치나 파일 생성은 하지 마."
+   ],
+   "change_constraints": [],
+   "relations": [
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "Q1, Q3",
+     "target_ref": "Q1",
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "required",
+     "source_span": "Q1, Q3",
+     "target_ref": "Q3",
+     "condition": null
+    },
+    {
+     "action": "answer",
+     "target": "answer",
+     "necessity": "forbidden",
+     "source_span": "Q1, Q3",
+     "target_ref": "Q2",
+     "condition": null
+    },
+    {
+     "action": "run",
+     "target": "external_resource",
+     "necessity": "forbidden",
+     "source_span": "앱 설치나 파일 생성은 하지 마.",
+     "target_ref": null,
+     "condition": null
+    },
+    {
+     "action": "write",
+     "target": "external_resource",
+     "necessity": "forbidden",
+     "source_span": "앱 설치나 파일 생성은 하지 마.",
+     "target_ref": null,
+     "condition": null
+    }
+   ]
+  }
+ },
+ "relations": [
+  {
+   "action": "answer",
+   "target": "answer",
+   "necessity": "forbidden",
+   "source_span": "Q1, Q3",
+   "target_ref": "Q2",
+   "origin": "model",
+   "resolved": true
+  }
+ ],
+ "tool_calls": [],
+ "reply": "Q1. 일반 텍스트(.txt)\n장점\n- 메모장만 있어도 열리고, 앱·계정·인터넷에 묶이지 않아 무료·오프라인·회원가입 불필요 조건을 그대로 충족합니다.\n- 용량이 작고, 파일 이름과 본문 검색이 단순합니다.\n- 문법 실수로 깨질 일이 없어 한 줄 낙서와 임시 캡처에 맞습니다.\n단점\n- 제목, 목록, 체크, 링크가 눈으로 잘 구분되지 않습니다.\n- 글이 길어지면 구조가 흐려지고, 나중에 PDF나 HTML로 옮기기 어렵습니다.\n- 이미지·표는 파일 안에 두기 어렵고, 옆 폴더로 빼야 합니다.\n리스크: 이름 규칙이 없으면 파일이 쌓일수록 찾기 어려워집니다.\n\nQ3. 두 방식을 섞을 때의 폴더\nnotes/\n  inbox/         당장 적는 짧은 메모. .txt\n  journal/       날짜가 있는 기록. YYYY-MM-DD.md\n  topics/        주제가 있는 글. .md\n  reference/     오래 보는 자료. .md\n  attachments/   이미지 등 첨부\n  archive/       끝난 메모\n\n운용 기준\n- 한 줄, 임시, 복붙 원문은 inbox의 .txt\n- 제목·목록·링크가 필요하면 topics 또는 journal의 .md\n- 파일명은 영문·숫자·하이픈. 예: 2026-10-28-meeting-notes.md\n- 이미지는 attachments에 두고, 마크다운에서는 상대 경로로만 연결\n- 끝난 글은 지우지 말고 archive로 이동\n\n기본 글은 마크다운, 순간 메모만 일반 텍스트로 두는 혼합이 맞습니다. 전용 앱 설치나 파일 생성은 하지 않았습니다.",
+ "unmet_reasons": [],
+ "unresolved_conditions": [],
+ "validations": [
+  {
+   "route": "direct",
+   "errors": []
+  }
+ ],
+ "raw_designs": [
+  {
+   "raw": "{\"goal\":\"Q1과 Q3만 번호로 답한다. Q1은 일반 텍스트 파일 관리의 장단점, Q3는 일반 텍스트와 마크다운을 섞을 때의 폴더 구성이다. Q2는 넣지 않고 앱 설치와 파일 생성은 하지 않는다.\",\"request_type\":\"explain\",\"task_relation\":\"continue\",\"task_id\":\"f416533f5c9b418ba5490db10e8cf646\",\"route\":\"direct\",\"constraints\":[{\"text\":\"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야\",\"source_ids\":[\"E4800ed4e2c024b69926304b700dd3f40\"]},{\"text\":\"앱 설치나 파일 생성은 하지 마.\",\"source_ids\":[\"E4800ed4e2c024b69926304b700dd3f40\"]},{\"text\":\"Q1, Q3\",\"source_ids\":[\"Eaf53b4bc770a4030b0bd52deff0624ba\"]}],\"information_needs\":[],\"capabilities_needed\":[\"pros-cons-decision\"],\"completion_checks\":[\"답변에 Q1과 Q3 번호가 있고 Q2는 없다.\",\"Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.\",\"Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.\",\"무료·오프라인·회원가입 불필요 조건을 유지한다.\",\"앱을 설치하거나 파일을 생성하지 않는다.\"],\"unresolved\":[],\"answer\":\"Q1. 일반 텍스트(.txt)\\n장점\\n- 메모장만 있어도 열리고, 앱·계정·인터넷에 묶이지 않아 무료·오프라인·회원가입 불필요 조건을 그대로 충족합니다.\\n- 용량이 작고, 파일 이름과 본문 검색이 단순합니다.\\n- 문법 실수로 깨질 일이 없어 한 줄 낙서와 임시 캡처에 맞습니다.\\n단점\\n- 제목, 목록, 체크, 링크가 눈으로 잘 구분되지 않습니다.\\n- 글이 길어지면 구조가 흐려지고, 나중에 PDF나 HTML로 옮기기 어렵습니다.\\n- 이미지·표는 파일 안에 두기 어렵고, 옆 폴더로 빼야 합니다.\\n리스크: 이름 규칙이 없으면 파일이 쌓일수록 찾기 어려워집니다.\\n\\nQ3. 두 방식을 섞을 때의 폴더\\nnotes/\\n  inbox/         당장 적는 짧은 메모. .txt\\n  journal/       날짜가 있는 기록. YYYY-MM-DD.md\\n  topics/        주제가 있는 글. .md\\n  reference/     오래 보는 자료. .md\\n  attachments/   이미지 등 첨부\\n  archive/       끝난 메모\\n\\n운용 기준\\n- 한 줄, 임시, 복붙 원문은 inbox의 .txt\\n- 제목·목록·링크가 필요하면 topics 또는 journal의 .md\\n- 파일명은 영문·숫자·하이픈. 예: 2026-10-28-meeting-notes.md\\n- 이미지는 attachments에 두고, 마크다운에서는 상대 경로로만 연결\\n- 끝난 글은 지우지 말고 archive로 이동\\n\\n기본 글은 마크다운, 순간 메모만 일반 텍스트로 두는 혼합이 맞습니다. 전용 앱 설치나 파일 생성은 하지 않았습니다.\",\"completion_specs\":[{\"check\":\"답변에 Q1과 Q3 번호가 있고 Q2는 없다.\",\"result_kind\":\"answer_content\",\"expected_values\":{\"includes\":[\"Q1\",\"Q3\"],\"excludes\":[\"Q2\"]}},{\"check\":\"Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.\",\"result_kind\":\"answer_content\"},{\"check\":\"Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.\",\"result_kind\":\"answer_content\"},{\"check\":\"앱을 설치하거나 파일을 생성하지 않는다.\",\"result_kind\":\"execution_result\",\"expected_values\":{\"install\":false,\"file_create\":false}}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"unneeded\",\"external_change\":\"none\",\"source_span\":\"Q1, Q3\",\"keep_constraints\":[\"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야\",\"앱 설치나 파일 생성은 하지 마.\"],\"change_constraints\":[],\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q1\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q3\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"forbidden\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q2\"},{\"action\":\"run\",\"target\":\"external_resource\",\"necessity\":\"forbidden\",\"source_span\":\"앱 설치나 파일 생성은 하지 마.\",\"target_ref\":null},{\"action\":\"write\",\"target\":\"external_resource\",\"necessity\":\"forbidden\",\"source_span\":\"앱 설치나 파일 생성은 하지 마.\",\"target_ref\":null}]}}",
+   "parsed": true
+  },
+  {
+   "raw": "{\"goal\":\"Q1과 Q3만 번호로 답한다. Q1은 일반 텍스트 파일 관리의 장단점, Q3는 일반 텍스트와 마크다운을 섞을 때의 폴더 구성이다. Q2는 넣지 않고 앱 설치와 파일 생성은 하지 않는다.\",\"request_type\":\"explain\",\"task_relation\":\"continue\",\"task_id\":\"f416533f5c9b418ba5490db10e8cf646\",\"route\":\"direct\",\"constraints\":[{\"text\":\"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야\",\"source_ids\":[\"E4800ed4e2c024b69926304b700dd3f40\"]},{\"text\":\"앱 설치나 파일 생성은 하지 마.\",\"source_ids\":[\"E4800ed4e2c024b69926304b700dd3f40\"]},{\"text\":\"Q1, Q3\",\"source_ids\":[\"Eaf53b4bc770a4030b0bd52deff0624ba\"]}],\"information_needs\":[],\"capabilities_needed\":[\"pros-cons-decision\"],\"completion_checks\":[\"답변에 Q1과 Q3 번호가 있고 Q2는 없다.\",\"Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.\",\"Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.\",\"무료·오프라인·회원가입 불필요 조건을 유지한다.\",\"앱을 설치하거나 파일을 생성하지 않는다.\"],\"unresolved\":[],\"answer\":\"Q1. 일반 텍스트(.txt)\\n장점\\n- 메모장만 있어도 열리고, 앱·계정·인터넷에 묶이지 않아 무료·오프라인·회원가입 불필요 조건을 그대로 충족합니다.\\n- 용량이 작고, 파일 이름과 본문 검색이 단순합니다.\\n- 문법 실수로 깨질 일이 없어 한 줄 낙서와 임시 캡처에 맞습니다.\\n단점\\n- 제목, 목록, 체크, 링크가 눈으로 잘 구분되지 않습니다.\\n- 글이 길어지면 구조가 흐려지고, 나중에 PDF나 HTML로 옮기기 어렵습니다.\\n- 이미지·표는 파일 안에 두기 어렵고, 옆 폴더로 빼야 합니다.\\n리스크: 이름 규칙이 없으면 파일이 쌓일수록 찾기 어려워집니다.\\n\\nQ3. 두 방식을 섞을 때의 폴더\\nnotes/\\n  inbox/         당장 적는 짧은 메모. .txt\\n  journal/       날짜가 있는 기록. YYYY-MM-DD.md\\n  topics/        주제가 있는 글. .md\\n  reference/     오래 보는 자료. .md\\n  attachments/   이미지 등 첨부\\n  archive/       끝난 메모\\n\\n운용 기준\\n- 한 줄, 임시, 복붙 원문은 inbox의 .txt\\n- 제목·목록·링크가 필요하면 topics 또는 journal의 .md\\n- 파일명은 영문·숫자·하이픈. 예: 2026-10-28-meeting-notes.md\\n- 이미지는 attachments에 두고, 마크다운에서는 상대 경로로만 연결\\n- 끝난 글은 지우지 말고 archive로 이동\\n\\n기본 글은 마크다운, 순간 메모만 일반 텍스트로 두는 혼합이 맞습니다. 전용 앱 설치나 파일 생성은 하지 않았습니다.\",\"completion_specs\":[{\"check\":\"답변에 Q1과 Q3 번호가 있고 Q2는 없다.\",\"result_kind\":\"answer_content\",\"expected_values\":{\"includes\":[\"Q1\",\"Q3\"],\"excludes\":[\"Q2\"]}},{\"check\":\"Q1은 일반 텍스트 파일 관리의 장점과 단점을 다룬다.\",\"result_kind\":\"answer_content\"},{\"check\":\"Q3는 일반 텍스트와 마크다운을 섞어 쓸 때의 폴더 구성을 제시한다.\",\"result_kind\":\"answer_content\"},{\"check\":\"앱을 설치하거나 파일을 생성하지 않는다.\",\"result_kind\":\"execution_result\",\"expected_values\":{\"install\":false,\"file_create\":false}}],\"obligations\":{\"target\":\"answer\",\"lookup\":\"unneeded\",\"external_change\":\"none\",\"source_span\":\"Q1, Q3\",\"keep_constraints\":[\"조건은 무료, 오프라인 사용 가능, 회원가입 불필수야\",\"앱 설치나 파일 생성은 하지 마.\"],\"change_constraints\":[],\"relations\":[{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q1\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"required\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q3\"},{\"action\":\"answer\",\"target\":\"answer\",\"necessity\":\"forbidden\",\"source_span\":\"Q1, Q3\",\"target_ref\":\"Q2\"},{\"action\":\"run\",\"target\":\"external_resource\",\"necessity\":\"forbidden\",\"source_span\":\"앱 설치나 파일 생성은 하지 마.\",\"target_ref\":null},{\"action\":\"write\",\"target\":\"external_resource\",\"necessity\":\"forbidden\",\"source_span\":\"앱 설치나 파일 생성은 하지 마.\",\"target_ref\":null}]}}",
+   "parsed": true
+  }
+ ],
+ "route": "direct",
+ "stop_reason": null,
+ "code_version": "t24 run: 22b80f3 (f4) loaded at start"
+}

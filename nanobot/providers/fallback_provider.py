@@ -77,6 +77,9 @@ class FallbackProvider(LLMProvider):
 
     supports_stream_recover_callback = True
 
+    # Leaf calls own their attempt records; the routing wrapper is not an API attempt.
+    journals_provider_attempts = True
+
     def __init__(
         self,
         primary: LLMProvider,
@@ -116,15 +119,15 @@ class FallbackProvider(LLMProvider):
 
     async def chat(self, **kwargs: Any) -> LLMResponse:
         if not self._has_fallbacks:
-            return await self._primary.chat(**kwargs)
+            return await self._primary._safe_chat(**kwargs)
         return await self._try_with_fallback(
-            lambda p, kw: p.chat(**kw), kwargs, has_streamed=None
+            lambda p, kw: p._safe_chat(**kw), kwargs, has_streamed=None
         )
 
     async def chat_stream(self, **kwargs: Any) -> LLMResponse:
         on_stream_recover = kwargs.pop("on_stream_recover", None)
         if not self._has_fallbacks:
-            return await self._primary.chat_stream(**kwargs)
+            return await self._primary._safe_chat_stream(**kwargs)
 
         has_streamed: list[bool] = [False]
         original_delta = kwargs.get("on_content_delta")
@@ -137,7 +140,7 @@ class FallbackProvider(LLMProvider):
 
         kwargs["on_content_delta"] = _tracking_delta
         return await self._try_with_fallback(
-            lambda p, kw: p.chat_stream(**kw),
+            lambda p, kw: p._safe_chat_stream(**kw),
             kwargs,
             has_streamed=has_streamed,
             on_stream_recover=on_stream_recover,
@@ -161,7 +164,7 @@ class FallbackProvider(LLMProvider):
                 self._primary_failures = 0
                 self._primary_tripped_at = None
                 return response
-            primary_error = (response.content or primary_error)[:120]
+            primary_error = self._retry_log_preview(response) or primary_error
 
             if has_streamed is not None and has_streamed[0]:
                 is_timeout = (response.error_kind or "").lower() == "timeout"
@@ -186,7 +189,7 @@ class FallbackProvider(LLMProvider):
                 logger.warning(
                     "Primary model '{}' returned non-fallbackable error: {}",
                     primary_model,
-                    (response.content or "")[:120],
+                    self._retry_log_preview(response),
                 )
                 return response
 

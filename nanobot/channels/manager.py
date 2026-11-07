@@ -620,13 +620,19 @@ class ChannelManager:
         max_attempts = max(self.config.channels.send_max_retries, 1)
 
         for attempt in range(max_attempts):
+            if not self._allocation_delivery(msg):
+                return  # A newer requirement superseded this checked result before publication.
+            self._record_task_delivery(msg, "sending", attempt + 1)
             try:
                 await self._send_once(channel, msg)
+                self._record_task_delivery(msg, "sent", attempt + 1)
                 return  # Send succeeded
             except asyncio.CancelledError:
+                self._record_task_delivery(msg, "unknown", attempt + 1, "cancelled during send")
                 raise  # Propagate cancellation for graceful shutdown
             except Exception as e:
                 if attempt == max_attempts - 1:
+                    self._record_task_delivery(msg, "failed", attempt + 1, type(e).__name__)
                     logger.exception(
                         "Failed to send to {} after {} attempts",
                         msg.channel, max_attempts
@@ -641,6 +647,57 @@ class ChannelManager:
                     await asyncio.sleep(delay)
                 except asyncio.CancelledError:
                     raise  # Propagate cancellation during sleep
+
+    def _allocation_delivery(self, msg, delivered=None):
+        marker = (msg.metadata or {}).get("_allocation_delivery")
+        if not isinstance(marker, dict):
+            return True
+        from nanobot.agent.time_allocation import record_delivery
+        from nanobot.memory.event_store import ConversationEventStore
+        from nanobot.memory.models import MemoryScope
+        from nanobot.memory.task_context import TaskContextStore
+        scope = MemoryScope(**marker["scope"])
+        tasks = TaskContextStore(ConversationEventStore(self.config.workspace_path))
+        state = next((t for t in tasks.list(scope, marker["session_id"]) if t["task_id"] == marker["task_id"]), None)
+        bundle = next((r["allocation"] for r in (state or {}).get("work_records", [])
+                       if (r.get("allocation") or {}).get("result_id") == marker["result_id"]), None)
+        current = bool(state and state.get("instruction_status") == "ACTIVE"
+                       and state.get("instruction_version") == marker["instruction_version"]
+                       and bundle and bundle["instruction_version"] == marker["instruction_version"]
+                       and bundle["status"] in {"committed", "delivery_unknown", "delivered"}
+                       and msg.content == bundle["output"])
+        if delivered is not None:
+            record_delivery(tasks, scope, marker["session_id"], marker["task_id"], marker["result_id"], delivered)
+        return current
+
+    def _record_task_delivery(self, msg, status, attempts, error=None):
+        try:
+            self._allocation_delivery(msg, status == "sent")
+            self._persist_task_delivery(msg, status, attempts, error)
+        except Exception:
+            # Recording failure must never cause a second send after a successful send.
+            logger.exception("Could not persist task delivery outcome")
+
+    def _persist_task_delivery(self, msg, status, attempts, error=None):
+        marker = (msg.metadata or {}).get("_task_delivery")
+        if (not self.config.agents.defaults.stepwise.lightweight
+                or not isinstance(marker, dict) or self._session_manager is None):
+            return
+        key, run_id = marker.get("session_key"), marker.get("run_id")
+        if not isinstance(key, str) or not isinstance(run_id, str):
+            return
+        session = self._session_manager.get_or_create(key)
+        deliveries = session.metadata.setdefault("task_deliveries", {})
+        deliveries[run_id] = {"status": status, "attempts": attempts, "error": error}
+        while len(deliveries) > 20:
+            del deliveries[next(iter(deliveries))]
+        note = session.metadata.get("task_note", {})
+        if note.get("run_id") == run_id:
+            note["delivery"] = status
+        run = session.metadata.get("task_runs", {}).get(run_id)
+        if isinstance(run, dict):
+            run["delivery"] = status
+        self._session_manager.save(session)
 
     def get_channel(self, name: str) -> BaseChannel | None:
         """Get a channel by name."""
