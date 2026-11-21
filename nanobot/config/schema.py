@@ -204,6 +204,7 @@ class AgentDefaults(Base):
     selective_memory: bool = False  # Opt-in: select explicitly marked reference notes only.
     memory_prompt_tokens: int = Field(default=0, ge=0, le=20_000)
     # Opt-in reviewed memory/prompt_snapshot.json; invalid/stale snapshots retain legacy memory.
+    memory_prompt_auto_refresh: bool = False  # Background generation + review; requires budget > 0.
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200

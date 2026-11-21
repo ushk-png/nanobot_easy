@@ -512,14 +512,9 @@ class AgentRunner:
                     spec.task_state.update.final_answer = hook.finalize_content(
                         context, spec.task_state.update.final_answer,
                     ) or ""
-                defects, terminal = spec.task_state.final_check()
-                if terminal:
-                    stop_reason = "incomplete"
-                    clean = (spec.task_state.update.final_answer or clean or "").strip()
-                    clean += "\n\n미완료 상태: " + spec.task_state.update.explanation
-                    assistant_message["content"] = clean
-                    return clean, False
-                if defects:
+                check = spec.task_state.final_check()
+                defects, terminal = check
+                if defects and not terminal:
                     reporting_only = all(d == "answer_required" or d.startswith("answer_correction:")
                                          for d in defects)
                     can_correct = report_corrections == 0 if reporting_only else task_corrections == 0
@@ -560,15 +555,13 @@ class AgentRunner:
                             )
                         else:
                             feedback += spec.task_state.guidance()["content"]
-                        messages.append({"role": "user", "_hidden_history": True, "content": feedback})
+                        messages.append({"role": "user", "_hidden_history": True,
+                                         "_task_control": True, "content": feedback})
                         return clean, True
-                    stop_reason = "incomplete"
-                    clean = spec.task_state.incomplete(defects)
-                    assistant_message["content"] = clean
-                    return clean, False
-                clean = spec.task_state.final_report()
-                stop_reason = spec.task_state.final_status
+                clean, stop_reason = spec.task_state.completion_result(clean, check=check)
                 assistant_message["content"] = clean
+                if defects or terminal:
+                    return clean, False
             if spec.selected_context and not spec.selected_context.legacy_fallback:
                 checked, checked_status = spec.selected_context.verdict(clean)
                 if checked_status != "completed" and answer_fix_corrections == 0:
@@ -1252,15 +1245,9 @@ class AgentRunner:
             ):
                 final_content = INCOMPLETE
             if spec.task_state is not None:
-                defects, terminal = spec.task_state.final_check()
-                if defects and not terminal:
-                    final_content = spec.task_state.incomplete(defects)
-                elif not terminal:
-                    final_content = spec.task_state.final_report()
-                    stop_reason = spec.task_state.final_status
-                elif terminal:
-                    final_content = spec.task_state.update.final_answer or final_content
-                    final_content = str(final_content or "") + "\n\n미완료 상태: " + spec.task_state.update.explanation
+                final_content, stop_reason = spec.task_state.completion_result(
+                    final_content, check=spec.task_state.final_check(), exhausted=True,
+                )
             if spec.premature_final_guard and needs_answer_body(final_content, messages):
                 final_content = str(final_content or "") + "\n\n" + ANSWER_BODY_INCOMPLETE
                 if stop_reason == "completed":

@@ -17,7 +17,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.config.paths import get_legacy_sessions_dir
-from nanobot.session.history_visibility import is_task_control_message
+from nanobot.session.history_visibility import is_task_control_message, task_result_for_replay
 from nanobot.session.lifecycle import bind_session_writes
 from nanobot.utils.helpers import (
     ensure_dir,
@@ -201,6 +201,8 @@ class Session:
             # A recorded correction (selective context) is the latest valid state of this answer.
             fix = message.get("correction")
             content = fix["answer"] if isinstance(fix, dict) and fix.get("answer") else message.get("content", "")
+            if role == "tool":
+                content = task_result_for_replay({**message, "content": content})
             if role == "assistant" and isinstance(content, str):
                 content = _sanitize_assistant_replay_text(content)
             # Synthesize an ``[image: path]`` breadcrumb from the persisted

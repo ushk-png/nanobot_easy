@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, model_validator
 
 from nanobot.agent.task_progress import TaskProgress
 from nanobot.agent.tools.base import Tool, ToolResult
+from nanobot.agent.write_scope import protected_files
 from nanobot.session.history_visibility import is_hidden_history_message
 
 _WORK = re.compile(r"검토|분석|비교|수정|저장|구현|파악|판정|진단|조사|review|analy[sz]|compare|edit|save|diagnos|investigat", re.I)
@@ -22,7 +23,6 @@ _FOLLOWUP = re.compile(r"^(네|예|응|q\d+|yes|ok)[.!\s]*$|그\s*(파일|문서
 _ADVICE = re.compile(r"설명|방법|절차|개념|의미|\b(?:explain|how|should\s+i)\b", re.I)
 _REVIEW = re.compile(r"검토|분석|비교|파악|판정|진단|조사|review|analy[sz]|compare|diagnos|investigat", re.I)
 _ACTION = re.compile(r"(?:저장|수정|변경|삭제|실행|구현)\s*(?:해(?=[\s.!?]|$)|해\s*(?:줘|주세요)|하(?:세요|십시오|라))", re.I)
-_NO_WRITE = re.compile(r"저장\s*(?:하지\s*(?:마|말)|금지)|수정\s*하지\s*(?:마|말)|검토만|읽기\s*전용|do not (?:save|write|edit)|review only", re.I)
 _FILES = re.compile(r"(?:(?<=['\"`])[\w.~ /-]+|(?:[\w.~/-]+/)?[\w.~-]+)\.(?:md|txt|py|json|pdf|docx|xlsx|csv|yaml|yml|ts|tsx)(?![A-Za-z0-9_])", re.I)
 _SAVE = re.compile(
     r"(?:저장|수정)\s*(?:해\s*(?:줘|주세요)|하(?:세요|십시오|라))|고쳐\s*(?:줘|주세요)"
@@ -253,7 +253,11 @@ class TaskUpdate(BaseModel):
     )
     source: Literal["files", "provided", "none"]
     analysis_complete: bool
-    status: Literal["active", "completed", "cancelled", "partial", "blocked", "clarification"]
+    status: Literal["active", "completed", "cancelled", "partial", "blocked", "clarification"] = Field(
+        description="If reading/writing cannot proceed, use blocked or partial with the report "
+                    "in final_answer. This includes 'if absent, just report' and 'if already "
+                    "present, do not overwrite'. Never mark unperformed acquisition/writing completed.",
+    )
     explanation: str = Field(min_length=1, max_length=2000)
     result_refs: list[str] = Field(default_factory=list, max_length=40)
     final_answer: str = Field(
@@ -337,8 +341,28 @@ class TaskNote:
         self.events = []
         self.persist("active")
 
+    def prompt_evidence(self) -> list[dict]:
+        """Expose relevant proofs without removing candidates from the persisted ledger."""
+        if self.update is not None:
+            paths = [t.path for t in self.update.targets]
+            if not paths and self.update.source == "files":
+                return self.evidence[-20:]  # Scope is unresolved; keep discovery candidates.
+        else:
+            instruction = _instruction_text(self.request)
+            paths, _, unresolved = _file_requests(instruction)
+            if not paths and _SAVE.search(instruction):
+                paths = unresolved  # Named save payloads also identify prompt candidates, not approval.
+            if not paths:
+                return self.evidence[-20:]  # Deictic follow-ups still need earlier candidates.
+        try:
+            targets = {self.canonical(path) for path in paths}
+        except (OSError, RuntimeError, ValueError):
+            return self.evidence[-20:]  # A prompt optimisation must not prevent error reporting.
+        return [e for e in self.evidence if e.get("request_id") == self.request_id
+                or e.get("target") in targets][-20:]
+
     def guidance(self) -> dict:
-        return {"role": "user", "_hidden_history": True, "content": (
+        return {"role": "user", "_hidden_history": True, "_task_control": True, "content": (
             f"[Task evidence control; current request_id={self.request_id}]\n"
             "Use update_task in the existing tool loop for this request. Interpret the latest user "
             "instruction against the conversation; record selected targets and requested ranges. "
@@ -356,6 +380,9 @@ class TaskNote:
             "discovery or a question, not the first match. For a section request identify its actual "
             "line/page range, not the section number as a line number. Before changing state record "
             "the current intent. After analysis record analysis_complete and the actual status. "
+            "A completed fallback report is not a completed read/write: when a user condition "
+            "prevents that operation (missing material or an existing file that must not be "
+            "overwritten), use blocked/partial with the actual report in final_answer. "
             "A successful search is not document acquisition. Read coverage is checked from tool "
             "contracts, not your declaration. Use source=provided only when the requested material "
             "is actually supplied, not merely an example code block alongside a file request. "
@@ -363,7 +390,12 @@ class TaskNote:
             "For a short answer connected to the latest option, use that conversation; do not "
             "search memory unless a necessary past constraint is absent. "
             "A file mentioned only in a standalone keep/forbid clause is not a read/write "
-            "deliverable; do not acquire it merely to register it. For a question explicitly "
+            "deliverable; do not acquire it merely to register it. Apply a file-specific ban "
+            "only to that file, while respecting independently authorized writes. If the "
+            "allowed scope is unclear, ask a specific question with status=clarification; "
+            "do not broaden scope or inspect guard implementation merely to get around "
+            "a blocked action. "
+            "For a question explicitly "
             "limited to this conversation's history of past reads/approvals, use source=none "
             "and targets=[]; do not open the mentioned files or search disk for permission. "
             "When a conditional change lacks confirmed permission, report that limit with "
@@ -402,7 +434,7 @@ class TaskNote:
             "a job is not completion; report running/unknown as partial and never relaunch "
             "to repair reporting. A known nonzero exit or timeout must be reported honestly.\n"
             + (self._VERIFIED_READS_NOTE if self.verified_reads else "")
-            + json.dumps({"cached_reads": self.evidence[-20:],
+            + json.dumps({"cached_reads": self.prompt_evidence(),
                           "write_results": self.write_results(),
                           "scope_conflicts": self.scope_conflicts(),
                           "superseded_mutations": self.superseded_mutations[-20:],
@@ -645,7 +677,7 @@ class TaskNote:
         self.persist("active")
         return json.dumps({"request_id": self.request_id, "defects": defects,
                            "scope_conflicts": self.scope_conflicts(),
-                           "evidence": self.evidence[-20:],
+                           "evidence": self.prompt_evidence(),
                            "write_results": self.write_results(),
                            "runtime_linked_result_refs": self.runtime_linked_result_refs[-40:],
                            "superseded_mutations": self.superseded_mutations[-20:]},
@@ -658,8 +690,36 @@ class TaskNote:
             return "Only the final report needs correction. Do not repeat or start state-changing work."
         if not self.update:
             return "Intent unconfirmed. Record the latest intent with update_task before mutation."
-        if _NO_WRITE.search(self.request):
-            return "The latest request forbids changes. Continue read-only analysis or ask a question."
+        protected = protected_files(_instruction_text(self.request), self.workspace)
+        if protected is None:
+            return ("The latest request forbids changes or its allowed scope is unresolved. "
+                    "Continue read-only work. If a change is needed, ask which file may be "
+                    "changed and use status=clarification; do not broaden scope or bypass the guard.")
+        if protected:
+            # Only real file-tool arguments enumerate effects. A declared target or a
+            # shell command string cannot prove which files a command/delegate will touch.
+            paths = []
+            if name in {"write_file", "edit_file"}:
+                paths = [params.get("path")]
+            elif name == "apply_patch" and isinstance(params.get("edits"), list):
+                paths = [e.get("path") if isinstance(e, dict) else None for e in params["edits"]]
+            if not paths or any(not isinstance(path, str) or not path for path in paths):
+                return ("This tool does not expose all affected files for the user's file "
+                        "restriction. Use a file tool with explicit paths for an already "
+                        "authorized change, or ask a specific scope question "
+                        "(status=clarification). Do not bypass through shell or delegation.")
+            for path in paths:
+                canonical = self.canonical(path)
+                if any(self.canonical(ref) == canonical
+                       or ("/" not in ref and "\\" not in ref and Path(canonical).name == ref)
+                       or (ref.endswith("/") and Path(canonical).is_relative_to(self.canonical(ref)))
+                       for ref in protected):
+                    return ("This file is protected by the latest user request. Do not change "
+                            "it or bypass the restriction. If it is needed to finish the task, "
+                            "ask a specific question and use status=clarification.")
+                if not any(t.action == "write" and self.canonical(t.path) == canonical
+                           for t in self.update.targets):
+                    return "Write target is not connected to the current structured request."
         if self.update.intent == "withdraw":
             return "The current task was withdrawn; do not mutate."
         if self.update.status in {"blocked", "clarification"}:
@@ -892,8 +952,8 @@ class TaskNote:
                         status, "execution_required") + f":{target.path}")
                 elif events[-1]["id"] not in update.result_refs:
                     defects.append(f"answer_correction:{target.path}:missing_result_reference")
-        if _SAVE.search(instruction) and not _NO_WRITE.search(instruction) and not any(
-                t.action == "write" for t in update.targets):
+        if (_SAVE.search(instruction) and protected_files(instruction, self.workspace) is not None
+                and not any(t.action == "write" for t in update.targets)):
             defects.append("write_target_unresolved")
         if not update.analysis_complete:
             defects.append("analysis_incomplete")
@@ -908,6 +968,24 @@ class TaskNote:
         # Honest partial/blocked/question outcomes must stay incomplete without forcing retries.
         terminal = bool(self.update and self.update.status in {"partial", "blocked", "clarification"})
         return defects, terminal
+
+    def completion_result(
+        self, candidate: str | None, *, check: tuple[list[str], bool], exhausted: bool = False,
+    ) -> tuple[str, str]:
+        """Return the report and stop reason from an existing check; never retry or mutate.
+
+        Budget exhaustion retains its existing failure status and terminal-answer whitespace.
+        The runner owns recovery decisions and supplies the existing final_check result.
+        """
+        defects, terminal = check
+        failure_status = "max_iterations" if exhausted else "incomplete"
+        if terminal:
+            answer = self.update.final_answer or candidate or ""
+            answer = str(answer) if exhausted else answer.strip()
+            return answer + "\n\n미완료 상태: " + self.update.explanation, failure_status
+        if defects:
+            return self.incomplete(defects), failure_status
+        return self.final_report(), self.final_status
 
     @property
     def final_status(self) -> str:

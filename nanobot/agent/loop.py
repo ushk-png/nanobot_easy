@@ -289,6 +289,7 @@ class AgentLoop:
         compact_context: bool = False,
         selective_memory: bool = False,
         memory_prompt_tokens: int = 0,
+        memory_prompt_auto_refresh: bool = False,
         history_context_tokens: int | None = None,
         preserve_user_scope_messages: bool = False,
         stepwise_request_driven_assist: bool = False,
@@ -434,6 +435,13 @@ class AgentLoop:
             selective_memory=selective_memory and self.tools_config.file.enable,
             memory_prompt_tokens=memory_prompt_tokens if self.tools_config.file.enable else 0,
         )
+        if memory_prompt_auto_refresh and self.context.memory_prompt.budget > 0:
+            from nanobot.agent.memory_prompt_refresh import MemoryPromptRefresher
+
+            self.context.memory_prompt.refresher = MemoryPromptRefresher(
+                self.context.memory_prompt.source, self.context.memory_prompt.budget,
+                lambda: (self.provider, self.model),
+            )
         self.conversation_memory = ConversationEventStore(workspace)
         self._memory_workspace_id = str(Path(workspace).expanduser().resolve())
         self.sessions = session_manager or SessionManager(workspace)
@@ -572,6 +580,7 @@ class AgentLoop:
             compact_context=defaults.compact_context,
             selective_memory=defaults.selective_memory,
             memory_prompt_tokens=defaults.memory_prompt_tokens,
+            memory_prompt_auto_refresh=defaults.memory_prompt_auto_refresh,
             reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
             stepwise_enabled=defaults.stepwise.enabled,
             stepwise_request_driven_assist=defaults.stepwise.request_driven_assist,
@@ -1620,6 +1629,8 @@ class AgentLoop:
 
     async def close_mcp(self) -> None:
         """Drain pending background archives, then close MCP connections."""
+        if self.context.memory_prompt.refresher is not None:
+            await self.context.memory_prompt.refresher.close()
         if self.workflow_service is not None:
             await self.workflow_service.stop()
         if self._background_tasks:
@@ -1641,6 +1652,8 @@ class AgentLoop:
     def stop(self) -> None:
         """Stop the agent loop."""
         self._running = False
+        if self.context.memory_prompt.refresher is not None:
+            self.context.memory_prompt.refresher.stop()
         logger.info("Agent loop stopping")
 
     async def _process_system_message(
