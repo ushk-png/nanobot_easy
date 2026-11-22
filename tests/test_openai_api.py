@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -506,6 +507,46 @@ async def test_empty_response_falls_back(aiohttp_client) -> None:
     body = await resp.json()
     assert body["choices"][0]["message"]["content"] == EMPTY_FINAL_RESPONSE_MESSAGE
     assert call_count == 2
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_empty_response_does_not_retry_after_tool_calls(aiohttp_client) -> None:
+    """An empty final response must not be retried once the first attempt already ran a
+    tool: persist_user_message=False only skips re-recording the user's text, it still
+    runs a full turn -- retrying would re-execute any write/send the first attempt did."""
+    from nanobot.utils.runtime import EMPTY_FINAL_RESPONSE_MESSAGE
+
+    call_count = 0
+    session = SimpleNamespace(messages=[])
+
+    async def ran_a_tool_then_empty(content, session_key="", channel="", chat_id="", **kwargs):
+        nonlocal call_count
+        call_count += 1
+        session.messages.append({"role": "assistant", "content": None,
+                                 "tool_calls": [{"id": "call-1"}]})
+        session.messages.append({"role": "tool", "tool_call_id": "call-1", "content": "done"})
+        return ""
+
+    agent = MagicMock()
+    agent.process_direct = ran_a_tool_then_empty
+    agent.sessions.get_or_create = MagicMock(return_value=session)
+    agent._connect_mcp = AsyncMock()
+    agent.close_mcp = AsyncMock()
+    agent._last_usage = {}
+
+    app = create_app(agent, model_name="m", api_key=API_KEY)
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions",
+        headers=AUTH_HEADERS,
+        json={"messages": [{"role": "user", "content": "hello"}]},
+    )
+    assert resp.status == 200
+    body = await resp.json()
+    assert body["choices"][0]["message"]["content"] == EMPTY_FINAL_RESPONSE_MESSAGE
+    # Exactly one process_direct call: no retry once tools already ran.
+    assert call_count == 1
 
 
 @pytest.mark.asyncio
