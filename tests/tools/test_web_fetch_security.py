@@ -228,7 +228,9 @@ async def test_web_fetch_env_proxy_adds_proxy_mounts_and_keeps_pinned_transport(
 
     data = json.loads(result)
     assert data["extractor"] == "jina"
-    fetch_kwargs = [kwargs for kwargs in client_kwargs if kwargs.get("timeout") == 15.0]
+    # The image-detection pre-flight client now shares the same (30s) timeout as the
+    # readability fallback, since it may end up serving that fallback's request too.
+    fetch_kwargs = [kwargs for kwargs in client_kwargs if kwargs.get("timeout") == 30.0]
     assert fetch_kwargs
     assert all("transport" in kwargs for kwargs in fetch_kwargs)
     assert all("mounts" in kwargs for kwargs in fetch_kwargs)
@@ -275,7 +277,9 @@ async def test_web_fetch_does_not_fallback_after_pinned_dns_rebind_rejection(mon
 
 
 @pytest.mark.asyncio
-async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
+async def test_web_fetch_skips_jina_and_reuses_the_prefetch_connection(monkeypatch):
+    """With Jina disabled, the image-detection pre-flight's own (non-image) response
+    must be reused for readability extraction -- no second request to the same URL."""
     tool = WebFetchTool(
         config=WebFetchConfig(use_jina_reader=False),
         user_agent="nanobot-test-agent",
@@ -289,6 +293,7 @@ async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
         status_code = 200
         headers = {"content-type": "text/html"}
         url = "https://example.com/page"
+        text = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
 
         async def __aenter__(self):
             return self
@@ -296,17 +301,10 @@ async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
         async def __aexit__(self, exc_type, exc, tb):
             return False
 
-        async def aread(self):
-            raise AssertionError("non-image prefetch body should not be read")
-
-    class FakeResponse:
-        status_code = 200
-        url = "https://example.com/page"
-        text = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
-        headers = {"content-type": "text/html"}
-        is_redirect = False
-
         def raise_for_status(self):
+            return None
+
+        async def aread(self):
             return None
 
     class FakeClient:
@@ -324,8 +322,7 @@ async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
             return FakeStreamResponse()
 
         async def get(self, url, headers=None, **kwargs):
-            seen_headers.append(headers or {})
-            return FakeResponse()
+            raise AssertionError("readability must reuse the pre-flight connection, not fetch again")
 
     monkeypatch.setattr(tool, "_fetch_jina", _fail_jina)
     monkeypatch.setattr(tool, "_extract_readable_html", lambda html, mode: "Hello world")
@@ -336,10 +333,8 @@ async def test_web_fetch_can_skip_jina_and_use_custom_user_agent(monkeypatch):
 
     data = json.loads(result)
     assert data["extractor"] == "readability"
-    assert [headers["User-Agent"] for headers in seen_headers] == [
-        "nanobot-test-agent",
-        "nanobot-test-agent",
-    ]
+    # Exactly one request total: the pre-flight's, reused for extraction.
+    assert [headers["User-Agent"] for headers in seen_headers] == ["nanobot-test-agent"]
 
 
 @pytest.mark.asyncio
@@ -385,30 +380,25 @@ async def test_web_fetch_falls_back_when_readability_dependency_is_missing(monke
 
 @pytest.mark.asyncio
 async def test_web_fetch_blocks_private_redirect_before_readability_request(monkeypatch):
+    """The streamed pre-flight (execute()'s image-detection request, now reused for
+    readability too) must itself block a redirect to a private IP -- no plain GET
+    request of any kind should ever be made."""
     tool = WebFetchTool(config=WebFetchConfig(use_jina_reader=False))
-    requested: list[str] = []
 
-    class FakeStreamResponse:
-        status_code = 200
-        headers = {"content-type": "text/html"}
-        url = "https://attacker.example/start"
+    class FakeStreamContext:
+        def __init__(self, response):
+            self._response = response
 
         async def __aenter__(self):
-            return self
+            return self._response
 
         async def __aexit__(self, exc_type, exc, tb):
             return False
-
-        async def aread(self):
-            raise AssertionError("non-image prefetch body should not be read")
 
     class FakeRedirectResponse:
         status_code = 302
         headers = {"location": "http://127.0.0.1:8765/metadata"}
         url = "https://attacker.example/start"
-
-        async def aclose(self):
-            return None
 
     class FakeClient:
         def __init__(self, *args, **kwargs):
@@ -421,13 +411,10 @@ async def test_web_fetch_blocks_private_redirect_before_readability_request(monk
             return False
 
         def stream(self, method, url, headers=None, **kwargs):
-            return FakeStreamResponse()
+            return FakeStreamContext(FakeRedirectResponse())
 
         async def get(self, url, headers=None, **kwargs):
-            requested.append(url)
-            if url == "http://127.0.0.1:8765/metadata":
-                raise AssertionError("private redirect target should not be requested")
-            return FakeRedirectResponse()
+            raise AssertionError("redirect must be blocked inside the streamed pre-flight itself")
 
     monkeypatch.setattr(web_module.httpx, "AsyncClient", FakeClient)
 
@@ -442,7 +429,6 @@ async def test_web_fetch_blocks_private_redirect_before_readability_request(monk
     data = json.loads(result)
     assert "error" in data
     assert "redirect blocked" in data["error"].lower()
-    assert requested == ["https://attacker.example/start"]
 
 
 @pytest.mark.asyncio

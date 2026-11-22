@@ -1083,6 +1083,12 @@ class WebFetchTool(Tool):
     """Fetch and extract content from a URL."""
     _scopes = {"core", "subagent"}
 
+    # Safety ceiling checked against Content-Length before any body is read, independent
+    # of max_chars (which truncates the already-decoded text afterward). Catches a
+    # mislabeled or just very large response before it is materialized in memory; not
+    # a replacement for max_chars.
+    _MAX_FETCH_BYTES = 20_000_000
+
     name = "web_fetch"
     description = (
         "Fetch a URL and extract readable content (HTML → markdown/text). "
@@ -1132,11 +1138,15 @@ class WebFetchTool(Tool):
         if not is_valid:
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url}, ensure_ascii=False)
 
-        # Detect and fetch images directly to avoid Jina's textual image captioning
-        try:
-            async with httpx.AsyncClient(
-                **_fetch_client_kwargs(self.proxy, 15.0),
-            ) as client:
+        # Detect images directly (to avoid Jina's textual image captioning) by opening
+        # one streamed connection, kept alive (via this one `async with`, widened to
+        # cover the rest of the method) for as long as it might still be needed: when
+        # the result isn't an image and Jina isn't used (disabled, or it fails/rate-
+        # limits), this same open connection is handed to _fetch_readability instead of
+        # it opening a brand new request to the same URL.
+        async with httpx.AsyncClient(**_fetch_client_kwargs(self.proxy, 30.0)) as client:
+            prefetched: tuple[httpx.Response, Any] | None = None
+            try:
                 r, stream, redirect_error = await _stream_with_safe_redirects(
                     client,
                     url,
@@ -1144,30 +1154,68 @@ class WebFetchTool(Tool):
                 )
                 if redirect_error:
                     return json.dumps({"error": redirect_error, "url": url}, ensure_ascii=False)
-                if r is None:
-                    return json.dumps({"error": "Fetch failed", "url": url}, ensure_ascii=False)
-
-                try:
+                if r is not None:
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
                         r.raise_for_status()
                         raw = await r.aread()
                         return build_image_content_blocks(raw, ctype, url, f"(Image fetched from: {url})")
-                finally:
-                    if stream is not None:
-                        await stream.__aexit__(None, None, None)
-        except Exception as e:
-            unsafe_error = _unsafe_url_request_error(e)
-            if unsafe_error is not None:
-                return json.dumps({"error": f"URL validation failed: {unsafe_error}", "url": url}, ensure_ascii=False)
-            logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
+                    prefetched = (r, stream)
+            except Exception as e:
+                unsafe_error = _unsafe_url_request_error(e)
+                if unsafe_error is not None:
+                    return json.dumps({"error": f"URL validation failed: {unsafe_error}", "url": url}, ensure_ascii=False)
+                logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
 
-        result = None
-        if self.config.use_jina_reader:
-            result = await self._fetch_jina(url, max_chars)
-        if result is None:
-            result = await self._fetch_readability(url, extract_mode, max_chars)
-        return result
+            result = None
+            if self.config.use_jina_reader:
+                result = await self._fetch_jina(url, max_chars)
+            if result is None:
+                result = await self._fetch_readability(url, extract_mode, max_chars, prefetched=prefetched)
+            return result
+
+    def _content_length_error(self, r: httpx.Response, url: str) -> str | None:
+        declared = r.headers.get("content-length")
+        if declared is not None:
+            try:
+                size = int(declared)
+            except ValueError:
+                size = None
+            if size is not None and size > self._MAX_FETCH_BYTES:
+                return json.dumps({
+                    "error": f"Response too large ({size:,} bytes, limit {self._MAX_FETCH_BYTES:,})",
+                    "url": url,
+                }, ensure_ascii=False)
+        return None
+
+    def _extract_from_response(self, r: httpx.Response, url: str, extract_mode: str, max_chars: int) -> str:
+        """Build the JSON tool result; r's body must already be materialized (aread())."""
+        ctype = r.headers.get("content-type", "")
+        if ctype.startswith("image/"):
+            return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
+
+        if "application/json" in ctype:
+            text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
+        elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
+            try:
+                text = self._extract_readable_html(r.text, extract_mode)
+                extractor = "readability"
+            except Exception as e:
+                logger.warning("Readability failed for {}, using raw HTML fallback: {}", url, e)
+                text, extractor = _normalize(_strip_tags(r.text)), "html"
+        else:
+            text, extractor = r.text, "raw"
+
+        truncated = len(text) > max_chars
+        if truncated:
+            text = text[:max_chars]
+        text = f"{_UNTRUSTED_BANNER}\n\n{text}"
+
+        return json.dumps({
+            "url": url, "finalUrl": str(r.url), "status": r.status_code,
+            "extractor": extractor, "truncated": truncated, "length": len(text),
+            "untrusted": True, "text": text,
+        }, ensure_ascii=False)
 
     async def _fetch_jina(self, url: str, max_chars: int) -> str | None:
         """Try fetching via Jina Reader API. Returns None on failure."""
@@ -1205,9 +1253,35 @@ class WebFetchTool(Tool):
             logger.debug("Jina Reader failed for {}, falling back to readability: {}", url, e)
             return None
 
-    async def _fetch_readability(self, url: str, extract_mode: str, max_chars: int) -> Any:
-        """Local fallback using readability-lxml."""
+    async def _fetch_readability(
+        self, url: str, extract_mode: str, max_chars: int,
+        *, prefetched: tuple[httpx.Response, Any] | None = None,
+    ) -> Any:
+        """Local fallback using readability-lxml.
+
+        ``prefetched`` reuses an already-open streamed connection (the image-detection
+        pre-flight in execute(), when its result wasn't an image and Jina wasn't used)
+        instead of opening a second request to the same URL; its owning client is closed
+        by the caller, not here. With no prefetched connection, opens its own.
+        """
         try:
+            if prefetched is not None:
+                r, stream = prefetched
+                try:
+                    size_error = self._content_length_error(r, url)
+                    if size_error:
+                        return size_error
+                    r.raise_for_status()
+                    await r.aread()
+                    return self._extract_from_response(r, url, extract_mode, max_chars)
+                finally:
+                    if stream is not None:
+                        await stream.__aexit__(None, None, None)
+
+            # No usable pre-flight connection (it failed outright, e.g. network/DNS
+            # trouble) -- fall back to the original single, non-streamed request; the
+            # Content-Length pre-check only applies where a response was actually
+            # streamed open, which this rare fallback-of-a-fallback path isn't.
             async with httpx.AsyncClient(
                 **_fetch_client_kwargs(self.proxy, 30.0),
             ) as client:
@@ -1221,33 +1295,7 @@ class WebFetchTool(Tool):
                 if r is None:
                     return json.dumps({"error": "Fetch failed", "url": url}, ensure_ascii=False)
                 r.raise_for_status()
-
-            ctype = r.headers.get("content-type", "")
-            if ctype.startswith("image/"):
-                return build_image_content_blocks(r.content, ctype, url, f"(Image fetched from: {url})")
-
-            if "application/json" in ctype:
-                text, extractor = json.dumps(r.json(), indent=2, ensure_ascii=False), "json"
-            elif "text/html" in ctype or r.text[:256].lower().startswith(("<!doctype", "<html")):
-                try:
-                    text = self._extract_readable_html(r.text, extract_mode)
-                    extractor = "readability"
-                except Exception as e:
-                    logger.warning("Readability failed for {}, using raw HTML fallback: {}", url, e)
-                    text, extractor = _normalize(_strip_tags(r.text)), "html"
-            else:
-                text, extractor = r.text, "raw"
-
-            truncated = len(text) > max_chars
-            if truncated:
-                text = text[:max_chars]
-            text = f"{_UNTRUSTED_BANNER}\n\n{text}"
-
-            return json.dumps({
-                "url": url, "finalUrl": str(r.url), "status": r.status_code,
-                "extractor": extractor, "truncated": truncated, "length": len(text),
-                "untrusted": True, "text": text,
-            }, ensure_ascii=False)
+            return self._extract_from_response(r, url, extract_mode, max_chars)
         except httpx.ProxyError as e:
             logger.exception("WebFetch proxy error for {}", url)
             return json.dumps({"error": f"Proxy error: {e}", "url": url}, ensure_ascii=False)
