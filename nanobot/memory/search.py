@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import re
 import sqlite3
@@ -10,7 +11,7 @@ from datetime import datetime, timezone
 from typing import Any, Iterable
 
 from nanobot.memory.entity_extract import exact_terms_from_query
-from nanobot.memory.event_store import ConversationEventStore
+from nanobot.memory.event_store import DOC_OWNER, ConversationEventStore
 from nanobot.memory.models import EventWindow, MemoryScope, RawEvent, SearchResult
 from nanobot.utils.helpers import estimate_message_tokens, truncate_text_to_tokens
 
@@ -61,6 +62,7 @@ class MemorySearcher:
 
     def __init__(self, store: ConversationEventStore) -> None:
         self.store = store
+        self.include_documents = False
 
     def search(
         self,
@@ -75,7 +77,10 @@ class MemorySearcher:
         limit: int = 10,
         max_context_tokens: int = 4000,
         exclude_event_ids: Iterable[str] | None = None,
+        include_documents: bool = False,
     ) -> SearchResult:
+        # Opt-in: current MEMORY.md sections whose freshness the caller has just verified.
+        self.include_documents = include_documents
         limit = min(max(int(limit or 10), 1), 50)
         budget = min(max(int(max_context_tokens or 4000), 500), 20_000)
         excluded = {str(eid) for eid in (exclude_event_ids or []) if str(eid).strip()}
@@ -162,10 +167,12 @@ class MemorySearcher:
         *,
         alias: str = "e",
     ) -> tuple[str, list[Any]]:
+        owner_sql, owner_params = ConversationEventStore.owner_sql(scope, self.include_documents, alias)
         clauses = [
-            f"{alias}.owner_id = ?",
+            owner_sql,
             f"{alias}.workspace_id IN ({','.join('?' for _ in scope.workspace_ids)})",
             f"{alias}.redacted_at IS NULL",
+            f"{alias}.superseded_at IS NULL",
             (
                 f"NOT ({alias}.event_type = 'TOOL_RESULT' AND "
                 f"({alias}.metadata_json LIKE '%\"name\": \"search_memory\"%' OR "
@@ -174,7 +181,7 @@ class MemorySearcher:
                 f"{alias}.metadata_json LIKE '%\"tool_name\": \"read_memory_events\"%'))"
             ),
         ]
-        params: list[Any] = [scope.owner_id, *scope.workspace_ids]
+        params: list[Any] = [*owner_params, *scope.workspace_ids]
         agent_sql, agent_params = ConversationEventStore._agent_scope_sql(scope)
         if agent_sql:
             scoped_agent_sql = agent_sql.strip()
@@ -326,17 +333,19 @@ class MemorySearcher:
                         compact[-1] = (old_start, max(old_end, end), max(old_score, score), hit_ids)
                     else:
                         compact.append((start, end, score, {hit_id}))
+                owner_sql, owner_params = ConversationEventStore.owner_sql(scope, self.include_documents)
                 for start, end, score, hit_ids in compact:
                     rows = conn.execute(
                         """
                         SELECT * FROM events
                         WHERE session_id = ? AND sequence BETWEEN ? AND ?
-                          AND owner_id = ?
+                          AND {}
                           AND workspace_id IN ({})
                           AND redacted_at IS NULL
+                          AND superseded_at IS NULL
                         ORDER BY sequence
-                        """.format(",".join("?" for _ in scope.workspace_ids)),
-                        [session_id, start, end, scope.owner_id, *scope.workspace_ids],
+                        """.format(owner_sql, ",".join("?" for _ in scope.workspace_ids)),
+                        [session_id, start, end, *owner_params, *scope.workspace_ids],
                     ).fetchall()
                     events = [
                         ConversationEventStore._row_to_event(row)
@@ -419,6 +428,8 @@ def format_search_result(result: SearchResult) -> str:
         lines.append(f"actor: {row['actor']}")
         lines.append(f"session: {row['session_id']}")
         lines.append(f"score: {row['score']:.2f}")
+        if row.get("document"):
+            lines.append(document_source_line(row["document"], read_hint=True))
         lines.append(f"snippet: {row['snippet']}")
         if row.get("truncated"):
             lines.append("[snippet_truncated=true; use read_memory_events for raw content]")
@@ -431,6 +442,20 @@ def format_search_result(result: SearchResult) -> str:
         return rendered
     suffix = "\n[formatted_search_result_truncated=true; use read_memory_events for raw content]"
     return rendered[: max(0, FORMATTED_RESULT_CHAR_BUDGET - len(suffix))].rstrip() + suffix
+
+
+def document_source_line(meta: dict[str, Any], *, read_hint: bool = False) -> str:
+    """Provenance of a MEMORY.md section: curated document, never a conversation transcript."""
+    provenance = (f"source: {meta.get('source')} lines {meta.get('line_start')}-{meta.get('line_end')} "
+                  f"(curated memory document, not a conversation transcript); "
+                  f"version: {meta.get('status', 'unknown')} file_sha256={str(meta.get('file_sha256'))[:16]}")
+    start, end = meta.get("line_start"), meta.get("line_end")
+    if (read_hint and meta.get("source") == "memory/MEMORY.md" and meta.get("status") == "current"
+            and type(start) is int and type(end) is int and 1 <= start <= end):
+        # A location hint never replaces a current filesystem read or grants write permission.
+        args = {"path": "memory/MEMORY.md", "offset": start, "limit": end - start + 1}
+        provenance += "\nread_file_args: " + json.dumps(args)
+    return provenance
 
 
 def _compact_rows_for_display(windows: tuple[EventWindow, ...], query: str) -> tuple[list[dict[str, Any]], int]:
@@ -457,6 +482,8 @@ def _compact_rows_for_display(windows: tuple[EventWindow, ...], query: str) -> t
                     "snippet": snippet,
                     "truncated": truncated,
                     "matched": event.event_id in matched,
+                    "document": (ConversationEventStore._metadata_obj(event.metadata_json)
+                                 if event.owner_id == DOC_OWNER else None),
                 }
             )
     rows.sort(key=lambda row: (not row["matched"], -float(row["score"]), row["timestamp"]))

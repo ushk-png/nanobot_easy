@@ -102,6 +102,10 @@ def _log_provider_attempt(
         type(provider).__name__, kwargs.get("model"), stream, session_key or "-",
         elapsed_s, finish_reason, error_kind,
     )
+    # Measurement only: one content-free ledger record per leaf attempt; never raises.
+    from nanobot.providers.usage_ledger import record_attempt
+    record_attempt(provider, kwargs, stream=stream, elapsed_s=elapsed_s,
+                   response=response, outcome=outcome)
 
 
 def _call_timeout_response(limit_s: float) -> "LLMResponse":
@@ -926,7 +930,7 @@ class LLMProvider(ABC):
         )
         if on_stream_recover and getattr(self, "supports_stream_recover_callback", False):
             kw["on_stream_recover"] = _recover_stream
-        return await self._run_with_retry(
+        return await self._run_logical_request(
             self._safe_chat_stream,
             kw,
             messages,
@@ -977,7 +981,7 @@ class LLMProvider(ABC):
             max_tokens=max_tokens, temperature=temperature,
             reasoning_effort=reasoning_effort, tool_choice=tool_choice,
         )
-        return await self._run_with_retry(
+        return await self._run_logical_request(
             self._safe_chat,
             kw,
             messages,
@@ -1094,6 +1098,18 @@ class LLMProvider(ABC):
         if active_context_trace.get() is not None:
             return "[provider error text omitted for context selection privacy]"
         return (response.content or "")[:120].lower()
+
+    async def _run_logical_request(
+        self,
+        call: Callable[..., Awaitable[LLMResponse]],
+        kw: dict[str, Any],
+        original_messages: list[dict[str, Any]],
+        **options: Any,
+    ) -> LLMResponse:
+        # One logical model request for the usage ledger; every attempt below shares its id.
+        from nanobot.providers.usage_ledger import logical_call
+        with logical_call():
+            return await self._run_with_retry(call, kw, original_messages, **options)
 
     async def _run_with_retry(
         self,

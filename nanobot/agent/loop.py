@@ -1852,7 +1852,10 @@ class AgentLoop:
             provider=provider,
         )
 
-        with self.sessions.session_scope(ctx.session):
+        from nanobot.providers import usage_ledger
+        usage = usage_ledger.request_scope(usage_ledger.purpose_for_session_key(key),
+                                           workspace=self.workspace, request_key=ctx.turn_id)
+        with self.sessions.session_scope(ctx.session), usage_ledger.bound(usage):
             return await self._run_turn_states(ctx)
 
     async def _run_turn_states(self, ctx: TurnContext) -> OutboundMessage | None:
@@ -2220,7 +2223,9 @@ class AgentLoop:
                     channel=ctx.msg.channel, workspace=scope.project_path,
                     session_summary=ctx.pending_summary,
                     memory_query=None if ctx.history else ctx.msg.content)}
-            ctx.tools = CompactTools(ctx.tools or self.tools, full_guidance, ctx.initial_messages[0])
+            identity = self.context._get_identity(channel=ctx.msg.channel, workspace=scope.project_path)
+            ctx.tools = CompactTools(ctx.tools or self.tools, full_guidance, ctx.initial_messages[0],
+                                     identity)
         ctx.user_persisted_early = self._persist_user_message_early(
             ctx.msg, ctx.session
         )

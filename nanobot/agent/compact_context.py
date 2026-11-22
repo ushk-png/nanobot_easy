@@ -1,5 +1,6 @@
 """Turn-local, opt-in deferral of execution instructions and tool schemas."""
 
+from nanobot.agent.tool_guidance import compose, tool_groups
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.tools.registry import ToolRegistry
 
@@ -16,9 +17,10 @@ class ActivateTools(Tool):
     read_only = True
     concurrency_safe = False
 
-    def __init__(self, registry, guidance, system_message):
+    def __init__(self, registry, guidance, system_message, identity=None):
         self.registry = registry
         self.guidance = guidance
+        self.identity = identity
         self.system_message = system_message
         names = sorted(registry.available_names())
         self.parameters = {
@@ -45,8 +47,11 @@ class ActivateTools(Tool):
             self.registry.selected = None
         elif self.registry.selected is not None:
             self.registry.selected.update(names)
-        # Restore at system priority, outside tool-result truncation/offloading.
-        self.system_message["content"] = self.guidance
+        # Restore at system priority, outside tool-result truncation/offloading. Rebuilt from
+        # the preserved full guidance and the selected set each time, never appended to.
+        selected = self.registry.selected
+        groups = None if selected is None else tool_groups(sorted(selected), self.registry.base.get)
+        self.system_message["content"] = compose(self.guidance, groups, self.identity)
         self.registry.activated = True
         loaded = ", ".join(sorted(self.registry.selected)) if self.registry.selected is not None else "all available tools"
         return (f"Execution guidance restored; loaded {loaded}. Continue execution and verification. "
@@ -56,12 +61,12 @@ class ActivateTools(Tool):
 class CompactTools:
     """Keep the shared registry unchanged; activation lasts for this turn only."""
 
-    def __init__(self, base, guidance, system_message):
+    def __init__(self, base, guidance, system_message, identity=None):
         self.base = base
         self.activated = False
         self.selected: set[str] | None = None
         self.entry = ToolRegistry()
-        self.entry.register(ActivateTools(self, guidance, system_message))
+        self.entry.register(ActivateTools(self, guidance, system_message, identity))
 
     def __getattr__(self, name):
         return getattr(self.base, name)

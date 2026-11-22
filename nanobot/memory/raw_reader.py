@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from nanobot.memory.event_store import ConversationEventStore
+from nanobot.memory.event_store import DOC_OWNER, ConversationEventStore
 from nanobot.memory.models import MemoryScope, RawEvent
+from nanobot.memory.search import document_source_line
 from nanobot.utils.helpers import estimate_message_tokens, truncate_text_to_tokens
 
 
@@ -13,8 +14,9 @@ def read_memory_events(
     event_ids: list[str],
     *,
     max_total_tokens: int | None = None,
+    include_documents: bool = False,
 ) -> list[RawEvent]:
-    events = store.get_events(scope, event_ids)
+    events = store.get_events(scope, event_ids, include_documents=include_documents)
     if max_total_tokens is None:
         return events
     kept: list[RawEvent] = []
@@ -44,6 +46,8 @@ def format_raw_events(events: list[RawEvent]) -> str:
         lines.extend([
             "",
             f"[{event.event_id}] {event.ts} {event.event_type} actor={event.actor}",
+            *([document_source_line(ConversationEventStore._metadata_obj(event.metadata_json))]
+              if event.owner_id == DOC_OWNER else []),
             event.content if event.content is not None else "[content unavailable: forgotten, purged, or legacy summary only]",
         ])
     return "\n".join(lines)

@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 
+from nanobot.agent.tool_output_projection import project_old_tool_duplicates
 from nanobot.utils.helpers import (
     estimate_message_tokens,
     estimate_prompt_tokens_chain,
@@ -68,6 +69,7 @@ class ContextGovernanceConfig:
     context_block_limit: int | None = None
     max_tokens: int | None = None
     inflight_start_index: int = 0
+    historical_tool_call_ids: frozenset[str] = frozenset()
 
 
 class ContextGovernor:
@@ -87,7 +89,8 @@ class ContextGovernor:
         updated = self.compact_inflight_overflow(config, updated, compacted_tool_call_ids)
         updated = self.snip_history(config, updated)
         updated = self.drop_orphan_tool_results(updated)
-        return self.backfill_missing_tool_results(updated)
+        updated = self.backfill_missing_tool_results(updated)
+        return project_old_tool_duplicates(updated, config.historical_tool_call_ids)
 
     @staticmethod
     def input_budget(config: ContextGovernanceConfig) -> int:

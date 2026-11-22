@@ -396,6 +396,9 @@ class SubagentManager:
                 else None
             )
             token = bind_workspace_scope(workspace_scope) if workspace_scope is not None else None
+            from nanobot.providers import usage_ledger
+            usage_token = usage_ledger.enter(usage_ledger.background_job(
+                "subagent", parent=usage_ledger.current_scope()))
             try:
                 run_hook = _SubagentHook(task_id, status)
                 if self.action_audit.enabled:
@@ -431,6 +434,7 @@ class SubagentManager:
                     llm_timeout_s=llm_timeout,
                 ))
             finally:
+                usage_ledger.leave(usage_token)
                 if token is not None:
                     reset_workspace_scope(token)
             status.phase = "done"

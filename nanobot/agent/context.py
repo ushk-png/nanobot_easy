@@ -264,6 +264,7 @@ class ContextBuilder:
         *,
         session_key: str | None = None,
         unified_session: bool = False,
+        shown_summary: str | None = None,
     ) -> str | None:
         entries = self.memory.read_recent_history_for_prompt(
             since_cursor=self.memory.get_last_dream_cursor(),
@@ -273,6 +274,16 @@ class ContextBuilder:
         if not entries:
             return None
         capped = entries[-self._MAX_RECENT_HISTORY:]
+        if shown_summary is not None and session_key is not None:
+            # Remove only the latest match: identical text in an older archive can describe
+            # another occurrence whose timestamp must survive. Never backfill beyond the cap.
+            for index in range(len(capped) - 1, -1, -1):
+                entry = capped[index]
+                if entry.get("session_key") == session_key and entry.get("content") == shown_summary:
+                    capped.pop(index)
+                    break
+            if not capped:
+                return None
         history_text = "\n".join(
             f"- [{e['timestamp']}] {e['content']}" for e in capped
         )
@@ -284,6 +295,18 @@ class ContextBuilder:
             + "\n"
             + self._RECENT_MEMORY_END
         )
+
+    @staticmethod
+    def _shown_archived_summary(
+        session_summary: str | None,
+        session_metadata: Mapping[str, Any] | None,
+    ) -> str | None:
+        """Persisted ``_last_summary`` text, only when it is the summary shown this turn."""
+        meta = session_metadata.get("_last_summary") if isinstance(session_metadata, Mapping) else None
+        text = meta.get("text") if isinstance(meta, Mapping) else None
+        if not isinstance(text, str) or not text.strip() or not isinstance(session_summary, str):
+            return None
+        return text if session_summary == text or session_summary.endswith("\n" + text) else None
 
     def _get_identity(self, channel: str | None = None, workspace: Path | None = None,
                       *, design: bool = False) -> str:
@@ -398,6 +421,7 @@ class ContextBuilder:
             self._build_recent_memory_context(
                 session_key=session_key,
                 unified_session=unified_session,
+                shown_summary=self._shown_archived_summary(session_summary, session_metadata),
             )
             if include_memory_recent_history
             else None

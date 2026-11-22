@@ -21,10 +21,12 @@ from nanobot.agent.memory_prompt import (
     append_only_summary,
     apply_summary_edits,
     encode_snapshot,
+    has_review_receipt,
     make_snapshot,
     projection_tokens,
     snapshot_summary,
 )
+from nanobot.providers import usage_ledger
 from nanobot.providers.base import LLMProvider, hosted_tools_disabled
 from nanobot.utils.prompt_templates import render_template
 
@@ -43,7 +45,9 @@ class MemoryPromptRefresher:
 
     The caller keeps using current raw memory until a current, in-budget snapshot
     passes a separate review. No user/session context, tools, or memory mutations
-    are available to either model call. Failed attempts have a five-minute cooldown.
+    are available to either model call. Transient failures have a five-minute cooldown.
+    Exhausted quality/budget checks wait for a changed source, budget or model instead
+    of buying the same failed maintenance cycle again on later chat turns.
     """
 
     def __init__(self, source: Path, budget: int,
@@ -58,6 +62,9 @@ class MemoryPromptRefresher:
         self._closed = False
         self._last_digest: str | None = None
         self._retry_at = 0.0
+        self._usage_job: usage_ledger.UsageScope | None = None
+        self._validation_failure: tuple[str, int, str] | None = None
+        self.status: dict = {}
 
     def request(self, text: str) -> None:
         if self._closed or self.budget <= 0 or not text.strip():
@@ -65,6 +72,16 @@ class MemoryPromptRefresher:
         if self._task is not None and not self._task.done():
             return
         digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        if self._validation_failure is not None and digest == self._validation_failure[0]:
+            if self.budget == self._validation_failure[1]:
+                try:
+                    _, model = self.selection()
+                except Exception:
+                    return  # Inspection failure must not affect the foreground chat.
+                if model == self._validation_failure[2]:
+                    return
+            self._validation_failure = None
+            self._retry_at = 0.0
         if digest == self._last_digest and time.monotonic() < self._retry_at:
             return
         try:
@@ -75,7 +92,10 @@ class MemoryPromptRefresher:
         self._retry_at = time.monotonic() + _RETRY_DELAY_S
         # Do not inherit a chat's cancellation, permission, provider budget or
         # file-state ContextVars into a separate maintenance operation.
-        self._task = loop.create_task(self._refresh(digest), context=Context())
+        # Usage accounting keeps only the triggering request's opaque id, as a separate job.
+        job = usage_ledger.background_job("memory_refresh", parent=usage_ledger.current_scope(),
+                                          workspace=self.workspace)
+        self._task = loop.create_task(self._refresh(digest, job), context=Context())
 
     def stop(self) -> None:
         self._closed = True
@@ -118,8 +138,8 @@ class MemoryPromptRefresher:
             return None
 
     async def _ask(self, provider: LLMProvider, model: str, template: str,
-                   payload: dict, max_tokens: int) -> str:
-        with hosted_tools_disabled():
+                   payload: dict, max_tokens: int, purpose: str | None = None) -> str:
+        with hosted_tools_disabled(), usage_ledger.bound(self._usage_job, purpose):
             response = await provider.chat_with_retry(
                 model=model, messages=[
                     {"role": "system", "content": render_template(template, strip=True)},
@@ -138,8 +158,11 @@ class MemoryPromptRefresher:
             raise MemoryRefreshError("empty_response")
         return response.content.strip()
 
-    async def _refresh(self, digest: str) -> None:
+    async def _refresh(self, digest: str, usage_job: usage_ledger.UsageScope | None = None) -> None:
         phase = "path checks"
+        model = None
+        self._usage_job = usage_job
+        self.status = {"status": "running", "source_sha256": digest, "budget": self.budget}
         try:
             await asyncio.sleep(_DEBOUNCE_S)
             self._check_paths()
@@ -149,6 +172,7 @@ class MemoryPromptRefresher:
                 async with asyncio.timeout(_REFRESH_TIMEOUT_S):
                     text = self._read_source()
                     if hashlib.sha256(text.encode("utf-8")).hexdigest() != digest:
+                        self.status.update(status="skipped", reason="source_changed")
                         return  # A newer source will be detected on the next build.
                     before = self._read_snapshot()
                     appended = None
@@ -159,9 +183,12 @@ class MemoryPromptRefresher:
                             loaded = snapshot_summary(data)
                             current = make_snapshot(text, loaded, self.source, self.budget)
                             prior_summary = loaded
-                            if data.get("source_sha256") == current["source_sha256"]:
+                            checked = has_review_receipt(data)
+                            if checked and data.get("source_sha256") == current["source_sha256"]:
+                                self.status.update(status="current")
                                 return  # Another process already refreshed it.
-                            appended = append_only_summary(text, data)
+                            if checked:
+                                appended = append_only_summary(text, data)
                         except (ValueError, TypeError, KeyError, RecursionError):
                             pass
                     method, model = "lossless", None
@@ -176,13 +203,20 @@ class MemoryPromptRefresher:
                     except ValueError:
                         provider, model = self.selection()
                         template = "agent/memory_prompt_update.md" if prior_summary is not None else "agent/memory_prompt_refresh.md"
-                        payload = {"source": text, "summary_token_target": max(1, int(self.budget * 0.9))}
+                        payload = {"source": text, "summary_token_target": max(1, int(self.budget * 0.9)),
+                                   "summary_token_budget": self.budget}
                         if prior_summary is not None:
                             payload["previous_summary"] = prior_summary
+                            # A valid-sized old summary needs reconciliation, not a
+                            # gratuitous rewrite to an arbitrary 90% soft target.
+                            payload["summary_token_target"] = self.budget
+                            payload["previous_draft_tokens"] = projection_tokens(prior_summary, self.source)
                         for attempts in (1, 2):
                             phase = "generation"
+                            self.status.update(attempt=attempts)
                             summary = await self._ask(provider, model, template,
-                                payload, min(16_000, max(2048, self.budget * 2)))
+                                payload, min(16_000, max(2048, self.budget * 2)),
+                                purpose="memory_refresh_generate")
                             if prior_summary is not None:
                                 try:
                                     summary = apply_summary_edits(payload["previous_summary"], json.loads(summary))
@@ -190,23 +224,28 @@ class MemoryPromptRefresher:
                                     raise MemoryRefreshError("invalid_summary_edits") from exc
                             phase = "budget"
                             tokens = projection_tokens(summary, self.source)
+                            self.status.update(summary_tokens=tokens)
                             if tokens > self.budget:
                                 logger.info("Memory prompt candidate over budget: tokens={} budget={} attempt={}",
                                             tokens, self.budget, attempts)
                                 if attempts == 2:
                                     raise MemoryRefreshError("summary_over_budget")
-                                feedback = ["The draft exceeds the measured token budget. Compress historical "
-                                            "detail and repetition further; do not remove active constraints."]
+                                feedback = [f"The draft measures {tokens} local input tokens including its notice; "
+                                            f"the hard budget is {self.budget}. Compress historical detail and "
+                                            "repetition further; do not remove active constraints."]
                             else:
                                 candidate = make_snapshot(text, summary, self.source, self.budget)
                                 phase = "review"
                                 review = json.loads(await self._ask(provider, model,
-                                    "agent/memory_prompt_review.md", {"source": text, "summary": summary}, 2048))
+                                    "agent/memory_prompt_review.md", {"source": text, "summary": summary}, 2048,
+                                    purpose="memory_refresh_review"))
                                 checks = ("constraints_preserved", "faithful", "no_new_authority")
                                 if (not isinstance(review, dict)
                                         or any(type(review.get(k)) is not bool for k in checks)
                                         or not isinstance(review.get("issues"), list)):
                                     raise MemoryRefreshError("invalid_review")
+                                self.status["review"] = {k: review[k] for k in checks}
+                                self.status["review"]["issue_count"] = len(review["issues"])
                                 if all(review[k] for k in checks) and review["issues"] == []:
                                     break
                                 feedback = review["issues"]
@@ -217,19 +256,26 @@ class MemoryPromptRefresher:
                             if self._read_source() != text or self._read_snapshot() != before:
                                 raise MemoryRefreshError("source_or_snapshot_changed")
                             logger.info("Memory prompt revising candidate once: phase={}", phase)
-                            payload = {"source": text, "previous_draft": summary, "review_feedback": feedback,
+                            # The update template edits previous_summary; the full-generation
+                            # template revises previous_draft. Send the same candidate only once.
+                            draft_key = "previous_summary" if prior_summary is not None else "previous_draft"
+                            payload = {"source": text, draft_key: summary, "review_feedback": feedback,
+                                       "previous_draft_tokens": tokens, "summary_token_budget": self.budget,
                                        "summary_token_target": max(1, int(self.budget * 0.85))}
-                            if prior_summary is not None:
-                                payload["previous_summary"] = summary
                         method = "model-reviewed"
                     phase = "publication"
                     candidate["refresh"] = {"method": method, "model": model,
                         "created_at": datetime.now(timezone.utc).isoformat(), "attempts": attempts,
-                        "summary_tokens": projection_tokens(candidate["summary"], self.source)}
+                        "summary_tokens": projection_tokens(candidate["summary"], self.source),
+                        "reviewed_source_sha256": candidate["source_sha256"],
+                        "reviewed_summary_sha256": hashlib.sha256(candidate["summary"].encode("utf-8")).hexdigest()}
                     raw = encode_snapshot(candidate)
                     if len(raw) > _MAX_SNAPSHOT_BYTES:
                         raise ValueError("Candidate file is too large")
                     self._publish(text, before, raw)
+                    self._validation_failure = None
+                    self.status.update(status="published", phase=phase,
+                                       summary_tokens=candidate["refresh"]["summary_tokens"])
                     logger.info("Memory prompt refreshed: method={} source_sha256={} tokens={} attempts={}",
                                 method, digest, candidate["refresh"]["summary_tokens"], attempts)
         except asyncio.CancelledError:
@@ -238,9 +284,14 @@ class MemoryPromptRefresher:
             # Provider/parser errors may contain memory text or credentials.
             self._retry_at = time.monotonic() + _RETRY_DELAY_S
             reason = str(exc) if isinstance(exc, MemoryRefreshError) else type(exc).__name__
+            validation_failed = reason in {"summary_over_budget", "review_rejected", "response_length"} and model is not None
+            if validation_failed:
+                self._validation_failure = (digest, self.budget, model)
+            retry = "source_budget_or_model_change" if validation_failed else "cooldown"
+            self.status.update(status="deferred", phase=phase, reason=reason, retry=retry)
             logger.warning("Memory prompt refresh deferred: phase={} reason={}; "
-                           "keeping current raw memory; retry cooldown={}s",
-                           phase, reason, _RETRY_DELAY_S)
+                           "keeping current raw memory; retry={} cooldown={}s",
+                           phase, reason, retry, _RETRY_DELAY_S)
 
     def _publish(self, text: str, before: bytes | None, raw: bytes) -> None:
         fd, name = tempfile.mkstemp(prefix=".memory-prompt-", dir=self.source.parent)

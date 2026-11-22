@@ -563,6 +563,57 @@ class TaskNote:
                                                 if unit == "lines" else [])})
         return summary[-20:]
 
+    def _selected_scope(self) -> set[str] | None:
+        """Canonical targets chosen by update_task; None while the scope is still undecided."""
+        if self.update is None:
+            return None
+        paths = [t.path for t in self.update.targets]
+        if not paths and self.update.source == "files":
+            return None  # Unresolved file scope keeps discovery candidates (same as prompt_evidence).
+        try:
+            return {self.canonical(path) for path in paths}  # empty set: decided "no target"
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+    def narrow_guidance(self, messages: list[dict]) -> list[dict]:
+        """Model copy only: drop earlier-request reads outside the scope update_task selected.
+
+        Rewrites only this request's formal guidance (content starting with its marker); error
+        feedback, cancellation or condition messages are left as they are. Nothing is added and
+        the persisted guidance and evidence ledger are untouched, so a later scope change is
+        recomputed from the original candidates on the next call.
+        """
+        targets = self._selected_scope()
+        if targets is None:
+            return messages
+        marker = f"[Task evidence control; current request_id={self.request_id}]"
+        updated = messages
+        for index, message in enumerate(messages):
+            content = message.get("content")
+            if (not message.get("_hidden_history") or not message.get("_task_control")
+                    or not isinstance(content, str) or not content.startswith(marker)):
+                continue
+            prefix, _, raw = content.rpartition("\n")
+            try:
+                payload = json.loads(raw)
+            except (TypeError, ValueError):
+                continue
+            if not isinstance(payload, dict):
+                continue
+            for key in ("cached_reads", "verified_reads"):
+                entries = payload.get(key)
+                if isinstance(entries, list):
+                    payload[key] = [e for e in entries if not isinstance(e, dict)
+                                    or not isinstance(e.get("target"), str)
+                                    or e.get("request_id") == self.request_id
+                                    or e.get("target") in targets]
+            refreshed = prefix + "\n" + json.dumps(payload, ensure_ascii=False)
+            if refreshed != content:
+                if updated is messages:
+                    updated = list(messages)
+                updated[index] = {**message, "content": refreshed}
+        return updated
+
     def refresh_visible_reads(self, messages: list[dict]) -> list[dict]:
         """Intersect visibility claims with the final model copy; never perform more file I/O.
 

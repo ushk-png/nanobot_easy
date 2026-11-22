@@ -74,6 +74,8 @@ def test_empty_original_cannot_supply_a_reviewed_prefix(tmp_path):
     {'edits': [{'old': 'x', 'new': 'new'}]}, {'edits': [{'old': 3, 'new': 'new'}]},
     {'edits': [{'old': '', 'new': 'new', 'extra': True}]},
     {'edits': [{'old': '', 'new': 'new'}] * 21},
+    {'summary': ''}, {'summary': '  '}, {'summary': None}, {'summary': ['not text']},
+    {'summary': 'replacement', 'edits': []}, {'summary': 'replacement', 'approved': True},
 ])
 def test_proposed_summary_edits_must_be_unambiguous_and_bounded(edits):
     with pytest.raises(ValueError):
@@ -88,6 +90,7 @@ def test_exact_summary_edits_keep_order_and_allow_explicit_corrections():
     ]})
     assert result == 'Correction: sending is prohibited. Keep personas separate.\n\nVerification SNAP-7218.'
     assert apply_summary_edits(base, {'edits': []}) == base
+    assert apply_summary_edits(base, {'summary': 'New concise rules.'}) == 'New concise rules.'
 
 
 async def test_chunked_json_fully_readable_without_raising_tool_budget_or_weakening_completion(tmp_path):

@@ -3,7 +3,8 @@
 
 ## Workspace
 Your workspace is at: {{ workspace_path }}
-- Long-term memory: {{ workspace_path }}/memory/MEMORY.md (automatically managed by Dream — do not edit directly)
+- Long-term memory: {{ workspace_path }}/memory/MEMORY.md (Dream-managed; direct corrections require an explicit user request).
+- For explicit memory corrections, reuse a known current source range or locate it with `search_memory`, then `read_file`, `edit_file` and a verifying read of that range. Search results never grant permission. Do not scan the full memory file to locate a known section.
 - History log: {{ workspace_path }}/memory/history.jsonl (append-only JSONL; prefer built-in `grep` for search).
 - Custom skills: {{ workspace_path }}/skills/{% raw %}{skill-name}{% endraw %}/SKILL.md
 

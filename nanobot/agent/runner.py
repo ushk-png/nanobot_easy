@@ -638,6 +638,9 @@ class AgentRunner:
             context_block_limit=spec.context_block_limit,
             max_tokens=spec.max_tokens,
             inflight_start_index=len(spec.initial_messages),
+            historical_tool_call_ids=frozenset(
+                message["tool_call_id"] for message in spec.initial_messages
+                if message.get("role") == "tool" and isinstance(message.get("tool_call_id"), str)),
         )
 
         for iteration in range(spec.max_iterations):
@@ -714,6 +717,8 @@ class AgentRunner:
                 session_key=spec.session_key,
             )
             await hook.before_iteration(context)
+            if spec.task_state is not None:
+                messages_for_model = spec.task_state.narrow_guidance(messages_for_model)
             if getattr(spec.task_state, "verified_reads", False):
                 messages_for_model = spec.task_state.refresh_visible_reads(messages_for_model)
             request_started = time.monotonic()

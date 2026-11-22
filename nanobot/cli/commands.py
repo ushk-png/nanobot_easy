@@ -1340,6 +1340,9 @@ def _run_gateway(
 
     console.print(f"{__logo__} Starting nanobot gateway version {__version__} on port {port}...")
     sync_workspace_templates(config.workspace_path)
+    from nanobot.providers import usage_ledger
+    # Measurement only: content-free per-attempt usage records outside the workspace.
+    usage_ledger.configure_gateway(config.workspace_path)
     bus = MessageBus()
     runtime_events = RuntimeEventBus()
     try:

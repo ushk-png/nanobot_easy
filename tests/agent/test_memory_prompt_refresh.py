@@ -1,6 +1,7 @@
 """Automatic maintenance cannot block chat, lose source edits or grant permissions."""
 
 import asyncio
+import hashlib
 import json
 from contextvars import ContextVar
 
@@ -38,7 +39,10 @@ def setup(root, provider=None):
     source.write_text(text)
     loader = BoundedMemoryPrompt(source, 240)
     snapshot = source.with_name('prompt_snapshot.json')
-    snapshot.write_text(json.dumps(make_snapshot(text, RULE, source, 240)))
+    data = make_snapshot(text, RULE, source, 240)
+    data['refresh'] = {'reviewed_source_sha256': data['source_sha256'],
+                       'reviewed_summary_sha256': hashlib.sha256(RULE.encode()).hexdigest()}
+    snapshot.write_text(json.dumps(data))
     provider = provider or Script([draft(REVISED), LLMResponse(content=APPROVED)])
     refresh = MemoryPromptRefresher(source, 240, lambda: (provider, 'test'))
     loader.refresher = refresh
@@ -69,6 +73,9 @@ async def test_stale_falls_back_immediately_then_refreshes_once_without_source_m
     assert 'Old implementation detail.' not in builder.build_compact_system_prompt()
     assert len(provider.calls) == 2
     assert all(c['tools'] is None and c['max_retries'] == 0 for c in provider.calls)
+    initial = json.loads(provider.calls[0]['messages'][1]['content'])
+    assert initial['summary_token_target'] == initial['summary_token_budget'] == 240
+    assert initial['previous_draft_tokens'] < 240
     assert len(provider.calls[1]['messages']) == 2  # Separate review, no draft conversation.
     assert json.loads(snapshot.read_text())['refresh']['method'] == 'model-reviewed'
     await refresh.close()
@@ -104,6 +111,55 @@ async def test_append_only_update_preserves_current_revision_without_model_calls
     await refresh.close()
 
 
+@pytest.mark.parametrize('legacy', [True, False])
+async def test_append_cannot_silently_reuse_unreviewed_or_tampered_summary(tmp_path, legacy):
+    source, snapshot, loader, refresh, provider = setup(tmp_path)
+    data = json.loads(snapshot.read_text())
+    if legacy:
+        del data['refresh']
+    else:
+        data['summary'] += '\nUnsupported old permission.'
+    snapshot.write_text(json.dumps(data))
+    source.write_text(source.read_text() + '\nNew correction: never overwrite an existing report.')
+    provider.steps = iter([LLMResponse(content=json.dumps({'summary': REVISED})),
+                           LLMResponse(content=APPROVED)])
+    loader.build(source.read_text())
+    await refresh._task
+    assert len(provider.calls) == 2 and 'Unsupported old permission' not in snapshot_summary(json.loads(snapshot.read_text()))
+    assert json.loads(provider.calls[1]['messages'][1]['content'])['source'] == source.read_text()
+    await refresh.close()
+
+
+async def test_explicit_refresh_rechecks_legacy_current_hash_instead_of_treating_it_as_reviewed(tmp_path):
+    source, snapshot, loader, refresh, provider = setup(tmp_path)
+    data = json.loads(snapshot.read_text())
+    del data['refresh']
+    snapshot.write_text(json.dumps(data))
+    assert loader.build(source.read_text()) and refresh._task is None and provider.calls == []
+    provider.steps = iter([LLMResponse(content=json.dumps({'summary': RULE})),
+                           LLMResponse(content=APPROVED)])
+    await refresh._refresh(hashlib.sha256(source.read_text().encode()).hexdigest())
+    result = json.loads(snapshot.read_text())
+    assert len(provider.calls) == 2 and refresh.status['status'] == 'published'
+    assert result['refresh']['reviewed_source_sha256'] == result['source_sha256']
+    assert result['refresh']['reviewed_summary_sha256'] == hashlib.sha256(snapshot_summary(result).encode()).hexdigest()
+    await refresh.close()
+
+
+async def test_updating_only_the_source_hash_cannot_rebind_an_old_review(tmp_path):
+    source, snapshot, loader, refresh, provider = setup(tmp_path)
+    source.write_text(revise(source))
+    data = json.loads(snapshot.read_text())
+    data['source_sha256'] = hashlib.sha256(source.read_text().encode()).hexdigest()
+    snapshot.write_text(json.dumps(data))  # The old review still refers to the old source.
+    assert loader.build(source.read_text()) is None
+    assert loader.status['reason'] == 'snapshot review receipt changed'
+    await refresh._task
+    assert loader.build(source.read_text()) and len(provider.calls) == 2
+    assert REVISED in snapshot_summary(json.loads(snapshot.read_text()))
+    await refresh.close()
+
+
 async def test_over_budget_draft_is_compacted_once_then_independently_reviewed(tmp_path):
     large = 'Historical detail. ' * 2000
     provider = Script([draft(large), draft(REVISED, old=large),
@@ -114,7 +170,10 @@ async def test_over_budget_draft_is_compacted_once_then_independently_reviewed(t
     await refresh._task
     assert loader.build(source.read_text()) and len(provider.calls) == 3
     assert json.loads(snapshot.read_text())['refresh']['attempts'] == 2
-    assert large == json.loads(provider.calls[1]['messages'][1]['content'])['previous_draft']
+    repair = json.loads(provider.calls[1]['messages'][1]['content'])
+    assert repair['previous_summary'] == large and 'previous_draft' not in repair
+    assert repair['previous_draft_tokens'] > repair['summary_token_budget'] == 240
+    assert str(repair['previous_draft_tokens']) in repair['review_feedback'][0]
     assert json.loads(provider.calls[2]['messages'][1]['content'])['source'] == source.read_text()
     await refresh.close()
 
@@ -171,6 +230,7 @@ async def test_repair_keeps_correct_facts_from_the_first_candidate(tmp_path):
     summary = snapshot_summary(json.loads(snapshot.read_text()))
     assert 'SNAP-7218' in summary and 'never overwrite' in summary
     assert json.loads(provider.calls[2]['messages'][1]['content'])['previous_summary'] == first
+    assert 'previous_draft' not in json.loads(provider.calls[2]['messages'][1]['content'])
     await refresh.close()
 
 
@@ -183,6 +243,23 @@ async def test_missing_snapshot_still_supports_full_summary_generation(tmp_path)
     await refresh._task
     assert loader.build(source.read_text()) and len(provider.calls) == 2
     assert 'previous_summary' not in json.loads(provider.calls[0]['messages'][1]['content'])
+    await refresh.close()
+
+
+@pytest.mark.parametrize('approved', [True, False])
+async def test_complete_summary_replacement_requires_the_same_independent_review(tmp_path, approved):
+    review = json.dumps({'constraints_preserved': approved, 'faithful': True,
+                         'no_new_authority': approved, 'issues': [] if approved else ['Unsupported permission']})
+    replacement = LLMResponse(content=json.dumps({'summary': REVISED if approved else 'All sending is allowed.'}))
+    provider = Script([replacement, LLMResponse(content=review)] * (1 if approved else 2))
+    source, snapshot, loader, refresh, _ = setup(tmp_path, provider)
+    source.write_text(revise(source))
+    before = snapshot.read_bytes()
+    loader.build(source.read_text())
+    await refresh._task
+    assert bool(loader.build(source.read_text())) == approved
+    assert (snapshot.read_bytes() != before) == approved
+    assert len(provider.calls) == (2 if approved else 4)
     await refresh.close()
 
 
@@ -212,6 +289,8 @@ async def test_bad_generation_keeps_raw_memory_and_previous_snapshot(tmp_path, b
     assert loader.build(revised) is None
     await refresh._task
     assert snapshot.read_bytes() == before and source.read_text() == revised
+    if bad.finish_reason == 'length':
+        refresh._retry_at = 0  # A truncated maintenance response must not recur every five minutes.
     assert loader.build(revised) is None
     assert len(provider.calls) == 1  # Cooldown prevents per-question regeneration.
     await refresh.close()
@@ -392,3 +471,63 @@ def test_opt_in_wiring_respects_file_access_and_zero_budget(tmp_path, file_acces
         assert Config().agents.defaults.memory_prompt_auto_refresh is False
     finally:
         loop.stop()
+
+
+async def test_exhausted_quality_failure_does_not_buy_another_cycle_for_unchanged_source(tmp_path):
+    rejected = json.dumps({'constraints_preserved': False, 'faithful': True,
+                           'no_new_authority': True, 'issues': ['Missing active restriction']})
+    provider = Script([draft(RULE), LLMResponse(content=rejected),
+                       draft(RULE), LLMResponse(content=rejected),
+                       draft(REVISED), LLMResponse(content=APPROVED)])
+    source, snapshot, loader, refresh, _ = setup(tmp_path, provider)
+    source.write_text(revise(source))
+    before = snapshot.read_bytes()
+    loader.build(source.read_text())
+    await refresh._task
+    job = refresh._task
+    refresh._retry_at = 0  # Even after the old five-minute cooldown has elapsed.
+    assert loader.build(source.read_text()) is None
+    assert refresh._task is job and len(provider.calls) == 4 and snapshot.read_bytes() == before
+    assert refresh.status['reason'] == 'review_rejected'
+    assert refresh.status['review']['issue_count'] == 1
+    assert 'Missing active restriction' not in json.dumps(refresh.status)
+    source.write_text(source.read_text() + '\nHistorical task completed.')
+    loader.build(source.read_text())
+    await refresh._task
+    assert loader.build(source.read_text()) and len(provider.calls) == 6
+    await refresh.close()
+
+
+@pytest.mark.parametrize('change', ['model', 'budget'])
+async def test_quality_failure_can_retry_when_maintenance_configuration_changes(tmp_path, change):
+    large = 'Historical detail. ' * 2000
+    provider = Script([draft(large), draft(large, old=large),
+                       draft(REVISED), LLMResponse(content=APPROVED)])
+    source, _, loader, refresh, _ = setup(tmp_path, provider)
+    source.write_text(revise(source))
+    loader.build(source.read_text())
+    await refresh._task
+    assert refresh.status['reason'] == 'summary_over_budget'
+    if change == 'model':
+        refresh.selection = lambda: (provider, 'changed-model')
+    else:
+        refresh.budget += 10
+    loader.build(source.read_text())
+    await refresh._task
+    assert loader.build(source.read_text()) and len(provider.calls) == 4
+    await refresh.close()
+
+
+async def test_transient_provider_failure_can_retry_the_same_source_after_cooldown(tmp_path):
+    provider = Script([LLMResponse(content='unavailable', finish_reason='error'),
+                       draft(REVISED), LLMResponse(content=APPROVED)])
+    source, _, loader, refresh, _ = setup(tmp_path, provider)
+    source.write_text(revise(source))
+    loader.build(source.read_text())
+    await refresh._task
+    assert refresh.status['retry'] == 'cooldown'
+    refresh._retry_at = 0
+    loader.build(source.read_text())
+    await refresh._task
+    assert loader.build(source.read_text()) and len(provider.calls) == 3
+    await refresh.close()
