@@ -338,6 +338,67 @@ async def test_web_fetch_skips_jina_and_reuses_the_prefetch_connection(monkeypat
 
 
 @pytest.mark.asyncio
+async def test_web_fetch_refetches_when_idle_preflight_connection_dropped(monkeypatch):
+    """Jina is tried while the pre-flight connection sits idle; if the server drops it,
+    readability must fall back to a fresh request rather than return an error."""
+    tool = WebFetchTool(config=WebFetchConfig(use_jina_reader=False))
+    page = "<html><head><title>Test</title></head><body><p>Hello world</p></body></html>"
+
+    class DroppedStreamResponse:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        url = "https://example.com/page"
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def raise_for_status(self):
+            return None
+
+        async def aread(self):
+            raise httpx.ReadError("server closed the idle connection")
+
+    class FreshResponse:
+        status_code = 200
+        headers = {"content-type": "text/html"}
+        url = "https://example.com/page"
+        text = page
+        content = page.encode()
+
+        def raise_for_status(self):
+            return None
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method, url, headers=None, **kwargs):
+            return DroppedStreamResponse()
+
+        async def get(self, url, headers=None, **kwargs):
+            return FreshResponse()
+
+    monkeypatch.setattr(tool, "_extract_readable_html", lambda html, mode: "Hello world")
+    monkeypatch.setattr("nanobot.agent.tools.web.httpx.AsyncClient", FakeClient)
+
+    with patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve_public):
+        result = await tool.execute(url="https://example.com/page")
+
+    data = json.loads(result)
+    assert "error" not in data
+    assert data["extractor"] == "readability"
+
+
+@pytest.mark.asyncio
 async def test_web_fetch_falls_back_when_readability_dependency_is_missing(monkeypatch):
     tool = WebFetchTool(config=WebFetchConfig(use_jina_reader=False))
 

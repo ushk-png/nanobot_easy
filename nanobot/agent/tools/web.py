@@ -1274,6 +1274,10 @@ class WebFetchTool(Tool):
                     r.raise_for_status()
                     await r.aread()
                     return self._extract_from_response(r, url, extract_mode, max_chars)
+                except httpx.TransportError as e:
+                    # The connection sat idle while Jina was tried first and the server
+                    # may have dropped it; fall through to a fresh request as before.
+                    logger.debug("Pre-flight connection unusable for {}: {}", url, e)
                 finally:
                     if stream is not None:
                         await stream.__aexit__(None, None, None)
