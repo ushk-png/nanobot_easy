@@ -2225,7 +2225,7 @@ class AgentLoop:
                     memory_query=None if ctx.history else ctx.msg.content)}
             identity = self.context._get_identity(channel=ctx.msg.channel, workspace=scope.project_path)
             ctx.tools = CompactTools(ctx.tools or self.tools, full_guidance, ctx.initial_messages[0],
-                                     identity)
+                                     identity, seed_tool_names=ctx.session.metadata.get("compact_tools_seed"))
         ctx.user_persisted_early = self._persist_user_message_early(
             ctx.msg, ctx.session
         )
@@ -2617,6 +2617,15 @@ class AgentLoop:
             )
         self._clear_pending_user_turn(ctx.session)
         self._clear_runtime_checkpoint(ctx.session)
+        from nanobot.agent.compact_context import CompactTools
+        if isinstance(ctx.tools, CompactTools) and ctx.tools.activated:
+            # Only update when this turn actually activated tools; a turn that stayed
+            # deferred (no tool needed, e.g. small talk or a command-only reply) must not
+            # erase an earlier turn's seed, or the very next tool-using turn would fall
+            # back to deferred and re-break the provider's prompt cache for nothing.
+            ctx.session.metadata["compact_tools_seed"] = (
+                "all" if ctx.tools.selected is None else sorted(ctx.tools.selected)
+            )
         self.sessions.save(ctx.session)
         return "ok"
 

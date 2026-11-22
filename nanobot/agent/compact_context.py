@@ -59,14 +59,28 @@ class ActivateTools(Tool):
 
 
 class CompactTools:
-    """Keep the shared registry unchanged; activation lasts for this turn only."""
+    """Keep the shared registry unchanged; activation lasts for this turn only.
 
-    def __init__(self, base, guidance, system_message, identity=None):
+    ``seed_tool_names`` carries the tool names the *previous* turn ended up activating
+    (``"all"`` for no restriction, ``None`` for a turn that never activated any tool).
+    Reapplying that choice immediately composes the final system message before the first
+    provider call of this turn, instead of after a mid-turn ``activate_tools`` call. A turn
+    that never needed tools still defers as before, so a genuinely tool-free session keeps
+    the original savings; an active session stops rewriting its system message mid-turn on
+    every single turn, which otherwise breaks provider-side prompt caching for that turn.
+    """
+
+    def __init__(self, base, guidance, system_message, identity=None, seed_tool_names=None):
         self.base = base
         self.activated = False
         self.selected: set[str] | None = None
         self.entry = ToolRegistry()
         self.entry.register(ActivateTools(self, guidance, system_message, identity))
+        if seed_tool_names is not None:
+            self.selected = None if seed_tool_names == "all" else set(seed_tool_names)
+            self.activated = True
+            groups = None if self.selected is None else tool_groups(sorted(self.selected), base.get)
+            system_message["content"] = compose(guidance, groups, identity)
 
     def __getattr__(self, name):
         return getattr(self.base, name)

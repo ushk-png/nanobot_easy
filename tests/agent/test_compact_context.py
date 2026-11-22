@@ -107,9 +107,11 @@ async def test_loop_simple_answer_one_call_then_real_file_work(tmp_path):
         assert "Tool Usage Notes" in provider.calls[2]["messages"][0]["content"]
         assert any(m.get("content") == "4" for m in provider.calls[1]["messages"])
         assert not registry.has("activate_tools")
+        # The next turn carries over turn 2's activation instead of re-deferring: this is
+        # what keeps the system message (and provider-side prompt cache) stable across turns.
         await loop.process_direct("2+2?", tools=registry)
-        assert [t["function"]["name"] for t in provider.calls[-1]["tools"]] == ["activate_tools"]
-        assert "Tool Usage Notes" not in str(provider.calls[-1]["messages"])
+        assert [t["function"]["name"] for t in provider.calls[-1]["tools"]] == ["read_file"]
+        assert "Tool Usage Notes" in str(provider.calls[-1]["messages"])
     finally:
         loop.stop()
 
