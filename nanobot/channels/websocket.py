@@ -899,6 +899,27 @@ class WebSocketChannel(BaseChannel):
             self.logger.exception("send failed{}", label)
             raise
 
+    async def _fan_out(self, conns: list[Any], raw: str, *, label: str = "") -> None:
+        """Send *raw* to every connection in *conns*, isolating each failure.
+
+        One subscriber raising (already logged by _safe_send_to) must not stop
+        delivery to the rest of the chat_id's other subscribers. Re-raise the
+        last error only if nothing was delivered at all, so the channel
+        manager's retry can still kick in for a fully failed send -- without
+        that retry re-delivering (duplicating) to connections that already
+        got this message.
+        """
+        delivered = False
+        last_exc: Exception | None = None
+        for connection in conns:
+            try:
+                await self._safe_send_to(connection, raw, label=label)
+                delivered = True
+            except Exception as e:
+                last_exc = e
+        if last_exc is not None and not delivered:
+            raise last_exc
+
     async def send(self, msg: OutboundMessage) -> None:
         event = outbound_event_from_message(msg)
         progress_event = event if isinstance(event, ProgressEvent) else None
@@ -1005,8 +1026,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(payload, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" ")
+        await self._fan_out(conns, raw, label=" ")
 
     async def send_reasoning_delta(
         self,
@@ -1041,8 +1061,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning ")
+        await self._fan_out(conns, raw, label=" reasoning ")
 
     async def send_reasoning_end(
         self,
@@ -1069,8 +1088,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" reasoning_end ")
+        await self._fan_out(conns, raw, label=" reasoning_end ")
 
     async def send_file_edit_events(
         self,
@@ -1093,8 +1111,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(payload, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" file_edit ")
+        await self._fan_out(conns, raw, label=" file_edit ")
 
     async def send_delta(
         self,
@@ -1136,8 +1153,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" stream ")
+        await self._fan_out(conns, raw, label=" stream ")
 
     async def send_turn_end(
         self,
@@ -1163,8 +1179,7 @@ class WebSocketChannel(BaseChannel):
         raw = json.dumps(body, ensure_ascii=False)
         if not conns:
             return
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" turn_end ")
+        await self._fan_out(conns, raw, label=" turn_end ")
 
     async def send_goal_state(self, chat_id: str, blob: dict[str, Any]) -> None:
         """Push persisted goal-state snapshot for *chat_id* (multi-chat isolation)."""
@@ -1173,8 +1188,7 @@ class WebSocketChannel(BaseChannel):
             return
         body = {"event": "goal_state", "chat_id": chat_id, "goal_state": blob}
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_state ")
+        await self._fan_out(conns, raw, label=" goal_state ")
 
     async def send_goal_status(
         self,
@@ -1195,8 +1209,7 @@ class WebSocketChannel(BaseChannel):
         if status == "running" and started_at is not None:
             body["started_at"] = started_at
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" goal_status ")
+        await self._fan_out(conns, raw, label=" goal_status ")
 
     async def send_session_updated(self, chat_id: str, *, scope: str | None = None) -> None:
         """Notify WebUI clients that a session row should refresh."""
@@ -1207,8 +1220,7 @@ class WebSocketChannel(BaseChannel):
         if scope:
             body["scope"] = scope
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" session_updated ")
+        await self._fan_out(conns, raw, label=" session_updated ")
 
     async def send_runtime_model_updated(
         self,
@@ -1227,5 +1239,4 @@ class WebSocketChannel(BaseChannel):
         if isinstance(model_preset, str) and model_preset.strip():
             body["model_preset"] = model_preset.strip()
         raw = json.dumps(body, ensure_ascii=False)
-        for connection in conns:
-            await self._safe_send_to(connection, raw, label=" runtime_model_updated ")
+        await self._fan_out(conns, raw, label=" runtime_model_updated ")

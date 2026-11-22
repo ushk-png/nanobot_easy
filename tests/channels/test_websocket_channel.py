@@ -211,6 +211,36 @@ async def test_send_session_updated_broadcasts_to_other_webui_connections(bus) -
     }
 
 
+@pytest.mark.asyncio
+async def test_fan_out_delivers_to_other_subscribers_despite_one_failure(bus) -> None:
+    """One subscriber's send() raising must not block delivery to the rest of
+    the same chat_id's other subscribers."""
+    class Conn:
+        remote_address = None
+
+        def __init__(self, *, fails: bool = False) -> None:
+            self.sent: list[str] = []
+            self._fails = fails
+
+        async def send(self, raw: str) -> None:
+            if self._fails:
+                raise RuntimeError("boom")
+            self.sent.append(raw)
+
+    channel = _ch(bus)
+    good_before = Conn()
+    bad = Conn(fails=True)
+    good_after = Conn()
+    channel._attach(good_before, "chat-a")
+    channel._attach(bad, "chat-a")
+    channel._attach(good_after, "chat-a")
+
+    await channel.send_session_updated("chat-a", scope="thread")
+
+    assert len(good_before.sent) == 1
+    assert len(good_after.sent) == 1
+
+
 async def _recv_ws_event(client: Any, event: str) -> dict[str, Any]:
     """Receive until a specific websocket event appears."""
     for _ in range(10):
