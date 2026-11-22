@@ -230,6 +230,9 @@ async def test_no_target_differs_from_undecided_and_keeps_current_request_reads(
     assert shown["verified_reads"] == []
     assert shown["cached_reads"] and all(e["request_id"] == note.request_id
                                          for e in shown["cached_reads"])
+    # version/range_sha256 are internal re-validation bookkeeping (never read back by any code,
+    # model included), so the display projection drops them for token savings.
+    assert all("version" not in e and "range_sha256" not in e for e in shown["cached_reads"])
 
 
 async def test_feedback_cancellation_and_other_control_messages_are_untouched(tmp_path):
