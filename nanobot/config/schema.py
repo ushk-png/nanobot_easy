@@ -200,11 +200,13 @@ class AgentDefaults(Base):
     preserve_user_scope_messages: bool = False
     context_block_limit: int | None = None
     context_selection: ContextSelectionConfig = Field(default_factory=ContextSelectionConfig)
-    compact_context: bool = False  # Opt-in: defer execution tutorials/schemas until needed.
+    compact_context: bool = True  # Defer execution tutorials/schemas until needed.
     selective_memory: bool = False  # Opt-in: select explicitly marked reference notes only.
-    memory_prompt_tokens: int = Field(default=0, ge=0, le=20_000)
-    # Opt-in reviewed memory/prompt_snapshot.json; invalid/stale snapshots retain legacy memory.
-    memory_prompt_auto_refresh: bool = False  # Background generation + review; requires budget > 0.
+    memory_prompt_tokens: int = Field(default=5000, ge=0, le=20_000)
+    # Reviewed memory/prompt_snapshot.json; invalid/stale snapshots retain legacy memory.
+    # The refresh pipeline self-reviews via a second model call before writing a snapshot
+    # (nanobot/agent/memory_prompt_refresh.py), so no human approval step is required.
+    memory_prompt_auto_refresh: bool = True  # Background generation + review; requires budget > 0.
     temperature: float = 0.1
     fallback_models: list[FallbackCandidate] = Field(default_factory=list)
     max_tool_iterations: int = 200

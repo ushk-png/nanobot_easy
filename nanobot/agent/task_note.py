@@ -341,25 +341,38 @@ class TaskNote:
         self.events = []
         self.persist("active")
 
+    # Fields the model can act on for discovery (which file/range/job was already touched),
+    # plus request_id/id which narrow_guidance() re-parses back out of this same serialized
+    # payload later in the turn to keep the current request's own reads even with no target
+    # match. version/range_sha256 are this class's own re-validation against the live file
+    # (see valid_evidence/_text_in_context) -- never read back from here by any code, model
+    # included -- so dropping only those two is pure token savings with no behavior change.
+    _DISPLAY_EVIDENCE_KEYS = ("target", "unit", "start", "end", "total", "extraction_ok",
+                              "state", "exit_code", "id", "request_id")
+
+    @classmethod
+    def _for_display(cls, entries: list[dict]) -> list[dict]:
+        return [{k: e[k] for k in cls._DISPLAY_EVIDENCE_KEYS if k in e} for e in entries]
+
     def prompt_evidence(self) -> list[dict]:
         """Expose relevant proofs without removing candidates from the persisted ledger."""
         if self.update is not None:
             paths = [t.path for t in self.update.targets]
             if not paths and self.update.source == "files":
-                return self.evidence[-20:]  # Scope is unresolved; keep discovery candidates.
+                return self._for_display(self.evidence[-20:])  # Unresolved; keep candidates.
         else:
             instruction = _instruction_text(self.request)
             paths, _, unresolved = _file_requests(instruction)
             if not paths and _SAVE.search(instruction):
                 paths = unresolved  # Named save payloads also identify prompt candidates, not approval.
             if not paths:
-                return self.evidence[-20:]  # Deictic follow-ups still need earlier candidates.
+                return self._for_display(self.evidence[-20:])  # Deictic follow-ups need earlier candidates.
         try:
             targets = {self.canonical(path) for path in paths}
         except (OSError, RuntimeError, ValueError):
-            return self.evidence[-20:]  # A prompt optimisation must not prevent error reporting.
-        return [e for e in self.evidence if e.get("request_id") == self.request_id
-                or e.get("target") in targets][-20:]
+            return self._for_display(self.evidence[-20:])  # A prompt optimisation must not prevent error reporting.
+        return self._for_display([e for e in self.evidence if e.get("request_id") == self.request_id
+                                  or e.get("target") in targets][-20:])
 
     def guidance(self) -> dict:
         return {"role": "user", "_hidden_history": True, "_task_control": True, "content": (

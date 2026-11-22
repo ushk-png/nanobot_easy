@@ -468,7 +468,7 @@ def test_opt_in_wiring_respects_file_access_and_zero_budget(tmp_path, file_acces
     loop = AgentLoop.from_config(config, provider=Script([]))
     try:
         assert (loop.context.memory_prompt.refresher is not None) == (file_access and budget > 0 and enabled)
-        assert Config().agents.defaults.memory_prompt_auto_refresh is False
+        assert Config().agents.defaults.memory_prompt_auto_refresh is True
     finally:
         loop.stop()
 

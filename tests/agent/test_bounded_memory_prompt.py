@@ -76,10 +76,12 @@ def test_invalid_snapshot_keeps_complete_current_memory(tmp_path, problem):
     assert source.read_text() == original
 
 
-def test_default_off_and_project_scope_remain_unchanged(tmp_path):
+def test_default_on_and_project_scope_remain_unchanged(tmp_path):
     source, _ = workspace(tmp_path)
     original = source.read_text()
-    assert Config().agents.defaults.memory_prompt_tokens == 0
+    assert Config().agents.defaults.memory_prompt_tokens == 5000
+    # ContextBuilder's own constructor default is unaffected by the Config default above;
+    # with no explicit budget passed, projection stays off and raw memory is used.
     assert original in ContextBuilder(tmp_path).build_system_prompt()
     other = tmp_path / 'other-project'
     other.mkdir()

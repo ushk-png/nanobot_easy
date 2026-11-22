@@ -1301,10 +1301,22 @@ Contributor notes for adding new providers live in [`development.md`](./developm
 
 ## Compact Context and Selective Memory
 
-`agents.defaults.compactContext` defaults to `false`. Enabling it retains user
+`agents.defaults.compactContext` defaults to `true`. It retains user
 policy, memory and dialogue while deferring execution tutorials and tool schemas
 until the model calls `activate_tools`. Tool activation preserves existing
-permissions and workspace checks. Read [the behavior and tradeoffs](./design/compact-context.md).
+permissions and workspace checks. Set it to `false` to restore the full
+up-front tool schemas and tutorials. Read [the behavior and tradeoffs](./design/compact-context.md).
+
+`agents.defaults.memoryPromptTokens` defaults to `5000` and
+`agents.defaults.memoryPromptAutoRefresh` defaults to `true`. Together they keep
+a budgeted, reviewed summary of `memory/MEMORY.md` in the prompt instead of the
+full file: a background job generates the summary and has a second model call
+review it for faithfulness before it is used, with no human approval step
+required. A damaged, missing, over-budget or inaccessible snapshot falls back
+to loading the raw `MEMORY.md` with a warning; it never blocks the turn or
+truncates memory. Set `memoryPromptTokens` to `0` to turn this off entirely.
+See [`scripts/improvement_eval/BOUNDED_MEMORY.md`](../scripts/improvement_eval/BOUNDED_MEMORY.md)
+for the manual review path (`scripts/core_memory_ops.py`) and operational detail.
 
 `agents.defaults.selectiveMemory` also defaults to `false`. It selects only
 explicit `## Reference Notes` / `## 참고 메모` groups from MEMORY.md for new-session

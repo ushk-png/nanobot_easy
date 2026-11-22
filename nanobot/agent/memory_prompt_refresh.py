@@ -31,7 +31,10 @@ from nanobot.providers.base import LLMProvider, hosted_tools_disabled
 from nanobot.utils.prompt_templates import render_template
 
 _MAX_SOURCE_BYTES = 128_000
-_REFRESH_TIMEOUT_S = 180
+# Up to 2 generate attempts plus up to 2 review calls can run in one refresh; a single
+# call has been observed taking ~96s in practice, so 180s left little margin before a
+# wasted timeout/cancel. 300s gives headroom without risking an indefinite background hang.
+_REFRESH_TIMEOUT_S = 300
 _RETRY_DELAY_S = 300
 _DEBOUNCE_S = 1
 

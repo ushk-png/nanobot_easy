@@ -242,8 +242,14 @@ async def test_loop_simple_answer_then_save_and_verify_with_scoped_guidance(tmp_
         for kept in [*COMMON, *USER[:3]]:
             assert kept in system, kept
         assert provider.calls[2]["tools"][1:] == reg.get_definitions()
-        await loop.process_direct("2+2?", tools=reg)  # next turn starts compact again
-        assert [t["function"]["name"] for t in provider.calls[-1]["tools"]] == ["activate_tools"]
+        # The next turn carries over the prior activation (files_read/files_write) instead of
+        # re-deferring to activate_tools-only: keeps the system message stable across turns so
+        # provider-side prompt caching isn't reset on every single turn of an active session.
+        await loop.process_direct("2+2?", tools=reg)
+        assert [t["function"]["name"] for t in provider.calls[-1]["tools"]] == \
+            ["activate_tools", "read_file", "write_file"]
+        seeded_system = provider.calls[-1]["messages"][0]["content"]
+        assert "## File and Coding Workflows" in seeded_system and WEB_ONLY not in seeded_system
     finally:
         loop.stop()
 

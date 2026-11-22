@@ -37,11 +37,57 @@ from loguru import logger
 
 SCHEMA_VERSION = 1
 DISABLE_ENV = "NANOBOT_USAGE_LEDGER_DISABLE"
+DEBUG_CACHE_FINGERPRINT_ENV = "NANOBOT_DEBUG_CACHE_FINGERPRINT"
 MAX_QUEUE = 1000          # pending file writes; beyond this records are dropped and counted
 MAX_RECENT = 2000         # in-process ring of recent records
 MAX_FILE_BYTES = 5 * 1024 * 1024
 FILE_NAME = "model-attempts.jsonl"
 _LABEL_MAX = 48
+
+
+def _fp_text(value: Any) -> str:
+    """Canonical text for hashing; the text itself is never stored, only its digest."""
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        return str(value)
+
+
+def _fp_sha(value: Any) -> str:
+    return hashlib.sha256(_fp_text(value).encode("utf-8")).hexdigest()[:16]
+
+
+def _cache_fingerprint(kwargs: dict[str, Any]) -> dict[str, Any]:
+    """Opt-in (NANOBOT_DEBUG_CACHE_FINGERPRINT=1), content-free structural fingerprints for
+    diagnosing provider-side prompt-cache hits/misses between consecutive calls of one turn.
+
+    Only sha256 digests and counts leave this function; no prompt/tool content is ever stored.
+    Compare dbg_system_sha / dbg_tools_sha / dbg_prefix_sha across a turn's attempts to see
+    exactly which part of the request changed where a cache_read_tokens drop was observed.
+    """
+    messages = kwargs.get("messages")
+    if not isinstance(messages, list) or not messages:
+        return {}
+    system = next((m for m in messages if isinstance(m, dict) and m.get("role") == "system"), None)
+    prefix, tail = messages[:-1], messages[-1]
+    chain = hashlib.sha256()
+    for message in prefix:
+        if isinstance(message, dict):
+            chain.update(_fp_sha(message.get("role")).encode())
+            chain.update(_fp_sha(message.get("content")).encode())
+            chain.update(_fp_sha(message.get("tool_calls")).encode())
+    tools = kwargs.get("tools")
+    return {
+        "dbg_message_count": len(messages),
+        "dbg_system_sha": _fp_sha(system.get("content")) if isinstance(system, dict) else None,
+        "dbg_prefix_sha": chain.hexdigest()[:16],
+        "dbg_tail_role": tail.get("role") if isinstance(tail, dict) else None,
+        "dbg_tail_sha": _fp_sha(tail.get("content")) if isinstance(tail, dict) else None,
+        "dbg_tools_sha": _fp_sha(tools) if tools is not None else None,
+        "dbg_tools_count": len(tools) if isinstance(tools, list) else None,
+    }
 
 
 @dataclass(frozen=True)
@@ -244,6 +290,11 @@ def build_record(provider: Any, kwargs: dict[str, Any], *, stream: bool, elapsed
         estimate = _estimate(kwargs, response) if status == "succeeded" else None
         record["usage_status"] = "estimated" if estimate else "unknown"
         record.update(estimate or {})
+    if os.environ.get(DEBUG_CACHE_FINGERPRINT_ENV) == "1":
+        try:
+            record.update(_cache_fingerprint(kwargs))
+        except Exception:
+            logger.debug("Cache fingerprint skipped")
     return record
 
 

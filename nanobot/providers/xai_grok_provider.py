@@ -339,7 +339,17 @@ def _build_reasoning_options(reasoning_effort: str | None) -> dict[str, str] | N
 
 
 def _build_headers(token: str, model: str) -> dict[str, str]:
-    conversation_id = str(uuid.uuid4())
+    # xAI recommends a stable x-grok-conv-id per conversation to raise its cache hit rate
+    # (docs.x.ai/developers/advanced-api-usage/prompt-caching). A fresh random id on every
+    # single HTTP call defeats that: reuse the already-opaque per-turn (or, lacking that,
+    # per-background-job) id from usage_ledger's active scope so every call of one turn
+    # shares a cache-routing key; fall back to a random id only with no active scope at all.
+    from nanobot.providers import usage_ledger
+    scope = usage_ledger.current_scope()
+    conversation_id = (
+        (scope.request_id or scope.job_id) if scope and (scope.request_id or scope.job_id)
+        else str(uuid.uuid4())
+    )
     return {
         "Authorization": f"Bearer {token}",
         "X-XAI-Token-Auth": "xai-grok-cli",
