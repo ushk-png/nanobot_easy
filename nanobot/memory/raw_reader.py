@@ -24,7 +24,7 @@ def read_memory_events(
     for event in events:
         content = event.content or ""
         try:
-            tokens = estimate_message_tokens(content)
+            tokens = estimate_message_tokens({"content": content})
         except Exception:
             tokens = max(1, len(content) // 4)
         if kept and used + tokens > max_total_tokens:
