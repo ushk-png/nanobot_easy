@@ -12,6 +12,8 @@ try:
 except ImportError:
     pytest.skip("Slack dependencies not installed (slack-sdk)", allow_module_level=True)
 
+from slack_sdk.errors import SlackApiError
+
 from nanobot.bus.events import OutboundMessage
 from nanobot.bus.queue import MessageBus
 from nanobot.channels.slack import SLACK_MAX_MESSAGE_LEN, SlackChannel, SlackConfig
@@ -136,6 +138,36 @@ async def test_send_uses_thread_for_channel_messages() -> None:
     assert fake_web.chat_post_calls[0]["thread_ts"] == "1700000000.000100"
     assert len(fake_web.file_upload_calls) == 1
     assert fake_web.file_upload_calls[0]["thread_ts"] == "1700000000.000100"
+
+
+@pytest.mark.asyncio
+async def test_send_honors_slack_retry_after_on_rate_limit(monkeypatch) -> None:
+    """A 429 must wait for Slack's own Retry-After, not the channel manager's
+    fixed 1s/2s/4s backoff -- which can be far shorter than what Slack asks
+    for and would otherwise exhaust all retries while still rate limited."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    rate_limit_error = SlackApiError(
+        "ratelimited",
+        SimpleNamespace(status_code=429, headers={"Retry-After": "7"}),
+    )
+    mock_web = SimpleNamespace(
+        chat_postMessage=AsyncMock(side_effect=[rate_limit_error, None]),
+    )
+    channel._web_client = mock_web
+
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("nanobot.channels.slack.asyncio.sleep", fake_sleep)
+
+    await channel.send(
+        OutboundMessage(channel="slack", chat_id="C123", content="hello"),
+    )
+
+    assert sleep_calls == [7.0]
+    assert mock_web.chat_postMessage.await_count == 2
 
 
 @pytest.mark.asyncio
