@@ -50,6 +50,7 @@ class OpenAICodexProvider(LLMProvider):
         model: str | None,
         reasoning_effort: str | None,
         tool_choice: str | dict[str, Any] | None,
+        max_tokens: int,
         on_content_delta: Callable[[str], Awaitable[None]] | None = None,
         on_thinking_delta: Callable[[str], Awaitable[None]] | None = None,
         on_tool_call_delta: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
@@ -64,6 +65,7 @@ class OpenAICodexProvider(LLMProvider):
             "stream": True,
             "instructions": system_prompt,
             "input": input_items,
+            "max_output_tokens": max_tokens,
             "text": {"verbosity": "medium"},
             "include": ["reasoning.encrypted_content"],
             "prompt_cache_key": _prompt_cache_key(messages[:2]),
@@ -129,7 +131,7 @@ class OpenAICodexProvider(LLMProvider):
         reasoning_effort: str | None = None,
         tool_choice: str | dict[str, Any] | None = None,
     ) -> LLMResponse:
-        return await self._call_codex(messages, tools, model, reasoning_effort, tool_choice)
+        return await self._call_codex(messages, tools, model, reasoning_effort, tool_choice, max_tokens)
 
     async def chat_stream(
         self, messages: list[dict[str, Any]], tools: list[dict[str, Any]] | None = None,
@@ -146,6 +148,7 @@ class OpenAICodexProvider(LLMProvider):
             model,
             reasoning_effort,
             tool_choice,
+            max_tokens,
             on_content_delta,
             on_thinking_delta,
             on_tool_call_delta,
