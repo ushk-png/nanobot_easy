@@ -184,7 +184,14 @@ class ImageGenerationTool(Tool):
         try:
             refs = self._resolve_reference_images(reference_images)
             artifacts: list[dict[str, Any]] = []
-            while len(artifacts) < requested:
+            # Bound attempts: a provider that keeps returning zero images (e.g. a
+            # silently-applied content filter) must not make unbounded paid API
+            # calls forever. Generous enough for occasional empty/partial
+            # responses, not for an indefinite retry loop.
+            max_attempts = max(requested * 2, 4)
+            for _attempt in range(max_attempts):
+                if len(artifacts) >= requested:
+                    break
                 response = await client.generate(
                     prompt=prompt,
                     model=self.config.model,
@@ -204,6 +211,10 @@ class ImageGenerationTool(Tool):
                     artifacts.append(artifact)
                     if len(artifacts) >= requested:
                         break
+            if not artifacts:
+                return ToolResult.error(
+                    f"Error: the provider returned no images after {max_attempts} attempts."
+                )
             return generated_image_tool_result(artifacts)
         except (ArtifactError, ImageGenerationError, OSError) as exc:
             return ToolResult.error(f"Error: {exc}")
