@@ -129,6 +129,23 @@ async def test_activation_does_not_bypass_intent_or_workspace_checks(tmp_path):
     assert not (tmp_path.parent / "outside.md").exists()
 
 
+async def test_explicit_names_narrow_down_from_a_seeded_all_activation(tmp_path):
+    """A turn seeded into "all" (e.g. carried over from a prior turn's unrestricted
+    activate_tools call) must still let an explicit tool_names call narrow the scope,
+    not silently stay unrestricted."""
+    registry = ToolRegistry()
+    registry.register(ReadFileTool(workspace=tmp_path, restrict_to_workspace=True))
+    registry.register(WriteFileTool(workspace=tmp_path, restrict_to_workspace=True))
+    overlay = CompactTools(registry, "rules", {}, seed_tool_names="all")
+    assert overlay.activated and overlay.selected is None
+    result = await overlay.execute("activate_tools", {"tool_names": ["read_file"]})
+    assert not getattr(result, "is_error", False)
+    assert overlay.selected == {"read_file"}
+    assert {d["function"]["name"] for d in overlay.get_definitions()} == {
+        "activate_tools", "read_file"}
+    assert overlay.get("write_file") is None
+
+
 async def test_selected_activation_can_expand_without_bypassing_original_guards(tmp_path):
     registry = ToolRegistry()
     registry.register(ReadFileTool(workspace=tmp_path, restrict_to_workspace=True))
