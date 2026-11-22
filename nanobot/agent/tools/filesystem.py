@@ -1,5 +1,6 @@
 """File system tools: read, write, edit, list."""
 
+import asyncio
 import difflib
 import hashlib
 import mimetypes
@@ -10,7 +11,7 @@ from typing import Any
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
 from nanobot.agent.tools.context import current_tool_output_limit
-from nanobot.agent.tools.file_state import FileStates, _hash_file, current_file_states
+from nanobot.agent.tools.file_state import FileStates, current_file_states
 from nanobot.agent.tools.path_utils import resolve_workspace_path
 from nanobot.agent.tools.schema import (
     BooleanSchema,
@@ -359,27 +360,29 @@ class ReadFileTool(_FsTool):
                 if current_mtime != entry.mtime:
                     # File was modified externally - force full read and mark as not dedupable
                     entry.can_dedup = False
-                    self._file_states.record_read(fp, offset=offset, limit=limit)  # Update state with new mtime
+                    # Update state with new mtime; reuse the bytes already read above
+                    # instead of re-opening the file again just to hash it.
+                    self._file_states.record_read(fp, offset=offset, limit=limit, content=raw)
                     # Continue to read full content (don't return dedup message)
                 else:
                     # File unchanged - return dedup message
                     # But only if content is actually unchanged (not just mtime)
-                    current_hash = _hash_file(str(fp))
+                    current_hash = hashlib.sha256(raw).hexdigest()
                     if current_hash == entry.content_hash:
                         return f"[File unchanged since last read: {path}]"
                     else:
                         # Content changed despite same mtime - force full read
                         entry.can_dedup = False
-                        self._file_states.record_read(fp, offset=offset, limit=limit)
+                        self._file_states.record_read(fp, offset=offset, limit=limit, content=raw)
             else:
                 # No previous state or marked as not dedupable - read full content
-                self._file_states.record_read(fp, offset=offset, limit=limit)
+                self._file_states.record_read(fp, offset=offset, limit=limit, content=raw)
                 # Force full read by setting can_dedup to False for this read
                 if entry:
                     entry.can_dedup = False
 
-            # Read the file content after dedup check
-            raw = fp.read_bytes()
+            # raw already holds the file's current content from the read above; no
+            # need to re-open and re-read it again just to decode it.
             try:
                 text_content = raw.decode("utf-8")
             except UnicodeDecodeError:
@@ -1153,6 +1156,29 @@ class ListDirTool(_FsTool):
     def read_only(self) -> bool:
         return True
 
+    def _collect_entries(self, dp: Path, recursive: bool, cap: int) -> tuple[list[str], int]:
+        """Synchronous, potentially slow directory walk; always run via asyncio.to_thread."""
+        items: list[str] = []
+        total = 0
+        if recursive:
+            for item in sorted(dp.rglob("*")):
+                if (any(p in self._IGNORE_DIRS for p in item.parts)
+                        or not self._is_visible_entry(item)):
+                    continue
+                total += 1
+                if len(items) < cap:
+                    rel = item.relative_to(dp)
+                    items.append(f"{rel}/" if item.is_dir() else str(rel))
+        else:
+            for item in sorted(dp.iterdir()):
+                if item.name in self._IGNORE_DIRS or not self._is_visible_entry(item):
+                    continue
+                total += 1
+                if len(items) < cap:
+                    pfx = "📁 " if item.is_dir() else "📄 "
+                    items.append(f"{pfx}{item.name}")
+        return items, total
+
     async def execute(
         self, path: str | None = None, recursive: bool = False,
         max_entries: int | None = None, **kwargs: Any,
@@ -1167,26 +1193,10 @@ class ListDirTool(_FsTool):
                 return ToolResult.error(f"Error: Not a directory: {path}")
 
             cap = max_entries or self._DEFAULT_MAX
-            items: list[str] = []
-            total = 0
-
-            if recursive:
-                for item in sorted(dp.rglob("*")):
-                    if (any(p in self._IGNORE_DIRS for p in item.parts)
-                            or not self._is_visible_entry(item)):
-                        continue
-                    total += 1
-                    if len(items) < cap:
-                        rel = item.relative_to(dp)
-                        items.append(f"{rel}/" if item.is_dir() else str(rel))
-            else:
-                for item in sorted(dp.iterdir()):
-                    if item.name in self._IGNORE_DIRS or not self._is_visible_entry(item):
-                        continue
-                    total += 1
-                    if len(items) < cap:
-                        pfx = "📁 " if item.is_dir() else "📄 "
-                        items.append(f"{pfx}{item.name}")
+            # A full recursive walk+sort of a large directory tree is blocking,
+            # synchronous filesystem work; run it off the event loop so it doesn't
+            # stall every other concurrent session/tool call for its duration.
+            items, total = await asyncio.to_thread(self._collect_entries, dp, recursive, cap)
 
             if not items and total == 0:
                 return f"Directory {path} is empty"
