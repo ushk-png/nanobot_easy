@@ -187,7 +187,10 @@ class AzureOpenAIProvider(LLMProvider):
         retry_after = LLMProvider._extract_retry_after_from_headers(getattr(response, "headers", None))
         if retry_after is None:
             retry_after = LLMProvider._extract_retry_after(msg)
-        return LLMResponse(content=msg, finish_reason="error", retry_after=retry_after)
+        return LLMResponse(
+            content=msg, finish_reason="error", retry_after=retry_after,
+            **LLMProvider._extract_error_metadata(e),
+        )
 
     # ------------------------------------------------------------------
     # Public API

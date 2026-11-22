@@ -578,6 +578,58 @@ class LLMProvider(ABC):
         return cls._normalize_error_token(type_value), cls._normalize_error_token(code_value)
 
     @classmethod
+    def _extract_error_metadata(cls, e: Exception) -> dict[str, Any]:
+        """Structured error fields (status/type/code/retry hints) from a raised SDK
+        exception. Shared across every OpenAI-SDK-shaped provider so retry policy
+        (_is_transient_response / is_arrearage_response) can use these instead of
+        falling back to brittle substring matching on the raw error text."""
+        response = getattr(e, "response", None)
+        headers = getattr(response, "headers", None)
+        payload = (
+            getattr(e, "body", None)
+            or getattr(e, "doc", None)
+            or getattr(response, "text", None)
+        )
+        if payload is None and response is not None:
+            response_json = getattr(response, "json", None)
+            if callable(response_json):
+                try:
+                    payload = response_json()
+                except Exception:
+                    payload = None
+        error_type, error_code = cls._extract_error_type_code(payload)
+
+        status_code = getattr(e, "status_code", None)
+        if status_code is None and response is not None:
+            status_code = getattr(response, "status_code", None)
+
+        should_retry: bool | None = None
+        if headers is not None:
+            raw = headers.get("x-should-retry")
+            if isinstance(raw, str):
+                lowered = raw.strip().lower()
+                if lowered == "true":
+                    should_retry = True
+                elif lowered == "false":
+                    should_retry = False
+
+        error_kind: str | None = None
+        error_name = e.__class__.__name__.lower()
+        if "timeout" in error_name:
+            error_kind = "timeout"
+        elif "connection" in error_name:
+            error_kind = "connection"
+
+        return {
+            "error_status_code": int(status_code) if status_code is not None else None,
+            "error_kind": error_kind,
+            "error_type": error_type,
+            "error_code": error_code,
+            "error_retry_after_s": cls._extract_retry_after_from_headers(headers),
+            "error_should_retry": should_retry,
+        }
+
+    @classmethod
     def _is_retryable_429_response(cls, response: LLMResponse) -> bool:
         type_token = cls._normalize_error_token(response.error_type)
         code_token = cls._normalize_error_token(response.error_code)
