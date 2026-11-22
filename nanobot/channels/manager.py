@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import inspect
+from collections import OrderedDict
 from collections.abc import Callable
 from contextlib import suppress
 from pathlib import Path
@@ -45,6 +46,11 @@ def _default_webui_dist() -> Path | None:
 
 # Retry delays for message sending (exponential backoff: 1s, 2s, 4s)
 _SEND_RETRY_DELAYS = (1, 2, 4)
+
+# Cap on the outbound dedup cache, matching the per-channel processed-id caches
+# (e.g. WhatsAppChannel._processed_message_ids) -- without a bound, every
+# outbound message grows this dict for the life of the process.
+_MAX_ORIGIN_REPLY_FINGERPRINTS = 1000
 
 _BOOL_CAMEL_ALIASES: dict[str, str] = {
     "send_progress": "sendProgress",
@@ -105,7 +111,7 @@ class ChannelManager:
         self._webui_runtime_capabilities = dict(webui_runtime_capabilities or {})
         self.channels: dict[str, BaseChannel] = {}
         self._dispatch_task: asyncio.Task | None = None
-        self._origin_reply_fingerprints: dict[tuple[str, str, str], str] = {}
+        self._origin_reply_fingerprints: OrderedDict[tuple[str, str, str], str] = OrderedDict()
 
         self._init_channels()
 
@@ -352,14 +358,19 @@ class ChannelManager:
             key = (msg.channel, msg.chat_id, origin_message_id)
             if self._origin_reply_fingerprints.get(key) == fingerprint:
                 return True
-            self._origin_reply_fingerprints[key] = fingerprint
+            self._record_origin_reply_fingerprint(key, fingerprint)
 
         message_id = metadata.get("message_id")
         if isinstance(message_id, str) and message_id:
             key = (msg.channel, msg.chat_id, message_id)
-            self._origin_reply_fingerprints[key] = fingerprint
+            self._record_origin_reply_fingerprint(key, fingerprint)
 
         return False
+
+    def _record_origin_reply_fingerprint(self, key: tuple[str, str, str], fingerprint: str) -> None:
+        self._origin_reply_fingerprints[key] = fingerprint
+        while len(self._origin_reply_fingerprints) > _MAX_ORIGIN_REPLY_FINGERPRINTS:
+            self._origin_reply_fingerprints.popitem(last=False)
 
     async def _dispatch_outbound(self) -> None:
         """Dispatch outbound messages to the appropriate channel."""
