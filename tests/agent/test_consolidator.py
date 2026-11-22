@@ -222,7 +222,10 @@ class TestConsolidatorTokenBudget:
 
         await consolidator.maybe_consolidate_by_tokens(
             session,
-            replay_max_messages=6,
+            # Each u{i}/a{i} message is 6 estimated tokens; 36 keeps exactly the
+            # last 6 (the same "archive half, keep half" shape as the old
+            # message-count=6 cap), reverse-accumulated the same way get_history() trims.
+            replay_max_tokens=36,
         )
 
         archived_chunk = consolidator.archive.await_args.args[0]
@@ -251,7 +254,10 @@ class TestConsolidatorTokenBudget:
 
         await consolidator.maybe_consolidate_by_tokens(
             session,
-            replay_max_messages=4,
+            # 100 tokens keeps only the trailing tool-call/result messages (no "user"
+            # among them), forcing the same recover-the-nearest-user fallback the old
+            # message-count=4 cap exercised.
+            replay_max_tokens=100,
         )
 
         archived_chunk = consolidator.archive.await_args.args[0]
@@ -284,7 +290,10 @@ class TestConsolidatorTokenBudget:
 
         await consolidator.maybe_consolidate_by_tokens(
             session,
-            replay_max_messages=6,
+            # 100 tokens keeps "new question"/"new answer" plus the trailing tool
+            # rounds -- a newer user already inside the window, so this must not
+            # recover further back to "long older turn".
+            replay_max_tokens=100,
         )
 
         archived_chunk = consolidator.archive.await_args.args[0]

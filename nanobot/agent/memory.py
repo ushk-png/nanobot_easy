@@ -24,7 +24,6 @@ from nanobot.utils.helpers import (
     estimate_prompt_tokens_chain,
     find_legal_message_start,
     input_token_safety_buffer,
-    recent_message_start_index,
     strip_think,
     truncate_text,
     truncate_text_to_tokens,
@@ -744,6 +743,44 @@ _DREAM_PROMPT_MAX_CHARS = 32_000      # workspace-local Dream prompt override
 _HISTORY_ENTRY_HARD_CAP = 64_000      # emergency cap in append_history
 
 
+def _recent_start_index_by_tokens(
+    messages: list[dict[str, Any]],
+    max_tokens: int,
+    *,
+    extend_to_user: bool = False,
+) -> int:
+    """Token-budget analogue of ``recent_message_start_index``.
+
+    Reverse-accumulates ``estimate_message_tokens`` the same way ``Session.get_history()``
+    does for its own token trim, instead of a plain message count: always keeps at least
+    the last message, then keeps adding earlier ones while the running total still fits.
+    """
+    if max_tokens <= 0:
+        return len(messages)
+    kept = 0
+    used = 0
+    for message in reversed(messages):
+        tokens = estimate_message_tokens(message)
+        if kept and used + tokens > max_tokens:
+            break
+        kept += 1
+        used += tokens
+    start_idx = len(messages) - kept
+    if not extend_to_user or kept >= len(messages):
+        return start_idx
+    if any(m.get("role") == "user" for m in messages[start_idx:]):
+        return start_idx
+    recovered_user = next(
+        (i for i in range(start_idx - 1, -1, -1) if messages[i].get("role") == "user"),
+        None,
+    )
+    if recovered_user is None:
+        return start_idx
+    if recovered_user > 0 and messages[recovered_user - 1].get("_channel_delivery"):
+        return recovered_user - 1
+    return recovered_user
+
+
 class Consolidator:
     """Lightweight consolidation: summarizes evicted messages into history.jsonl."""
 
@@ -828,20 +865,30 @@ class Consolidator:
     @staticmethod
     def _replay_overflow_boundary(
         session: Session,
-        replay_max_messages: int | None,
+        replay_max_tokens: int | None,
     ) -> int | None:
-        if not replay_max_messages or replay_max_messages <= 0:
+        """Where the unconsolidated tail would be cut by a token-bounded replay.
+
+        Mirrors ``Session.get_history()``'s own reverse token trim (same estimator, same
+        "always keep at least the last message" rule) so this never flags overflow that
+        the real replay wouldn't also cut, and never misses overflow it would. A message
+        count can't substitute for this: a handful of multi-KB tool results can already
+        exceed the budget while nowhere near any reasonable message-count cap.
+        """
+        if not replay_max_tokens or replay_max_tokens <= 0:
             return None
         tail = list(enumerate(session.messages[session.last_consolidated:], session.last_consolidated))
-        if len(tail) <= replay_max_messages:
+        if not tail:
             return None
 
         tail_messages = [message for _idx, message in tail]
-        start_idx = recent_message_start_index(
+        start_idx = _recent_start_index_by_tokens(
             tail_messages,
-            replay_max_messages,
+            replay_max_tokens,
             extend_to_user=True,
         )
+        if start_idx <= 0:
+            return None  # The whole tail already fits the replay budget.
         sliced = tail[start_idx:]
         for i, (_idx, message) in enumerate(sliced):
             if message.get("role") == "user":
@@ -865,20 +912,20 @@ class Consolidator:
     async def _consolidate_replay_overflow(
         self,
         session: Session,
-        replay_max_messages: int | None,
+        replay_max_tokens: int | None,
     ) -> str | None:
-        """Archive messages that would be hidden by the replay message window."""
-        end_idx = self._replay_overflow_boundary(session, replay_max_messages)
+        """Archive messages that would be hidden by the replay token window."""
+        end_idx = self._replay_overflow_boundary(session, replay_max_tokens)
         if end_idx is None:
             return None
         chunk = session.messages[session.last_consolidated:end_idx]
         if not chunk:
             return None
         logger.info(
-            "Replay-window consolidation for {}: chunk={} msgs, replay_max={}",
+            "Replay-window consolidation for {}: chunk={} msgs, replay_max_tokens={}",
             session.key,
             len(chunk),
-            replay_max_messages,
+            replay_max_tokens,
         )
         summary = await self.archive(chunk, session_key=session.key)
         if not summary:
@@ -1009,7 +1056,7 @@ class Consolidator:
         self,
         session: Session,
         *,
-        replay_max_messages: int | None = None,
+        replay_max_tokens: int | None = None,
     ) -> None:
         """Loop: archive old messages until prompt fits within safe budget.
 
@@ -1032,11 +1079,11 @@ class Consolidator:
             target = int(budget * self.consolidation_ratio)
             last_summary = await self._consolidate_replay_overflow(
                 session,
-                replay_max_messages,
+                replay_max_tokens,
             )
             # A failed replay summary must not hide its source or trigger a second
             # summary request in this same preflight.
-            if self._replay_overflow_boundary(session, replay_max_messages) is not None:
+            if self._replay_overflow_boundary(session, replay_max_tokens) is not None:
                 return
             try:
                 estimated, source = self.estimate_session_prompt_tokens(

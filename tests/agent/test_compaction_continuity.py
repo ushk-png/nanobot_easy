@@ -66,7 +66,9 @@ async def test_replay_compaction_failure_keeps_cursor(tmp_path):
     consolidator, session, provider = make_consolidator(tmp_path)
     provider.chat_with_retry.side_effect = TimeoutError("offline")
     before = deepcopy(session.messages)
-    result = await consolidator._consolidate_replay_overflow(session, 8)
+    # ~95 tokens keeps the last 8 of these 16 short messages (~11-12 tokens each),
+    # the same "archive half, keep half" shape the old message-count=8 cap gave.
+    result = await consolidator._consolidate_replay_overflow(session, 95)
     assert result is None
     assert session.last_consolidated == 0
     assert session.messages == before
@@ -94,7 +96,7 @@ async def test_failed_replay_summary_is_not_retried_in_same_preflight(tmp_path):
     consolidator, session, provider = make_consolidator(tmp_path)
     provider.chat_with_retry.side_effect = TimeoutError("offline")
     consolidator.estimate_session_prompt_tokens = lambda _: (200_000, "test")
-    await consolidator.maybe_consolidate_by_tokens(session, replay_max_messages=8)
+    await consolidator.maybe_consolidate_by_tokens(session, replay_max_tokens=95)
     assert provider.chat_with_retry.await_count == 1
     assert session.last_consolidated == 0
 

@@ -1717,7 +1717,7 @@ class AgentLoop:
 
         await self.consolidator.maybe_consolidate_by_tokens(
             session,
-            replay_max_messages=self._max_messages,
+            replay_max_tokens=self._replay_token_budget(),
         )
         is_subagent = msg.sender_id == "subagent"
         if is_subagent and self._persist_subagent_followup(session, msg):
@@ -1784,7 +1784,7 @@ class AgentLoop:
         self._schedule_background(
             self.consolidator.maybe_consolidate_by_tokens(
                 session,
-                replay_max_messages=self._max_messages,
+                replay_max_tokens=self._replay_token_budget(),
             )
         )
         content = final_content or "Background task completed."
@@ -2080,7 +2080,7 @@ class AgentLoop:
         if not ctx.ephemeral and not self._selective_context_enabled:
             await self.consolidator.maybe_consolidate_by_tokens(
                 ctx.session,
-                replay_max_messages=self._max_messages,
+                replay_max_tokens=self._replay_token_budget(),
             )
         self._set_tool_context(
             ctx.msg.channel,
@@ -2612,7 +2612,7 @@ class AgentLoop:
             self._schedule_background(
                 self.consolidator.maybe_consolidate_by_tokens(
                     ctx.session,
-                    replay_max_messages=self._max_messages,
+                    replay_max_tokens=self._replay_token_budget(),
                 )
             )
         self._clear_pending_user_turn(ctx.session)
