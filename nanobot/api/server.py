@@ -116,6 +116,24 @@ def _sse_chunk(delta: str, model: str, chunk_id: str, finish_reason: str | None 
 
 _SSE_DONE = b"data: [DONE]\n\n"
 
+# A client picks session_id freely (request body/multipart field); a fresh value per
+# request would otherwise grow this dict forever for the life of the gateway process.
+_MAX_SESSION_LOCKS = 2000
+
+
+def _get_session_lock(session_locks: dict[str, asyncio.Lock], session_key: str) -> asyncio.Lock:
+    lock = session_locks.get(session_key)
+    if lock is not None:
+        return lock
+    if len(session_locks) >= _MAX_SESSION_LOCKS:
+        # Only drop locks nothing is waiting on/holding right now; a soft cap is fine --
+        # it's fine to briefly exceed it when every current entry happens to be busy.
+        for key in [k for k, existing in session_locks.items() if not existing.locked()]:
+            del session_locks[key]
+            if len(session_locks) < _MAX_SESSION_LOCKS:
+                break
+    return session_locks.setdefault(session_key, asyncio.Lock())
+
 # ---------------------------------------------------------------------------
 # Upload helpers
 # ---------------------------------------------------------------------------
@@ -239,7 +257,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
     session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]
-    session_lock = session_locks.setdefault(session_key, asyncio.Lock())
+    session_lock = _get_session_lock(session_locks, session_key)
 
     logger.info(
         "API request session_key={} media={} text={} stream={}",
@@ -320,6 +338,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     try:
         async with session_lock:
             try:
+                messages_before = len(agent_loop.sessions.get_or_create(session_key).messages)
                 response = await asyncio.wait_for(
                     agent_loop.process_direct(
                         content=text,
@@ -333,22 +352,35 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 response_text = _response_text(response)
 
                 if not response_text or not response_text.strip():
-                    logger.warning("Empty response for session {}, retrying", session_key)
-                    retry_response = await asyncio.wait_for(
-                        agent_loop.process_direct(
-                            content=text,
-                            media=media_paths if media_paths else None,
-                            session_key=session_key,
-                            channel="api",
-                            chat_id=API_CHAT_ID,
-                            persist_user_message=False,
-                        ),
-                        timeout=timeout_s,
-                    )
-                    response_text = _response_text(retry_response)
-                    if not response_text or not response_text.strip():
-                        logger.warning("Empty response after retry, using fallback")
+                    # persist_user_message=False only skips re-recording the user's text;
+                    # it still runs a full turn, tools included. Retrying would re-execute
+                    # any tool the empty-response attempt already ran (writes, sends, etc).
+                    new_messages = agent_loop.sessions.get_or_create(session_key).messages[messages_before:]
+                    ran_tools = any(m.get("tool_calls") or m.get("role") == "tool" for m in new_messages)
+                    if ran_tools:
+                        logger.warning(
+                            "Empty response for session {} after tool calls; not retrying "
+                            "to avoid repeating side effects, using fallback",
+                            session_key,
+                        )
                         response_text = fallback
+                    else:
+                        logger.warning("Empty response for session {}, retrying", session_key)
+                        retry_response = await asyncio.wait_for(
+                            agent_loop.process_direct(
+                                content=text,
+                                media=media_paths if media_paths else None,
+                                session_key=session_key,
+                                channel="api",
+                                chat_id=API_CHAT_ID,
+                                persist_user_message=False,
+                            ),
+                            timeout=timeout_s,
+                        )
+                        response_text = _response_text(retry_response)
+                        if not response_text or not response_text.strip():
+                            logger.warning("Empty response after retry, using fallback")
+                            response_text = fallback
 
             except asyncio.TimeoutError:
                 return _error_json(504, f"Request timed out after {timeout_s}s")
