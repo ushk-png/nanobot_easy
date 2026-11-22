@@ -1,6 +1,7 @@
 """Slack channel implementation using Socket Mode."""
 
 import asyncio
+import math
 import re
 from contextlib import suppress
 from pathlib import Path
@@ -23,6 +24,8 @@ from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
 from nanobot.pairing import is_approved
 from nanobot.utils.helpers import safe_filename, split_message
+
+_MAX_RETRY_AFTER_SECONDS = 30.0
 
 
 class SlackDMConfig(Base):
@@ -224,6 +227,16 @@ class SlackChannel(BaseChannel):
                     with suppress(TypeError, ValueError):
                         delay = float(value)
                     break
+            if not math.isfinite(delay) or delay < 0:
+                delay = 1.0
+            if delay > _MAX_RETRY_AFTER_SECONDS:
+                # The manager dispatches every channel's outbound messages from one
+                # loop, so a long sleep here would stall all of them; fail instead.
+                self.logger.warning(
+                    "Slack rate limited for {}s (> {}s cap); not waiting", delay,
+                    _MAX_RETRY_AFTER_SECONDS,
+                )
+                raise
             self.logger.warning("Slack rate limited; retrying in {}s", delay)
             await asyncio.sleep(delay)
             return await method(**kwargs)

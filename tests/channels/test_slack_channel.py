@@ -171,6 +171,37 @@ async def test_send_honors_slack_retry_after_on_rate_limit(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("retry_after", ["3600", "inf", "nan"])
+async def test_send_does_not_sleep_on_oversized_retry_after(monkeypatch, retry_after) -> None:
+    """The manager's single outbound loop serves every channel, so an hour-long
+    Retry-After must fail fast instead of stalling them all."""
+    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    rate_limit_error = SlackApiError(
+        "ratelimited",
+        SimpleNamespace(status_code=429, headers={"Retry-After": retry_after}),
+    )
+    channel._web_client = SimpleNamespace(
+        chat_postMessage=AsyncMock(side_effect=[rate_limit_error, None]),
+    )
+    sleep_calls: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleep_calls.append(delay)
+
+    monkeypatch.setattr("nanobot.channels.slack.asyncio.sleep", fake_sleep)
+
+    outbound = OutboundMessage(channel="slack", chat_id="C123", content="hello")
+    if retry_after == "3600":
+        with pytest.raises(SlackApiError):
+            await channel.send(outbound)
+        assert sleep_calls == []
+    else:
+        # Non-finite values fall back to the 1s default instead of sleeping forever.
+        await channel.send(outbound)
+        assert sleep_calls == [1.0]
+
+
+@pytest.mark.asyncio
 async def test_send_omits_thread_for_dm_root_messages() -> None:
     """DM root replies should not be threaded; metadata carries thread_ts=None."""
     channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
