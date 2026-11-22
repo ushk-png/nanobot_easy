@@ -344,10 +344,19 @@ class ExecTool(Tool):
                 prepared.login,
             )
 
+            async def _drain_then_wait() -> tuple[bytes, bytes, bool]:
+                # Both pipes can close while the process keeps running, so the exit
+                # wait must sit inside the timeout/cancellation window too.
+                drained = await self._drain_streams(
+                    process.stdout, process.stderr, self._MAX_DRAIN_BYTES,
+                )
+                if not drained[2]:
+                    await process.wait()
+                return drained
+
             try:
                 stdout, stderr, overflowed = await asyncio.wait_for(
-                    self._drain_streams(process.stdout, process.stderr, self._MAX_DRAIN_BYTES),
-                    timeout=prepared.timeout,
+                    _drain_then_wait(), timeout=prepared.timeout,
                 )
             except asyncio.TimeoutError:
                 info = await self._kill_process(process)
@@ -365,8 +374,6 @@ class ExecTool(Tool):
                 # pipe would otherwise fill and it would block, not exit on its own).
                 info = await self._kill_process(process)
                 self.last_termination = dict(info or {}, command=str(command)[:200])
-            else:
-                await process.wait()
 
             output_parts = []
 

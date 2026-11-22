@@ -577,6 +577,21 @@ class TestOutputByteCap:
         assert "exceeded" in result.lower()
         assert "1,000-byte safety limit" in result
 
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell fd redirection")
+    async def test_timeout_applies_after_output_streams_close(self):
+        """A process that closes stdout/stderr but keeps running makes the drain
+        return at EOF; the wait for its exit must still honor the timeout."""
+        tool = ExecTool(timeout=1)
+        started = asyncio.get_running_loop().time()
+        result = await asyncio.wait_for(
+            tool.execute(command="exec >&- 2>&-; sleep 20"), timeout=10,
+        )
+        elapsed = asyncio.get_running_loop().time() - started
+
+        assert "timed out" in result.lower()
+        assert elapsed < 6
+
 
 # ---------------------------------------------------------------------------
 # _extract_absolute_paths - UNC path support
