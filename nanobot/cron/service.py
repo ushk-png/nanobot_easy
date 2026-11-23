@@ -534,6 +534,11 @@ class CronService:
 
     def _arm_timer(self) -> None:
         """Schedule the next timer tick."""
+        if self._timer_active:
+            # A job callback runs inside the tick task, so cancelling it here would
+            # abort that job mid-run and let the replacement tick run it again.
+            # _on_timer re-arms after the tick, picking up any change made meanwhile.
+            return
         if self._timer_task:
             self._timer_task.cancel()
 

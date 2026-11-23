@@ -133,6 +133,38 @@ async def test_api_key_protects_api_routes_but_not_health(aiohttp_client, mock_a
 
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
+async def test_non_ascii_bearer_token_is_rejected_not_a_server_error(aiohttp_client, mock_agent) -> None:
+    """hmac.compare_digest raises TypeError on non-ASCII str, which surfaced as a 500."""
+    app = create_app(mock_agent, model_name="test-model", api_key=API_KEY)
+    client = await aiohttp_client(app)
+
+    resp = await client.get("/v1/models", headers={"Authorization": "Bearer caf\u00e9"})
+
+    assert resp.status == 401
+    assert (await resp.json())["error"]["message"] == "Invalid API key"
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        {"messages": [{"role": "user", "content": [{"type": "image_url", "image_url": "x"}]}]},
+        {"messages": [{"role": "user", "content": [{"type": "text", "text": None}]}]},
+    ],
+)
+async def test_malformed_json_shapes_are_400_not_413(aiohttp_client, mock_agent, body) -> None:
+    app = create_app(mock_agent, model_name="test-model", api_key=API_KEY)
+    client = await aiohttp_client(app)
+
+    resp = await client.post("/v1/chat/completions", json=body, headers=AUTH_HEADERS)
+
+    assert resp.status == 400
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
 async def test_api_routes_allow_requests_without_configured_api_key(aiohttp_client, mock_agent) -> None:
     app = create_app(mock_agent, model_name="test-model")
     client = await aiohttp_client(app)

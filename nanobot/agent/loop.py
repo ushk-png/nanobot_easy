@@ -1376,87 +1376,91 @@ class AgentLoop:
                     logger.warning("Error consuming inbound message: {}, continuing...", e)
                     continue
 
-                raw = msg.content.strip()
-                effective_key = self._effective_session_key(msg)
-                if await agent_context.handle_runtime_control(self, msg, self.tools):
-                    continue
-                if self.commands.is_priority(raw):
-                    await self._dispatch_command_inline(
-                        msg, effective_key, raw,
-                        self.commands.dispatch_priority,
-                    )
-                    continue
-                deferred = False
-                for label, coordinator in self._automation_turn_coordinators:
-                    if coordinator.defer_if_active(
-                        msg,
-                        session_key=effective_key,
-                        active_session_keys=self._pending_queues.keys(),
-                    ):
+                try:
+                    raw = msg.content.strip()
+                    effective_key = self._effective_session_key(msg)
+                    if await agent_context.handle_runtime_control(self, msg, self.tools):
+                        continue
+                    if self.commands.is_priority(raw):
+                        await self._dispatch_command_inline(
+                            msg, effective_key, raw,
+                            self.commands.dispatch_priority,
+                        )
+                        continue
+                    deferred = False
+                    for label, coordinator in self._automation_turn_coordinators:
+                        if coordinator.defer_if_active(
+                            msg,
+                            session_key=effective_key,
+                            active_session_keys=self._pending_queues.keys(),
+                        ):
+                            logger.info(
+                                "Deferred {} turn for active session {}",
+                                label,
+                                effective_key,
+                            )
+                            deferred = True
+                            break
+                    if deferred:
+                        continue
+                    session_for_goal = self.sessions.get_or_create(effective_key)
+                    if mark_sustained_goal_user_approval(session_for_goal.metadata, raw):
+                        self.sessions.save(session_for_goal)
                         logger.info(
-                            "Deferred {} turn for active session {}",
-                            label,
+                            "Marked approval-gated sustained goal approved in session {}",
                             effective_key,
                         )
-                        deferred = True
-                        break
-                if deferred:
-                    continue
-                session_for_goal = self.sessions.get_or_create(effective_key)
-                if mark_sustained_goal_user_approval(session_for_goal.metadata, raw):
-                    self.sessions.save(session_for_goal)
-                    logger.info(
-                        "Marked approval-gated sustained goal approved in session {}",
-                        effective_key,
-                    )
-                # If this session already has an active pending queue (i.e. a task
-                # is processing this session), route the message there for mid-turn
-                # injection instead of creating a competing task.
-                if effective_key in self._pending_queues:
-                    session_meta = session_for_goal.metadata
-                    if not turn_continuation.should_route_followup_to_pending(session_meta):
-                        logger.info(
-                            "Bypassing pending queue for approval-gated sustained goal in session {}",
-                            effective_key,
-                        )
-                    else:
-                        # Non-priority commands must not be queued for injection;
-                        # dispatch them directly (same pattern as priority commands).
-                        if self.commands.is_dispatchable_command(raw):
-                            await self._dispatch_command_inline(
-                                msg, effective_key, raw,
-                                self.commands.dispatch,
-                            )
-                            continue
-                        pending_msg = msg
-                        if effective_key != msg.session_key:
-                            pending_msg = dataclasses.replace(
-                                msg,
-                                session_key_override=effective_key,
-                            )
-                        try:
-                            self._pending_queues[effective_key].put_nowait(pending_msg)
-                        except asyncio.QueueFull:
-                            logger.warning(
-                                "Pending queue full for session {}, falling back to queued task",
+                    # If this session already has an active pending queue (i.e. a task
+                    # is processing this session), route the message there for mid-turn
+                    # injection instead of creating a competing task.
+                    if effective_key in self._pending_queues:
+                        session_meta = session_for_goal.metadata
+                        if not turn_continuation.should_route_followup_to_pending(session_meta):
+                            logger.info(
+                                "Bypassing pending queue for approval-gated sustained goal in session {}",
                                 effective_key,
                             )
                         else:
-                            logger.info(
-                                "Routed follow-up message to pending queue for session {}",
-                                effective_key,
-                            )
-                            continue
-                # Compute the effective session key before dispatching
-                # This ensures /stop command can find tasks correctly when unified session is enabled
-                task = asyncio.create_task(self._dispatch(msg))
-                self._active_tasks.setdefault(effective_key, []).append(task)
-                task.add_done_callback(
-                    lambda t, k=effective_key: self._active_tasks.get(k, [])
-                    and self._active_tasks[k].remove(t)
-                    if t in self._active_tasks.get(k, [])
-                    else None
-                )
+                            # Non-priority commands must not be queued for injection;
+                            # dispatch them directly (same pattern as priority commands).
+                            if self.commands.is_dispatchable_command(raw):
+                                await self._dispatch_command_inline(
+                                    msg, effective_key, raw,
+                                    self.commands.dispatch,
+                                )
+                                continue
+                            pending_msg = msg
+                            if effective_key != msg.session_key:
+                                pending_msg = dataclasses.replace(
+                                    msg,
+                                    session_key_override=effective_key,
+                                )
+                            try:
+                                self._pending_queues[effective_key].put_nowait(pending_msg)
+                            except asyncio.QueueFull:
+                                logger.warning(
+                                    "Pending queue full for session {}, falling back to queued task",
+                                    effective_key,
+                                )
+                            else:
+                                logger.info(
+                                    "Routed follow-up message to pending queue for session {}",
+                                    effective_key,
+                                )
+                                continue
+                    # Compute the effective session key before dispatching
+                    # This ensures /stop command can find tasks correctly when unified session is enabled
+                    task = asyncio.create_task(self._dispatch(msg))
+                    self._active_tasks.setdefault(effective_key, []).append(task)
+                    task.add_done_callback(
+                        lambda t, k=effective_key: self._active_tasks.get(k, [])
+                        and self._active_tasks[k].remove(t)
+                        if t in self._active_tasks.get(k, [])
+                        else None
+                    )
+                except Exception:
+                    # One message's inline handling must not end the loop (and the gateway with it).
+                    logger.exception("Error routing inbound message, continuing...")
         finally:
             if self.workflow_service is not None:
                 await self.workflow_service.stop()

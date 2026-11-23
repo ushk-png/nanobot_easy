@@ -1364,17 +1364,31 @@ def discover_skill_files(
             files.append(skill_file)
         return files
 
-    def _add(base: Path, source: str, default_status: str | None = None, *, shadow: bool = True) -> None:
+    def _add(
+        base: Path,
+        source: str,
+        default_status: str | None = None,
+        *,
+        shadow: bool = True,
+        exclude: frozenset[str] = frozenset(),
+    ) -> None:
         if not base.exists():
             return
         for path in _skill_files(base):
             name = path.parent.name
-            if shadow and name in seen:
+            if name in exclude or (shadow and name in seen):
                 continue
             entries.append((path, source, default_status))
             seen.add(name)
 
-    _add(workspace / "skills", "workspace")
+    # The loader never lets a workspace skill override a system one, so the index must
+    # not hold both under one name (skills.name is UNIQUE).
+    system_names = (
+        frozenset(path.parent.name for path in _skill_files(system_dir))
+        if system_dir is not None and system_dir.exists()
+        else frozenset()
+    )
+    _add(workspace / "skills", "workspace", exclude=system_names)
     if system_dir is not None:
         _add(system_dir, "system", "system", shadow=False)
     _add(builtin_dir or BUILTIN_SKILLS_DIR, "builtin")

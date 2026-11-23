@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hmac
 import json as _json
 import time
 import uuid
@@ -18,6 +17,7 @@ from aiohttp import web
 from loguru import logger
 
 from nanobot.config.paths import get_media_dir
+from nanobot.security.secrets import constant_time_equals
 from nanobot.utils.helpers import safe_filename
 from nanobot.utils.media_decode import (
     MAX_FILE_SIZE,
@@ -158,9 +158,15 @@ def _parse_json_content(body: dict) -> tuple[str, list[str]]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text":
-                text_parts.append(part.get("text", ""))
+                part_text = part.get("text", "")
+                if not isinstance(part_text, str):
+                    raise ValueError("Invalid content format")
+                text_parts.append(part_text)
             elif part.get("type") == "image_url":
-                url = part.get("image_url", {}).get("url", "")
+                image_url = part.get("image_url", {})
+                url = image_url.get("url", "") if isinstance(image_url, dict) else None
+                if not isinstance(url, str):
+                    raise ValueError("Invalid content format")
                 if url.startswith("data:"):
                     saved = _save_base64_data_url(url, media_dir)
                     if saved:
@@ -240,6 +246,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 body = await request.json()
             except Exception:
                 return _error_json(400, "Invalid JSON body")
+            if not isinstance(body, dict):
+                return _error_json(400, "Request body must be a JSON object")
             stream = body.get("stream", False)
             requested_model = body.get("model")
             text, media_paths = _parse_json_content(body)
@@ -454,7 +462,7 @@ def create_app(
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return _error_json(401, "Missing Authorization header. Use: Bearer <api_key>")
-        if not hmac.compare_digest(auth[len("Bearer "):], api_key):
+        if not constant_time_equals(auth[len("Bearer "):], api_key):
             return _error_json(401, "Invalid API key")
         return await handler(request)
 
