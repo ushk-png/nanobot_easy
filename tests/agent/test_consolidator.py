@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+import nanobot.agent.memory as memory_module
 from nanobot.agent.memory import (
     _ARCHIVE_SUMMARY_MAX_CHARS,
     Consolidator,
@@ -13,6 +14,12 @@ from nanobot.providers.base import LLMResponse
 from nanobot.session.manager import Session
 from nanobot.utils.prompt_templates import render_template
 
+
+@pytest.fixture
+def summary_input_fits(monkeypatch):
+    """Toy windows here are smaller than the summarizer's own system prompt, so the input-fit decision would
+    always refuse; these tests cover pressure/boundary logic, and the fit decision has its own tests."""
+    monkeypatch.setattr(memory_module.Consolidator, "_summary_fits", lambda self, messages, session_key: True)
 
 @pytest.fixture
 def store(tmp_path):
@@ -235,6 +242,7 @@ class TestConsolidatorTokenBudget:
         assert session.metadata["_last_summary"]["text"] == "old conversation summary"
         consolidator.sessions.save.assert_called()
 
+    @pytest.mark.usefixtures("summary_input_fits")
     async def test_replay_window_overflow_extends_to_long_recent_user_turn(
         self,
         consolidator,
@@ -304,6 +312,7 @@ class TestConsolidatorTokenBudget:
         history = session.get_history(max_messages=6, extend_to_user=True)
         assert [m["content"] for m in history] == ["new question", "new answer"]
 
+    @pytest.mark.usefixtures("summary_input_fits")
     async def test_large_chunk_archived_without_cap(self, consolidator):
         """Without chunk cap, the full range from pick_consolidation_boundary is archived."""
         consolidator._SAFETY_BUFFER = 0
@@ -332,6 +341,7 @@ class TestConsolidatorTokenBudget:
         assert archived_chunk[0]["content"] == "m0"
         assert session.last_consolidated > 0
 
+    @pytest.mark.usefixtures("summary_input_fits")
     async def test_raw_archive_fallback_preserves_last_consolidated(self, consolidator):
         """When archive() falls back to raw-archive (LLM failed), the cursor stays put:
         the bounded raw dump cannot replace its source. Repeated [RAW] spam is
@@ -381,6 +391,7 @@ class TestConsolidatorTokenBudget:
         # Exactly one fallback per call — not _MAX_CONSOLIDATION_ROUNDS.
         assert consolidator.archive.await_count == 1
 
+    @pytest.mark.usefixtures("summary_input_fits")
     async def test_failed_summary_is_not_retried_every_turn(self, consolidator, monkeypatch):
         """The cursor stays put after a failed summary (the source must not be replaced by
         its bounded raw dump), so without a cooldown every turn re-runs the failing LLM
@@ -429,6 +440,7 @@ class TestConsolidatorTokenBudget:
 
         assert any("not covered by the summary" in line for line in seen)
 
+    @pytest.mark.usefixtures("summary_input_fits")
     async def test_boundary_respected_when_no_intermediate_user_turn(self, consolidator):
         """When boundary points past a long tool chain, the full chunk is archived."""
         consolidator._SAFETY_BUFFER = 0

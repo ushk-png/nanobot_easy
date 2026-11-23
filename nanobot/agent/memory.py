@@ -22,6 +22,7 @@ from nanobot.utils.gitstore import GitStore
 from nanobot.utils.helpers import (
     ensure_dir,
     estimate_message_tokens,
+    estimate_prompt_tokens,
     estimate_prompt_tokens_chain,
     find_legal_message_start,
     input_token_safety_buffer,
@@ -834,6 +835,8 @@ class Consolidator:
             weakref.WeakValueDictionary()
         )
         self._summary_retry_after: dict[str, float] = {}
+        # Why the last summary attempt of a session was not made (no model call), for logs and tests.
+        self._summary_stop: dict[str, str] = {}
 
     def _note_summary_result(self, session_key: str, summary: str | None) -> None:
         if summary:
@@ -946,6 +949,10 @@ class Consolidator:
         end_idx = self._replay_overflow_boundary(session, replay_max_tokens)
         if end_idx is None:
             return None
+        end_idx = self._fit_end(session.messages, session.last_consolidated, end_idx, session.key)
+        if end_idx is None:
+            self._note_stop(session.key, "the first turn alone exceeds the summary input budget")
+            return None
         chunk = session.messages[session.last_consolidated:end_idx]
         if not chunk:
             return None
@@ -955,13 +962,10 @@ class Consolidator:
             len(chunk),
             replay_max_tokens,
         )
-        summary = await self.archive(chunk, session_key=session.key)
+        summary = await self.archive(chunk, session_key=session.key, strict=True)
         self._note_summary_result(session.key, summary)
-        if not summary:
+        if not summary or not self._commit(session, end_idx, summary):
             return None
-        session.last_consolidated = end_idx
-        self._persist_last_summary(session, summary)
-        self.sessions.save(session)
         return summary
 
     def _persist_last_summary(self, session: Session, summary: str | None) -> None:
@@ -1017,14 +1021,136 @@ class Consolidator:
             return truncate_text(text, _RAW_ARCHIVE_MAX_CHARS)
         return truncate_text_to_tokens(text, budget)
 
+    # -- summary input selection --------------------------------------------------------------------
+    # A summary may only cover what the summarizer was actually given: the range is cut at a user-turn
+    # boundary (never inside a tool call/result pair) so that the assembled request fits the input budget,
+    # and the cursor moves to that boundary only, never past it.
+
+    @staticmethod
+    def _format_for_summary(messages: list[dict]) -> str:
+        """Like ``MemoryStore._format_messages`` but keeps body-less messages that still carry information
+        (tool calls, attachments) instead of treating them as empty. Truly empty messages are skipped."""
+        lines: list[str] = []
+        for message in messages:
+            if message.get("content"):
+                lines.append(MemoryStore._format_messages([message]))
+                continue
+            what: list[str] = []
+            calls = message.get("tool_calls")
+            if isinstance(calls, list) and calls:
+                names = [str((c.get("function") or {}).get("name") or c.get("name") or "?")
+                         for c in calls if isinstance(c, dict)]
+                what.append("tool calls: " + ", ".join(names or ["?"]))
+            media = message.get("media")
+            if media:
+                what.append(f"{len(media) if isinstance(media, list) else 1} attachment(s)")
+            if what:
+                lines.append(
+                    f"[{str(message.get('timestamp', '?'))[:16]}] {str(message.get('role', '?')).upper()}: "
+                    f"(no text; {'; '.join(what)})"
+                )
+        return "\n".join(lines)
+
+    def _with_previous_summary(self, formatted: str, session_key: str | None) -> str:
+        if not session_key:
+            return formatted
+        previous = self.sessions.get_or_create(session_key).metadata.get("_last_summary")
+        previous_text = previous.get("text") if isinstance(previous, dict) else None
+        if isinstance(previous_text, str) and previous_text.strip():
+            return (
+                "Earlier summary (historical context, not current authorization):\n"
+                + truncate_text(previous_text, _ARCHIVE_SUMMARY_MAX_CHARS)
+                + "\n\nNewer conversation (newer user instructions take precedence):\n"
+                + formatted
+            )
+        return formatted
+
+    @staticmethod
+    def _summary_request_messages(body: str) -> list[dict[str, Any]]:
+        return [
+            {"role": "system", "content": render_template("agent/consolidator_archive.md", strip=True)},
+            {"role": "user", "content": body},
+        ]
+
+    def _request_fits(self, request: list[dict[str, Any]]) -> bool:
+        budget = self._input_token_budget
+        if budget <= 0:
+            # A window too small to leave any input budget: keep the legacy character cap as the limit,
+            # but choose the range to fit it instead of cutting the text.
+            return len(str(request[-1].get("content") or "")) <= _RAW_ARCHIVE_MAX_CHARS
+        return estimate_prompt_tokens(request) <= budget
+
+    def _summary_fits(self, messages: list[dict], session_key: str | None) -> bool:
+        body = self._with_previous_summary(self._format_for_summary(messages), session_key)
+        return self._request_fits(self._summary_request_messages(body))
+
+    def _fit_end(self, messages: list[dict], start: int, end: int, session_key: str | None) -> int | None:
+        """Largest user-turn boundary ``b`` (start < b <= end) whose ``messages[start:b]`` fits one summary
+        request, or None when not even the first turn does (nothing may then be summarized or skipped)."""
+        bounds: list[int] = []
+        for i in range(start + 1, end):
+            if messages[i].get("role") == "user":
+                bounds.append(i - 1 if messages[i - 1].get("_channel_delivery") and i - 1 > start else i)
+        bounds = sorted(set(bounds)) + [end]
+        lo, hi, best = 0, len(bounds) - 1, None
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            if self._summary_fits(messages[start:bounds[mid]], session_key):
+                best, lo = bounds[mid], mid + 1
+            else:
+                hi = mid - 1
+        return best
+
+    def _note_stop(self, session_key: str | None, reason: str) -> None:
+        key = session_key or "?"
+        if self._summary_stop.get(key) != reason:
+            logger.warning(
+                "Consolidation for {} not run: {} (the original messages and the cursor are unchanged)",
+                key, reason,
+            )
+        self._summary_stop[key] = reason
+
+    def _commit(self, session: Session, new_cursor: int, summary: str | None) -> bool:
+        """Advance the cursor and the checkpoint together and save; undo both in memory if the save fails.
+
+        The summary was already appended to history.jsonl, so a failed save leaves a summary that the next run
+        may repeat (never a lost original): history is written first, the session second.
+        """
+        old_cursor = session.last_consolidated
+        missing = object()
+        old_meta = session.metadata.get("_last_summary", missing)
+        session.last_consolidated = new_cursor
+        if summary and summary != "(nothing)":
+            session.metadata["_last_summary"] = {"text": summary, "last_active": session.updated_at.isoformat()}
+        try:
+            saved = self.sessions.save(session)
+        except Exception:
+            logger.exception("Consolidation progress could not be saved for {}", session.key)
+            saved = False
+        if saved:
+            self._summary_stop.pop(session.key, None)
+            return True
+        session.last_consolidated = old_cursor
+        if old_meta is missing:
+            session.metadata.pop("_last_summary", None)
+        else:
+            session.metadata["_last_summary"] = old_meta
+        self._note_stop(session.key, "session not saved; progress rolled back")
+        return False
+
     async def archive(
         self,
         messages: list[dict],
         *,
         session_key: str | None = None,
         summary_messages: list[dict] | None = None,
+        strict: bool = False,
     ) -> str | None:
         """Summarize messages via LLM and append to history.jsonl.
+
+        ``strict`` (used by the cursor-advancing paths): never cut the input to fit. A request over the input
+        budget is not sent at all (returns None, no raw dump), so the caller never moves a cursor past text the
+        summarizer did not read. Without ``strict`` the legacy head-truncation applies (e.g. ``/new``).
 
         ``messages`` are the messages being archived (removed from the live
         session); they are what gets raw-dumped if the LLM call fails.
@@ -1037,41 +1163,32 @@ class Consolidator:
             return None
         messages_to_summarize = summary_messages if summary_messages is not None else messages
         try:
-            formatted = MemoryStore._format_messages(messages_to_summarize)
-            if session_key:
-                previous = self.sessions.get_or_create(session_key).metadata.get("_last_summary")
-                previous_text = previous.get("text") if isinstance(previous, dict) else None
-                if isinstance(previous_text, str) and previous_text.strip():
-                    formatted = (
-                        "Earlier summary (historical context, not current authorization):\n"
-                        + truncate_text(previous_text, _ARCHIVE_SUMMARY_MAX_CHARS)
-                        + "\n\nNewer conversation (newer user instructions take precedence):\n"
-                        + formatted
-                    )
-            untruncated = formatted
-            formatted = self._truncate_to_token_budget(formatted)
-            if formatted != untruncated:
-                # Only the head is kept, yet the caller advances the cursor past the whole
-                # chunk, so the newest part of it never reaches the summary.
-                logger.warning(
-                    "Consolidation input for {} exceeds the token budget; the end of this "
-                    "{}-message chunk is not covered by the summary",
-                    session_key,
-                    len(messages_to_summarize),
+            if strict:
+                formatted = self._format_for_summary(messages_to_summarize)
+                if not formatted.strip():
+                    return "(nothing)"          # truly empty: no text, no tool call, no attachment
+                request = self._summary_request_messages(self._with_previous_summary(formatted, session_key))
+                if not self._request_fits(request):
+                    self._note_stop(session_key, "summary input exceeds the token budget")
+                    return None
+            else:
+                formatted = self._with_previous_summary(
+                    MemoryStore._format_messages(messages_to_summarize), session_key,
                 )
+                untruncated = formatted
+                formatted = self._truncate_to_token_budget(formatted)
+                if formatted != untruncated:
+                    logger.warning(
+                        "Consolidation input for {} exceeds the token budget; the end of this "
+                        "{}-message chunk is not covered by the summary",
+                        session_key,
+                        len(messages_to_summarize),
+                    )
+                request = self._summary_request_messages(formatted)
             with usage_ledger.bound(usage_ledger.background_job("memory_consolidation", parent=usage_ledger.current_scope())):
                 response = await self.provider.chat_with_retry(
                     model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": render_template(
-                                "agent/consolidator_archive.md",
-                                strip=True,
-                            ),
-                        },
-                        {"role": "user", "content": formatted},
-                    ],
+                    messages=request,
                     tools=None,
                     tool_choice=None,
                 )
@@ -1162,7 +1279,10 @@ class Consolidator:
                     )
                     break
 
-                end_idx = boundary[0]
+                end_idx = self._fit_end(session.messages, session.last_consolidated, boundary[0], session.key)
+                if end_idx is None:
+                    self._note_stop(session.key, "the first turn alone exceeds the summary input budget")
+                    break
 
                 chunk = session.messages[session.last_consolidated:end_idx]
                 if not chunk:
@@ -1177,17 +1297,17 @@ class Consolidator:
                     source,
                     len(chunk),
                 )
-                summary = await self.archive(chunk, session_key=session.key)
+                summary = await self.archive(chunk, session_key=session.key, strict=True)
                 self._note_summary_result(session.key, summary)
                 if not summary:
                     # The raw fallback is bounded, so it cannot replace the source.
                     # Preserve the live cursor and let normal context governance run.
                     break
+                # Cursor and checkpoint move together (each later round must see the preceding checkpoint);
+                # if the save fails both are put back and the originals stay unconsolidated.
+                if not self._commit(session, end_idx, summary):
+                    break
                 last_summary = summary
-                session.last_consolidated = end_idx
-                # Each subsequent round must see the preceding checkpoint.
-                self._persist_last_summary(session, summary)
-                self.sessions.save(session)
 
                 try:
                     estimated, source = self.estimate_session_prompt_tokens(
@@ -1244,34 +1364,61 @@ class Consolidator:
 
             last_active = session.updated_at
             summary: str | None = ""
+            removed, kept, summary_input = messages_to_remove, messages_to_keep, messages_to_summarize
             if messages_to_remove:
-                # Summarize the retained suffix too, but only remove/raw-dump
-                # the messages that are no longer kept in the live session.
+                # Only what the summarizer is given may be removed. If the whole tail does not fit, try the
+                # removed part alone, then only its leading turns; the rest stays in the live session. If not
+                # even the first turn fits, nothing is summarized and nothing is removed.
+                if not self._summary_fits(summary_input, session_key):
+                    if self._summary_fits(removed, session_key):
+                        summary_input = removed
+                    else:
+                        cut = self._fit_end(removed, 0, len(removed), session_key)
+                        if cut is None:
+                            self._note_stop(session_key, "the first turn alone exceeds the summary input budget")
+                            return None
+                        summary_input, kept, removed = removed[:cut], removed[cut:] + messages_to_keep, removed[:cut]
                 summary = await self.archive(
-                    messages_to_remove,
+                    removed,
                     session_key=session_key,
-                    summary_messages=messages_to_summarize,
+                    summary_messages=summary_input,
+                    strict=True,
                 )
                 if not summary:
                     # Keep originals and the previous checkpoint when the model
                     # is unavailable, empty, or cut off mid-summary.
                     return None
 
+            before = (session.messages, session.last_consolidated, session.metadata.get("_last_summary", None),
+                      "_last_summary" in session.metadata)
             if summary and summary != "(nothing)":
                 session.metadata["_last_summary"] = {
                     "text": summary,
                     "last_active": last_active.isoformat(),
                 }
 
-            session.messages = messages_to_keep
+            session.messages = kept
             session.last_consolidated = 0
-            self.sessions.save(session)
+            try:
+                saved = self.sessions.save(session)
+            except Exception:
+                logger.exception("Idle-session compact could not be saved for {}", session_key)
+                saved = False
+            if not saved:
+                session.messages, session.last_consolidated = before[0], before[1]
+                if before[3]:
+                    session.metadata["_last_summary"] = before[2]
+                else:
+                    session.metadata.pop("_last_summary", None)
+                self._note_stop(session_key, "session not saved; compaction rolled back")
+                return None
+            messages_to_keep = kept
 
             if messages_to_remove:
                 logger.info(
                     "Idle-session compact for {}: archived={}, kept={}, summary={}",
                     session_key,
-                    len(messages_to_remove),
+                    len(removed),
                     len(messages_to_keep),
                     bool(summary),
                 )
