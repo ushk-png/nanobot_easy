@@ -143,6 +143,9 @@ class CronService:
     """Service for managing and executing scheduled jobs."""
 
     _MAX_RUN_HISTORY = 20
+    # A one-shot job that came due while the service was down is still run on the next
+    # start if that was recent; older ones are stale and are left alone.
+    _MISSED_ONE_SHOT_GRACE_MS = 24 * 60 * 60 * 1000
     _UNBOUND_AGENT_JOB_REASON = (
         "agent cron payload is missing bound session delivery context; "
         "recreate it from a chat session"
@@ -522,7 +525,17 @@ class CronService:
             if self._enforce_agent_binding(job):
                 continue
             if job.enabled:
-                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+                next_run = _compute_next_run(job.schedule, now)
+                if (
+                    next_run is None
+                    and job.schedule.kind == "at"
+                    and job.schedule.at_ms
+                    and job.state.last_run_at_ms is None
+                    and now - job.schedule.at_ms <= self._MISSED_ONE_SHOT_GRACE_MS
+                ):
+                    # Otherwise it stays enabled but is never scheduled and never runs.
+                    next_run = now
+                job.state.next_run_at_ms = next_run
 
     def _get_next_wake_ms(self) -> int | None:
         """Get the earliest next run time across all jobs."""
