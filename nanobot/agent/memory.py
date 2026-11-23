@@ -421,8 +421,22 @@ class MemoryStore:
         entries = self._read_entries()
         if len(entries) <= self.max_history_entries:
             return
-        kept = entries[-self.max_history_entries:]
+        # The recent window stays. Older entries are dropped only once Dream has processed them: an entry the
+        # Dream cursor has not passed is backlog, and deleting it would hide it instead of processing it. The
+        # file may therefore exceed *max_history_entries* while a backlog exists (that is not an error).
+        # "Valid" is judged exactly as the Dream reader does (read_unprocessed_history); an entry that reader
+        # would skip is not backlog and ages out as before. No cursor file reads as 0, i.e. everything is backlog.
+        cursor = self.get_last_dream_cursor()
+        recent = entries[-self.max_history_entries:]
+        backlog = [e for e in entries[:-self.max_history_entries] if self._is_unprocessed(e, cursor)]
+        kept = backlog + recent
+        if len(kept) == len(entries):
+            return                       # nothing to drop: do not rewrite the file
         self._write_entries(kept)
+
+    def _is_unprocessed(self, entry: dict[str, Any], dream_cursor: int) -> bool:
+        cursor = self._valid_cursor(entry.get("cursor"))
+        return cursor is not None and cursor > dream_cursor and self._valid_history_payload(entry)
 
     # -- JSONL helpers -------------------------------------------------------
 
