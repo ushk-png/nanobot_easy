@@ -46,7 +46,7 @@ async def test_config_reaches_actual_loop_then_search_and_read_load_the_skill(tm
     path = write_skill(tmp_path)
     config = Config.model_validate({'agents': {'defaults': {
         'workspace': str(tmp_path), 'skills': [], 'preloadAlwaysSkills': False,
-        'contextSelection': {'enabled': False},
+        'contextSelection': {'enabled': False}, 'compactContext': False,
     }}})
     mock = Mock()
     loop = AgentLoop.from_config(config, provider=mock)

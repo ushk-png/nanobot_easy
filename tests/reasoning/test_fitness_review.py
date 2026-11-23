@@ -216,7 +216,7 @@ def test_agent_loop_tells_the_user_before_falling_back(monkeypatch) -> None:
         msg=SimpleNamespace(content="두 기록이 상충합니다. 상태를 확정해 주세요.", channel="telegram", chat_id="1", metadata={}),
         session_key="telegram:9", visible_run_started_at=None, initial_messages=[], on_progress=_progress,
         on_stream=None, on_stream_end=None, on_retry_wait=None,
-        selected_context=None, session=SimpleNamespace(metadata={}), pending_queue=None,
+        selected_context=None, model=None, provider=None, session=SimpleNamespace(metadata={}), pending_queue=None,
         ephemeral=False, run_extra_hooks_for_ephemeral=False, hooks=[], tools=None, final_content=None,
         tools_used=None, all_messages=None, stop_reason=None, had_injections=None,
     )

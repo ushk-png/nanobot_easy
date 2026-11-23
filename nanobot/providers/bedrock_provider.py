@@ -85,16 +85,9 @@ class BedrockProvider(LLMProvider):
             client_kwargs["region_name"] = self.region
         if self.api_base:
             client_kwargs["endpoint_url"] = self.api_base
-        # chat_stream() reads one event at a time via asyncio.to_thread(next, stream);
-        # on an asyncio-side idle timeout that worker thread is left blocked inside
-        # next() with no cancellation hook, since botocore's EventStream iterator
-        # can't be interrupted from outside. Without its own socket read_timeout the
-        # default botocore Config has none, so that thread could stay blocked
-        # indefinitely. Give it one a bit above the stream idle timeout so a leaked
-        # thread is reclaimed on its own within a bounded time either way.
-        client_kwargs["config"] = Config(
-            read_timeout=resolve_stream_idle_timeout_s() + 30,
-        )
+        # nanobot's own retry (chat_with_retry) already handles 429/5xx/timeouts with
+        # backoff and Retry-After, so botocore's built-in retries would multiply with it.
+        client_kwargs["config"] = Config(retries={"max_attempts": 0})
         return session.client("bedrock-runtime", **client_kwargs)
 
     @staticmethod

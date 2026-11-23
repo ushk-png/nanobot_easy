@@ -7,6 +7,7 @@ import json
 import os
 import re
 import threading
+import time
 import weakref
 from contextlib import suppress
 from datetime import datetime
@@ -786,6 +787,10 @@ class Consolidator:
 
     _MAX_CONSOLIDATION_ROUNDS = 5
 
+    # After a failed summary the cursor stays put, so every following turn would re-run the
+    # same failing LLM call (and re-append the same [RAW] dump); wait this long per session.
+    _SUMMARY_RETRY_COOLDOWN_S = 60.0
+
     _SAFETY_BUFFER = 1024  # test override; runtime uses the larger dynamic buffer below
 
     def __init__(
@@ -814,6 +819,15 @@ class Consolidator:
         self._locks: weakref.WeakValueDictionary[str, asyncio.Lock] = (
             weakref.WeakValueDictionary()
         )
+        self._summary_retry_after: dict[str, float] = {}
+
+    def _note_summary_result(self, session_key: str, summary: str | None) -> None:
+        if summary:
+            self._summary_retry_after.pop(session_key, None)
+        else:
+            self._summary_retry_after[session_key] = (
+                time.monotonic() + self._SUMMARY_RETRY_COOLDOWN_S
+            )
 
     def set_provider(
         self,
@@ -928,6 +942,7 @@ class Consolidator:
             replay_max_tokens,
         )
         summary = await self.archive(chunk, session_key=session.key)
+        self._note_summary_result(session.key, summary)
         if not summary:
             return None
         session.last_consolidated = end_idx
@@ -1019,7 +1034,17 @@ class Consolidator:
                         + "\n\nNewer conversation (newer user instructions take precedence):\n"
                         + formatted
                     )
+            untruncated = formatted
             formatted = self._truncate_to_token_budget(formatted)
+            if formatted != untruncated:
+                # Only the head is kept, yet the caller advances the cursor past the whole
+                # chunk, so the newest part of it never reaches the summary.
+                logger.warning(
+                    "Consolidation input for {} exceeds the token budget; the end of this "
+                    "{}-message chunk is not covered by the summary",
+                    session_key,
+                    len(messages_to_summarize),
+                )
             with usage_ledger.bound(usage_ledger.background_job("memory_consolidation", parent=usage_ledger.current_scope())):
                 response = await self.provider.chat_with_retry(
                     model=self.model,
@@ -1073,6 +1098,8 @@ class Consolidator:
             if fresh is not session:
                 session = fresh
             if not session.messages:
+                return
+            if time.monotonic() < self._summary_retry_after.get(session.key, 0.0):
                 return
 
             budget = self._input_token_budget
@@ -1137,6 +1164,7 @@ class Consolidator:
                     len(chunk),
                 )
                 summary = await self.archive(chunk, session_key=session.key)
+                self._note_summary_result(session.key, summary)
                 if not summary:
                     # The raw fallback is bounded, so it cannot replace the source.
                     # Preserve the live cursor and let normal context governance run.

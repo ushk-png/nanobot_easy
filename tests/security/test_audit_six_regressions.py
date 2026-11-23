@@ -62,7 +62,7 @@ async def test_shared_memory_tool_keeps_concurrent_owner_scopes(tmp_path, tool_c
                 assert "OwnerAlpha" in result and "OwnerBeta" not in result
             else:
                 result = await tool.execute(event_ids=[a.event_id, b.event_id], mode="purge")
-                assert "1 scoped memory event" in result
+                assert "1 scoped conversation memory event" in result
                 assert tool.store.get_events(a_scope, [a.event_id]) == []
             assert tool.store.get_events(b_scope, [b.event_id])
         finally:

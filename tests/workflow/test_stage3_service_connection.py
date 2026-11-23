@@ -582,7 +582,11 @@ async def test_agent_loop_process_direct_workflow_matches_current_message_id(tmp
         {"decision": "pass", "reason": "ok"},
     ])
     cfg = Config(
-        agents={"defaults": {"workspace": str(tmp_path), "max_tool_iterations": 3}},
+        agents={"defaults": {
+            "workspace": str(tmp_path),
+            "max_tool_iterations": 3,
+            "compact_context": False,
+        }},
         tools={"workflow": {"enabled": True}},
     )
     loop = AgentLoop.from_config(cfg, provider=provider)
@@ -625,7 +629,11 @@ async def test_gateway_process_message_workflow_matches_current_message_id(tmp_p
         {"decision": "pass", "reason": "ok"},
     ])
     cfg = Config(
-        agents={"defaults": {"workspace": str(tmp_path), "max_tool_iterations": 3}},
+        agents={"defaults": {
+            "workspace": str(tmp_path),
+            "max_tool_iterations": 3,
+            "compact_context": False,
+        }},
         tools={"workflow": {"enabled": True}},
     )
     loop = AgentLoop.from_config(cfg, provider=provider)

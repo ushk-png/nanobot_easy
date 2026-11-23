@@ -13,6 +13,8 @@ import pytest
 from nanobot.agent import context_plan as cp
 from nanobot.agent.context_relations import bind_targets, parse_relations
 
+from .test_context_selection import env as env  # noqa: F401
+
 
 class Trace:
     def __init__(self):

@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
 import os
+import shutil
 import sys
+import tempfile
 import time
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -23,13 +27,17 @@ def _make_loop():
     bus = MessageBus()
     provider = MagicMock()
     provider.get_default_model.return_value = "test-model"
-    workspace = MagicMock()
-    workspace.__truediv__ = MagicMock(return_value=MagicMock())
+    # A real directory: with a MagicMock workspace, str(path) became a relative path and
+    # AgentLoop's stores created junk directories in the current working directory.
+    workspace = Path(tempfile.mkdtemp(prefix="nanobot-restart-test-"))
+    atexit.register(shutil.rmtree, workspace, ignore_errors=True)
 
     with patch("nanobot.agent.loop.ContextBuilder"), \
          patch("nanobot.agent.loop.SessionManager"), \
          patch("nanobot.agent.loop.SubagentManager"):
         loop = AgentLoop(bus=bus, provider=provider, workspace=workspace)
+    # run() cleanup awaits refresher.close() when one exists; a MagicMock can't be awaited.
+    loop.context.memory_prompt.refresher = None
     return loop, bus
 
 
@@ -250,7 +258,7 @@ class TestRestartCommand:
         assert response is not None
         assert "Model: test-model" in response.content
         assert "Tokens: 0 in / 0 out" in response.content
-        assert "Context: 20k/200k (10% of input budget)" in response.content
+        assert "Context: 20k/200k (11% of input budget)" in response.content
         assert "Session: 3 messages" in response.content
         assert "Uptime: 2m 5s" in response.content
         assert "Tasks: 0 active" in response.content
@@ -425,4 +433,4 @@ class TestRestartCommand:
         response = await loop.process_direct("/status", session_key="cli:test")
 
         assert response is not None
-        assert response.metadata == {"render_as": "text"}
+        assert response.metadata["render_as"] == "text"

@@ -61,7 +61,9 @@ def _loop_with_skills(tmp_path: Path) -> AgentLoop:
     loop = _make_loop(tmp_path)
     empty_builtin = tmp_path / "empty_builtin"
     empty_builtin.mkdir()
-    loop.context.skills = SkillsLoader(tmp_path, builtin_skills_dir=empty_builtin)
+    loop.context.skills = SkillsLoader(
+        tmp_path, builtin_skills_dir=empty_builtin, include_system=False,
+    )
     return loop
 
 

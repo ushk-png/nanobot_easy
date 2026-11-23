@@ -296,3 +296,31 @@ async def test_chat_error_maps_retry_metadata() -> None:
     assert result.error_should_retry is True
     assert result.error_code == "throttlingexception"
     assert result.retry_after == 3
+
+
+def test_client_disables_botocore_retries_and_keeps_default_read_timeout(monkeypatch) -> None:
+    """nanobot's own retry (chat_with_retry) already handles 429/5xx/timeouts, so botocore's
+    retries would multiply with it -- the other providers set max_retries=0 for the same
+    reason. The socket read timeout stays botocore's default."""
+    pytest.importorskip("boto3")
+    import boto3
+
+    captured: dict = {}
+
+    class FakeSession:
+        def __init__(self, **kwargs) -> None:
+            pass
+
+        def client(self, service, **kwargs):
+            captured["service"] = service
+            captured.update(kwargs)
+            return object()
+
+    monkeypatch.setattr(boto3, "Session", FakeSession)
+
+    BedrockProvider(region="us-east-1", default_model="m")
+
+    config = captured["config"]
+    assert captured["service"] == "bedrock-runtime"
+    assert config.retries == {"max_attempts": 0}
+    assert config.read_timeout == 60

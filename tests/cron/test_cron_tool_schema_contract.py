@@ -57,12 +57,13 @@ class TestSchemaContract:
 
     def test_remove_accepted_without_message(self, registry: ToolRegistry) -> None:
         # action='remove' must pass schema validation with just 'action' + 'job_id'.
-        _, _, err = registry.prepare_call("cron", {"action": "remove", "job_id": "abc"})
+        _, _, err = registry.prepare_call("cron", {"action": "remove", "job_id": "abc", "intent_summary": "test", "target": "cron job", "scope": "once", "reversible": True})
         assert err is None
 
     def test_add_with_message_accepted(self, registry: ToolRegistry) -> None:
         _, _, err = registry.prepare_call(
-            "cron", {"action": "add", "message": "ping", "at": "2030-01-01T00:00:00"}
+            "cron",
+            {"action": "add", "message": "ping", "at": "2030-01-01T00:00:00", "intent_summary": "test", "target": "cron job", "scope": "once", "reversible": True},
         )
         assert err is None
 

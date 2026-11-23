@@ -869,6 +869,13 @@ class TestApiServerRegistration:
         assert config.api.api_key == "secret"
 
 
+def _select_general_mode_then_deepseek(prompt, *_args, **_kwargs):
+    """Quick Start now asks for the default mode first, then the provider."""
+    if "start by default" in str(prompt):
+        return "General mode - keep the regular nanobot as the main agent"
+    return "DeepSeek"
+
+
 class TestMainMenuUpdate:
     """Tests for main menu including new Channel Common and API Server items."""
 
@@ -1009,7 +1016,7 @@ class TestMainMenuUpdate:
 
         monkeypatch.setattr(onboard_wizard.console, "clear", lambda: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_select_with_back", lambda *a, **kw: "DeepSeek")
+        monkeypatch.setattr(onboard_wizard, "_select_with_back", _select_general_mode_then_deepseek)
         monkeypatch.setattr(onboard_wizard, "_input_text", lambda *a, **kw: "sk-ds-test")
         monkeypatch.setattr(
             onboard_wizard,
@@ -1096,7 +1103,7 @@ class TestMainMenuUpdate:
         monkeypatch.setattr(onboard_wizard.console, "print", lambda *a, **kw: None)
         monkeypatch.setattr(onboard_wizard, "_show_section_header", lambda *a, **kw: None)
         monkeypatch.setattr(onboard_wizard, "_show_quick_start_progress", lambda *a, **kw: None)
-        monkeypatch.setattr(onboard_wizard, "_select_with_back", lambda *a, **kw: "DeepSeek")
+        monkeypatch.setattr(onboard_wizard, "_select_with_back", _select_general_mode_then_deepseek)
         monkeypatch.setattr(onboard_wizard, "_input_text", lambda *a, **kw: "sk-ds-test")
         monkeypatch.setattr(
             onboard_wizard,

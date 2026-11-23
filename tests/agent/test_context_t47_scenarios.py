@@ -100,7 +100,8 @@ async def test_b_create_exist_content_partial_fix_no_recreate(env, tmp_path):
         return calls(("up1", "revise_context_requirements", progress(
                          obtained="a 내용 확인 통과; b 내용 확인 실패(빵 샀기)", remaining=[rid(sel, "t47_b.md")],
                          plan_valid=False, next_action="revise_plan", cause="partial_error",
-                         affected=[rid(sel, "t47_b.md")], change_reason="b의 오타 줄만 고친다")),
+                         affected=[rid(sel, "t47_b.md")], change_reason="b의 오타 줄만 고친다",
+                         method="b의 오타 줄만 고친다")),
                      ("wb_again", "write_file", {"path": B, "content": "빵 샀기\n", **META_for(B)}))  # identical: gated
 
     steps = [
@@ -184,7 +185,7 @@ async def test_d_links_existing_evidence_without_new_lookup(env, tmp_path):
     assert "Error" in first or "not" in first                        # first failure: evidence not linkable
     reads = [o for o in sel.observations.values() if o.get("name") == "read_file"]
     assert len(reads) == 1 and len(ok_writes(sel)) == 1              # no new lookup, no re-write
-    assert sel.exec_plan["last_change"]["evidence_calls"] == ["r"]
+    assert sel.exec_plan["last_change"] is None                      # t50: a link-only fix is not a plan change
     assert (tmp_path / "t47_d.md").read_text() == "완료\n"
 
 
@@ -225,7 +226,8 @@ async def test_c_transport_failure_other_official_source_fills_only_missing(env,
         return calls(("up3", "revise_context_requirements", progress(
             obtained="A=10 확보, B는 docs 호스트 연결 실패", remaining=[], plan_valid=False,
             next_action="other_method", cause="unsuitable_approach", failed_call="fb2",
-            change_reason="같은 문서의 다른 공식 호스트에서 B만 가져온다")),
+            change_reason="같은 문서의 다른 공식 호스트에서 B만 가져온다",
+            method="다른 공식 호스트에서 B만 가져온다")),
             ("fb3", "web_fetch", {"url": "https://mirror.example.org/b"}))
 
     steps = [calls(("fa", "web_fetch", {"url": "https://docs.example.org/a"}),

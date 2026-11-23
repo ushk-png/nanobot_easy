@@ -332,11 +332,10 @@ class TestConsolidatorTokenBudget:
         assert archived_chunk[0]["content"] == "m0"
         assert session.last_consolidated > 0
 
-    async def test_raw_archive_fallback_advances_last_consolidated(self, consolidator):
-        """When archive() falls back to raw-archive (LLM failed), the cursor
-        must still advance. Otherwise the same chunk gets raw-archived again
-        on every subsequent maybe_consolidate_by_tokens() call, spamming
-        duplicate [RAW] entries into history.jsonl."""
+    async def test_raw_archive_fallback_preserves_last_consolidated(self, consolidator):
+        """When archive() falls back to raw-archive (LLM failed), the cursor stays put:
+        the bounded raw dump cannot replace its source. Repeated [RAW] spam is
+        prevented by the per-session retry cooldown instead."""
         consolidator._SAFETY_BUFFER = 0
         session = MagicMock()
         session.last_consolidated = 0
@@ -356,9 +355,7 @@ class TestConsolidatorTokenBudget:
         await consolidator.maybe_consolidate_by_tokens(session)
 
         consolidator.archive.assert_awaited_once()
-        # The chunk is considered "materialized" (as a raw-archive breadcrumb),
-        # so last_consolidated must have moved past it.
-        assert session.last_consolidated == 50
+        assert session.last_consolidated == 0
 
     async def test_raw_archive_fallback_breaks_round_loop(self, consolidator):
         """A degraded LLM should not trigger more archive() calls within the
@@ -383,6 +380,54 @@ class TestConsolidatorTokenBudget:
 
         # Exactly one fallback per call — not _MAX_CONSOLIDATION_ROUNDS.
         assert consolidator.archive.await_count == 1
+
+    async def test_failed_summary_is_not_retried_every_turn(self, consolidator, monkeypatch):
+        """The cursor stays put after a failed summary (the source must not be replaced by
+        its bounded raw dump), so without a cooldown every turn re-runs the failing LLM
+        call and appends the same [RAW] entry again."""
+        consolidator._SAFETY_BUFFER = 0
+        session = MagicMock()
+        session.last_consolidated = 0
+        session.key = "test:key"
+        session.messages = [
+            {"role": "user" if i in {0, 50} else "assistant", "content": f"m{i}"}
+            for i in range(70)
+        ]
+        session.metadata = {}
+        consolidator.sessions._session_cache[session.key] = session
+        consolidator.estimate_session_prompt_tokens = MagicMock(return_value=(1200, "tiktoken"))
+        consolidator.archive = AsyncMock(return_value=None)
+
+        now = [1000.0]
+        monkeypatch.setattr("nanobot.agent.memory.time.monotonic", lambda: now[0])
+
+        await consolidator.maybe_consolidate_by_tokens(session)
+        await consolidator.maybe_consolidate_by_tokens(session)
+        assert consolidator.archive.await_count == 1
+
+        now[0] += consolidator._SUMMARY_RETRY_COOLDOWN_S + 1
+        await consolidator.maybe_consolidate_by_tokens(session)
+        assert consolidator.archive.await_count == 2
+
+    async def test_archive_warns_when_input_is_truncated_to_the_budget(
+        self, consolidator, mock_provider
+    ):
+        from loguru import logger
+
+        consolidator.context_window_tokens = 300
+        consolidator.max_completion_tokens = 50
+        consolidator._SAFETY_BUFFER = 0
+        mock_provider.chat_with_retry.return_value = LLMResponse(content="summary", tool_calls=[])
+        messages = [{"role": "user", "content": "word " * 2000}]
+
+        seen: list[str] = []
+        sink_id = logger.add(lambda m: seen.append(str(m)), level="WARNING")
+        try:
+            await consolidator.archive(messages, session_key="test:key")
+        finally:
+            logger.remove(sink_id)
+
+        assert any("not covered by the summary" in line for line in seen)
 
     async def test_boundary_respected_when_no_intermediate_user_turn(self, consolidator):
         """When boundary points past a long tool chain, the full chunk is archived."""
@@ -569,8 +614,8 @@ class TestCompactIdleSession:
         assert "_last_summary" not in reloaded.metadata
 
     @pytest.mark.asyncio
-    async def test_llm_failure_still_truncates(self, real_consolidator, mock_provider, store):
-        """LLM raises RuntimeError → raw_archive fires, session still truncated, returns None."""
+    async def test_llm_failure_keeps_original_messages(self, real_consolidator, mock_provider, store):
+        """LLM raises RuntimeError → raw_archive fires, the original messages are kept, returns None."""
         mock_provider.chat_with_retry.side_effect = RuntimeError("LLM unavailable")
         sessions = real_consolidator.sessions
         session = sessions.get_or_create("cli:fail")
@@ -586,9 +631,9 @@ class TestCompactIdleSession:
         entries = store.read_unprocessed_history(since_cursor=0)
         assert any("[RAW]" in e["content"] for e in entries)
 
-        # Session should still be truncated
+        # The bounded raw dump must not replace its source: nothing is removed.
         reloaded = sessions.get_or_create("cli:fail")
-        assert len(reloaded.messages) <= 4
+        assert len(reloaded.messages) == 20
 
     @pytest.mark.asyncio
     async def test_respects_last_consolidated(self, real_consolidator, mock_provider):

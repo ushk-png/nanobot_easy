@@ -2585,7 +2585,7 @@ class SelectedContext:
                 o.get("status") == "unknown" or o.get("failure_class") in UNKNOWN_CHANGE_KINDS)
             why = ("blocked:" + (o.get("block_reason") or "")[:80]) if o.get("executed") is False else (
                 ("outcome_unknown:" if unknown else "failed:") + str(o.get("failure_class") or o.get("status")))
-            label = (rid or o.get("name")) + "(" + why + ")"
+            label = str(rid or o.get("name") or "unknown") + "(" + why + ")"
             if rid and rid in targets:
                 required.append(("required_change_outcome_unknown:" if unknown
                                  else "required_change_not_performed:") + label)

@@ -70,7 +70,7 @@ def test_general_loop_first_without_classifier(tmp_path, monkeypatch):
     ctx = SimpleNamespace(msg=InboundMessage(channel="telegram", sender_id="u", chat_id="1", content="안녕"),
         session_key="telegram:1", visible_run_started_at=None, initial_messages=[{"role": "user", "content": "안녕"}],
         on_progress=None, on_stream=None, on_stream_end=None, on_retry_wait=None,
-        session=Session(key="telegram:1"), selected_context=None,
+        session=Session(key="telegram:1"), selected_context=None, model=None, provider=None,
         pending_queue=None, ephemeral=False, run_extra_hooks_for_ephemeral=False, hooks=None, tools=None)
     assert asyncio.run(loop._state_run(ctx)) == "ok"
     assert calls == [["reasoning_assist"]]

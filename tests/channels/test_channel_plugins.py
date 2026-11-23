@@ -1101,10 +1101,10 @@ def test_optional_dependency_metadata_for_enable():
         "python-socketio>=5.16.0,<6.0.0",
         "msgpack>=1.1.0,<2.0.0",
     ]
-    assert deps["napcat"] == ["aiohttp>=3.9.0,<4.0.0"]
-    assert deps["qq"] == ["aiohttp>=3.9.0,<4.0.0", "qq-botpy>=1.2.0,<2.0.0"]
+    assert deps["napcat"] == ["aiohttp>=3.14.4,<4.0.0"]
+    assert deps["qq"] == ["aiohttp>=3.14.4,<4.0.0", "qq-botpy>=1.2.0,<2.0.0"]
     assert deps["slack"] == [
-        "aiohttp>=3.9.0,<4.0.0",
+        "aiohttp>=3.14.4,<4.0.0",
         "slack-sdk>=3.39.0,<4.0.0",
         "slackify-markdown>=0.2.0,<1.0.0",
     ]

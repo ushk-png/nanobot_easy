@@ -185,7 +185,7 @@ async def test_loop_config_enables_receipts_without_adding_model_calls(tmp_path)
     assert not Config().tools.action_audit.enabled
     (tmp_path / 'a.md').write_text('actual evidence')
     provider = Script([call('read_file', path='a.md'), LLMResponse(content='actual evidence')])
-    config = Config.model_validate({'agents': {'defaults': {'workspace': str(tmp_path)}},
+    config = Config.model_validate({'agents': {'defaults': {'workspace': str(tmp_path), 'compactContext': False}},
                                     'tools': {'safeMode': True, 'actionAudit': {'enabled': True}}})
     loop = AgentLoop.from_config(config, provider=provider)
     try:

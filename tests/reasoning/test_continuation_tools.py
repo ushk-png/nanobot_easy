@@ -133,7 +133,7 @@ def test_actual_stepwise_hands_investigation_to_normal_loop(tmp_path, followup, 
         session_key="telegram:1", visible_run_started_at=None,
         initial_messages=[{"role": "user", "content": text}], on_progress=None,
         on_stream=None, on_stream_end=None, on_retry_wait=None,
-        session=Session(key="telegram:1"), selected_context=None,
+        session=Session(key="telegram:1"), selected_context=None, model=None, provider=None,
         pending_queue=None, ephemeral=False, run_extra_hooks_for_ephemeral=False,
         hooks=None, tools=None,
     )
