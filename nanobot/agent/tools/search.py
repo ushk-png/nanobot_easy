@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import difflib
 import fnmatch
 import os
 import re
@@ -45,6 +46,9 @@ def _normalize_pattern(pattern: str) -> str:
     return pattern.strip().replace("\\", "/")
 
 
+_SIMILAR_NAME_POOL = 5000      # most file names kept to suggest a typo fix
+
+
 def _match_glob(rel_path: str, name: str, pattern: str) -> bool:
     normalized = _normalize_pattern(pattern)
     if not normalized:
@@ -52,6 +56,18 @@ def _match_glob(rel_path: str, name: str, pattern: str) -> bool:
     if "/" in normalized or normalized.startswith("**"):
         return PurePosixPath(rel_path).match(normalized)
     return fnmatch.fnmatch(name, normalized)
+
+
+def _similar_names_note(query: str | None, pool: dict[str, str]) -> str:
+    """Up to 3 names close to a one-word query, as lookup candidates (nothing is selected or opened)."""
+    terms = (query or "").split()
+    if len(terms) != 1:
+        return ""
+    wanted = PurePosixPath(terms[0].replace("\\", "/")).name
+    close = difflib.get_close_matches(wanted, sorted(pool), n=3, cutoff=0.6) if wanted else []
+    if not close:
+        return ""
+    return "\nSimilar file names (possible typo; candidates only): " + ", ".join(pool[name] for name in close)
 
 
 def _is_binary(raw: bytes) -> bool:
@@ -281,6 +297,7 @@ class FindFilesTool(_SearchTool):
             )
             root = target if target.is_dir() else target.parent
             matches: list[tuple[str, float]] = []
+            pool: dict[str, str] = {}      # file name -> display path of visible files that passed glob/type (typo hints)
 
             for candidate in self._iter_paths(target, include_dirs=include_dirs, stop=_stop):
                 if candidate.is_dir() and not include_dirs:
@@ -295,6 +312,8 @@ class FindFilesTool(_SearchTool):
                     continue
                 if candidate.is_dir() and type:
                     continue
+                if query and candidate.is_file() and len(pool) < _SIMILAR_NAME_POOL:
+                    pool.setdefault(name, display_path)
                 if not _matches_query(display_path, query):
                     continue
                 try:
@@ -312,6 +331,9 @@ class FindFilesTool(_SearchTool):
             paths = [item[0] for item in matches]
             paged, truncated = _paginate(paths, limit, offset)
             if not paged:
+                if not matches and not _stop.is_set():
+                    # Only a search with no match at all (not an empty page past the end, not an interrupted scan).
+                    return "No files found" + _similar_names_note(query, pool)
                 return "No files found"
 
             result = "\n".join(paged)

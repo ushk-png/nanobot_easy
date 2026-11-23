@@ -3,6 +3,7 @@
 import asyncio
 import difflib
 import hashlib
+import itertools
 import mimetypes
 import os
 from dataclasses import dataclass
@@ -271,6 +272,24 @@ class ReadFileTool(_FsTool):
     """Read file contents with optional line-based pagination."""
     _scopes = {"core", "subagent", "memory"}
 
+    def _file_not_found(self, path: str, fp: Path) -> ToolResult:
+        """'File not found', plus up to 3 similar names from the same folder as lookup candidates only.
+
+        A candidate is never opened here and only a name that the read check would allow is listed.
+        An unreadable or missing folder adds nothing: the error stays the plain 'File not found'.
+        """
+        parts = [f"Error: File not found: {path}"]
+        parent = fp.parent
+        try:
+            names = {f.name: f for f in itertools.islice(parent.iterdir(), 5000) if f.is_file()} if parent.is_dir() else {}
+        except OSError:
+            names = {}
+        close = difflib.get_close_matches(fp.name, sorted(names), n=3, cutoff=0.6)
+        suggestions = [str(parent / name) for name in close if self._is_visible_entry(names[name])]
+        if suggestions:
+            parts.append("Did you mean: " + ", ".join(suggestions) + "? (names only; none was opened)")
+        return ToolResult.error("\n".join(parts))
+
     _MAX_CHARS = 128_000
     _DEFAULT_LIMIT = 2000
     _MAX_PDF_PAGES = 20
@@ -322,7 +341,7 @@ class ReadFileTool(_FsTool):
             if _is_blocked_device(fp):
                 return ToolResult.error(f"Error: Reading {fp} is blocked (device path that could hang or produce infinite output).")
             if not fp.exists():
-                return ToolResult.error(f"Error: File not found: {path}")
+                return self._file_not_found(path, fp)
             if not fp.is_file():
                 return ToolResult.error(f"Error: Not a file: {path}")
 
