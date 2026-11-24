@@ -282,8 +282,8 @@ async def test_message_rejected_on_non_image_mime(tmp_path) -> None:
     envelope = {
         "type": "message",
         "chat_id": "abc123",
-        "content": "pdf?",
-        "media": [{"data_url": _data_url("application/pdf", b"%PDF-1.4")}],
+        "content": "zip?",
+        "media": [{"data_url": _data_url("application/zip", b"PK\x03\x04")}],
     }
 
     with patch(
@@ -417,7 +417,7 @@ async def test_failed_media_does_not_partially_persist(tmp_path) -> None:
         "content": "mixed",
         "media": [
             {"data_url": _tiny_png_data_url()},
-            {"data_url": _data_url("application/pdf", b"%PDF-1.4")},
+            {"data_url": _data_url("application/zip", b"PK\x03\x04")},
         ],
     }
 

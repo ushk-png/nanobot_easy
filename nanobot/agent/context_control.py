@@ -201,6 +201,7 @@ def goal_conflict(goal: str, text: str) -> bool:
 def tool_action(name: str) -> str:
     return {"message": "send", "cron": "create", "write_file": "change", "edit_file": "change",
             "apply_patch": "change", "exec": "execute", "run_cli_app": "execute",
+            "codewhale": "execute",
             "forget_memory_events": "delete"}.get(name, "change")
 
 
@@ -361,7 +362,7 @@ class TaskControl:
             entries.append(scope_entry(int(seq) if seq is not None else None, item.get("text", "")))
         scope, order_unknown = instruction_state(entries)
         kind = tool_action(name)
-        if kind in order_unknown or (name in {"exec", "run_cli_app"} and order_unknown):
+        if kind in order_unknown or (name in {"exec", "run_cli_app", "codewhale"} and order_unknown):
             # Conflicting instructions whose order is not known: hold this change and ask.
             return ("Conflicting user instructions about this kind of action have no known order; "
                     "confirm with the user which one applies before changing anything.")
@@ -371,7 +372,7 @@ class TaskControl:
         self.last_check = {"task_id": state.get("task_id"), "instruction_version": self.version,
                            "action": kind, "target": target_identifier(target, getattr(self.selected, "workspace", None)) if target else None}
         if (not target_permitted(kind, target, scope, getattr(self.selected, "workspace", None))
-                or (name in {"exec", "run_cli_app"} and scope)):
+                or (name in {"exec", "run_cli_app", "codewhale"} and scope)):
             # A later permission lifts a denial only for the action kind and the target it names.
             return "Latest applicable user constraints forbid this state-changing action."
         return self.selected.evidence_error(for_mutation=True)

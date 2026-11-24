@@ -30,6 +30,8 @@ Output is rendered in a terminal. By default use plain text with minimal formatt
 
 {% include 'agent/_snippets/permission_gates.md' %}
 
+{% include 'agent/_snippets/request_understanding.md' %}
+
 ## Skill Use
 
 - `skill_decision` defaults to phase="selected": a choice alone is not usage.

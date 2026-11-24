@@ -34,6 +34,16 @@ def is_task_control_message(message: Mapping[str, Any]) -> bool:
     )
 
 
+def is_turn_start_message(message: Mapping[str, Any]) -> bool:
+    """True for the user message that begins a turn.
+
+    A per-request control message is also stored with ``role == "user"`` right after the real request, but it is
+    never replayed (``get_history`` drops it), so cutting the history there would archive the request and keep the
+    rest of its turn.
+    """
+    return message.get("role") == "user" and not is_task_control_message(message)
+
+
 def task_result_for_replay(message: Mapping[str, Any]) -> Any:
     """Keep old control-call identities and outcomes; read proofs stay in the task ledger."""
     content = message.get("content", "")

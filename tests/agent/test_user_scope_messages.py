@@ -252,8 +252,9 @@ async def test_constraints_do_not_cross_sessions_or_workspaces(tmp_path):
 async def test_message_cap_and_replay_window_consolidation(tmp_path, flag):
     fake = Fake(["알겠습니다."] + ["응."] * 8)
     loop = make_loop(tmp_path, fake, flag=flag)
-    loop._max_messages = 6
-    loop._sync_replay_max_messages = lambda: None
+    # Force a tight replay *token* budget (what actually gates overflow consolidation
+    # now) rather than the old, no-longer-consulted message-count override.
+    loop.history_context_tokens = 80
     await converse(loop, [CONSTRAINT] + [f"질문 {i}" for i in range(8)])
     session = loop.sessions.get_or_create(KEY)
     assert session.last_consolidated > 0                          # consolidation really ran

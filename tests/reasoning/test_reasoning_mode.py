@@ -103,7 +103,7 @@ def _loop_with(monkeypatch, events: list[str]):
 
 def _ctx(on_progress=None, session_key: str = "telegram:1"):
     return SimpleNamespace(
-        selected_context=None,
+        selected_context=None, model=None, provider=None,
         msg=SimpleNamespace(content="이 방법이 내부망 조건에 적합한지 평가해 주세요."),
         session_key=session_key,
         visible_run_started_at=None,

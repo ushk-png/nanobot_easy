@@ -967,3 +967,46 @@ async def test_list_jobs_during_on_job_does_not_cause_stale_reload(tmp_path) -> 
         next_run = j["state"]["nextRunAtMs"]
         assert next_run is not None
         assert next_run > now_ms, f"Job '{j['name']}' next_run should be in the future"
+
+
+@pytest.mark.asyncio
+async def test_modifying_jobs_while_one_runs_does_not_cancel_or_rerun_it(tmp_path) -> None:
+    """add/remove/update re-arm the timer, which cancels the tick task -- and a job's
+    callback runs inside that very task, so it used to be cancelled mid-run and then
+    fired a second time by the replacement tick."""
+    started: list[str] = []
+    release = asyncio.Event()
+
+    async def on_job(job: CronJob) -> None:
+        started.append(job.name)
+        await release.wait()
+
+    service = CronService(tmp_path / "cron" / "jobs.json", on_job=on_job)
+    first = service.add_job(
+        name="first",
+        schedule=CronSchedule(kind="at", at_ms=int(time.time() * 1000) + 30),
+        message="hello",
+        **_bound_chat(),
+    )
+    await service.start()
+    try:
+        await _wait_until(lambda: started == ["first"], timeout=2.0)
+
+        service.add_job(
+            name="other",
+            schedule=CronSchedule(kind="every", every_ms=3_600_000),
+            message="hello",
+            **_bound_chat("chat-2"),
+        )
+        release.set()
+        await _wait_until(
+            lambda: (service.get_job(first.id) is None or not service.get_job(first.id).enabled),
+            timeout=2.0,
+        )
+        await asyncio.sleep(0.1)  # a replacement tick would have re-run it by now
+    finally:
+        service.stop()
+
+    assert started == ["first"]
+    run_job = service.get_job(first.id)
+    assert run_job is None or run_job.state.last_status == "ok"

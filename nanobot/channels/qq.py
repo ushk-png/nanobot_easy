@@ -409,7 +409,14 @@ class QQChannel(BaseChannel):
         if not self._http:
             self._http = aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=120))
         try:
-            async with self._http.get(media_ref, allow_redirects=True) as resp:
+            # Only the initial URL was validated above; following a redirect would let
+            # a public URL bounce the fetch to an internal address.
+            async with self._http.get(media_ref, allow_redirects=False) as resp:
+                if 300 <= resp.status < 400:
+                    self.logger.warning(
+                        "outbound media download redirect rejected url={}", media_ref,
+                    )
+                    return None, None
                 if resp.status >= 400:
                     self.logger.warning(
                         "outbound media download failed status={} url={}",

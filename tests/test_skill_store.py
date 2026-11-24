@@ -620,6 +620,22 @@ def test_skill_store_protects_system_status(tmp_path: Path) -> None:
         store.set_status("composite-task", "verified")
 
 
+def test_reindex_keeps_system_skill_when_workspace_skill_has_same_name(tmp_path: Path) -> None:
+    """The loader never lets a workspace skill override a system one, so the index must
+    not try to hold both under one name (UNIQUE constraint on skills.name)."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "composite-task", status="draft")
+    _write_skill(skills, "other-skill", status="draft")
+    system_dir = tmp_path / "skills-system"
+    _write_skill(system_dir, "composite-task", status="system")
+
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin", system_dir=system_dir)
+
+    assert store.get_skill("composite-task")["status"] == "system"
+    assert store.get_skill("other-skill")["status"] == "draft"
+
+
 def test_skill_store_governance_transitions(tmp_path: Path) -> None:
     skills = tmp_path / "skills"
     _write_skill(skills, "draft-skill", status="draft")

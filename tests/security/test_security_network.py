@@ -15,6 +15,7 @@ from nanobot.security.network import (
     httpx_env_proxy_mounts,
     pin_resolved_url_dns,
     resolve_url_target,
+    validate_resolved_url,
     validate_url_target,
 )
 
@@ -175,6 +176,45 @@ def test_resolve_url_target_returns_validated_public_ips():
 
     assert ok, err
     assert resolved_ips == ("93.184.216.34",)
+
+
+def test_resolve_url_target_fails_closed_on_unresolvable_host():
+    def _unresolvable(hostname, port, family=0, type_=0):
+        raise socket.gaierror(f"cannot resolve {hostname}")
+
+    with patch("nanobot.security.network.socket.getaddrinfo", _unresolvable):
+        ok, err, _ips = resolve_url_target("http://no-such-host.invalid/page")
+
+    assert not ok, "An unresolvable host must not be treated as safe"
+
+
+def test_validate_resolved_url_fails_closed_on_unresolvable_host():
+    """Matches resolve_url_target's fail-closed behavior for the identical case: an
+    unresolvable redirect target is not evidence of safety, so it must be rejected
+    too, not passed through as "ok"."""
+    def _unresolvable(hostname, port, family=0, type_=0):
+        raise socket.gaierror(f"cannot resolve {hostname}")
+
+    with patch("nanobot.security.network.socket.getaddrinfo", _unresolvable):
+        ok, err = validate_resolved_url("http://no-such-host.invalid/page")
+
+    assert not ok
+    assert "no-such-host.invalid" in err
+
+
+def test_validate_resolved_url_allows_public_redirect_target():
+    with patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve("example.com", ["93.184.216.34"])):
+        ok, err = validate_resolved_url("http://example.com/page")
+
+    assert ok, err
+
+
+def test_validate_resolved_url_rejects_private_redirect_target():
+    with patch("nanobot.security.network.socket.getaddrinfo", _fake_resolve("internal.example", ["10.0.0.5"])):
+        ok, err = validate_resolved_url("http://internal.example/page")
+
+    assert not ok
+    assert "private address" in err
 
 
 def test_pin_resolved_url_dns_prevents_second_resolution_rebind():

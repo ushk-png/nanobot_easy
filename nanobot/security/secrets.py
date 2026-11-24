@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import os
 import re
 from pathlib import Path
@@ -19,6 +20,18 @@ _PATTERNS = (
     (re.compile(r"(?i)([?&](?:token|api[_-]?key|secret|access_token|refresh_token)=)[^&\s\"'<>]+"), r"\1[REDACTED]"),
     (re.compile(r"\beyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\b"), "[REDACTED]"),
 )
+
+
+def constant_time_equals(supplied: str, expected: str) -> bool:
+    """Compare credentials without raising on non-ASCII input.
+
+    hmac.compare_digest rejects non-ASCII ``str`` with TypeError, so a client-supplied
+    header or query value could turn an auth check into a server error.
+    """
+    return hmac.compare_digest(
+        supplied.encode("utf-8", "surrogatepass"),
+        expected.encode("utf-8", "surrogatepass"),
+    )
 
 
 def is_sensitive_path(path: str | Path) -> bool:

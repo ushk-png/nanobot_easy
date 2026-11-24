@@ -243,6 +243,14 @@ class ExecTool(Tool):
     _MAX_BACKGROUND_TIMEOUT = 3600
     _MAX_OUTPUT = 10_000
 
+    # Safety ceiling on bytes read from each stream, independent of timeout and of
+    # max_output_chars (which truncates the already-decoded text afterward). Without
+    # this, process.communicate() buffers stdout/stderr in memory with no size limit,
+    # so a command that sustains high-volume output for the full timeout window can
+    # accumulate hundreds of MB before truncation ever applies. Far above any real
+    # max_output_chars value, so normal commands are unaffected.
+    _MAX_DRAIN_BYTES = 20_000_000
+
     # Kernel device files safe as stdio redirect targets (#3599).
     _BENIGN_DEVICE_PATHS: frozenset[str] = frozenset({
         "/dev/null",
@@ -269,16 +277,19 @@ class ExecTool(Tool):
             "Execute a shell command and return its output. "
             "Use this for tests, builds, package commands, git commands, and "
             "other process execution. Prefer read_file/find_files/grep for "
-            "inspection and apply_patch/write_file/edit_file for file changes "
-            "instead of cat, shell find/grep, echo, or sed. "
+            "inspection. For code changes use the codewhale tool when it is "
+            "available; otherwise use apply_patch/write_file/edit_file instead of "
+            "cat, shell find/grep, echo, or sed. "
             "Use -y or --yes flags to avoid interactive prompts. "
             f"{platform_note}"
             "For long-running or interactive commands, pass yield_time_ms; "
             "if the command keeps running, exec returns a session_id that can "
             "be polled or written to with write_stdin. For installs, upgrades "
             "or other commands that may take minutes, pass background=true and "
-            "check the job with exec_job instead of raising timeout. Output is "
-            "truncated at 10 000 chars; timeout defaults to 60s."
+            "check the job with exec_job instead of raising timeout. "
+            "A codewhale exec coding run is detached and is not killed at the "
+            "600s foreground cap; poll that job and do not start a second copy. "
+            "Output is truncated at 10 000 chars; timeout defaults to 60s."
         )
 
     @property
@@ -302,14 +313,31 @@ class ExecTool(Tool):
         if max_output_chars is None:
             max_output_chars = max_output_tokens
 
+        from nanobot.agent.tools.codewhale import (
+            _DETACH_NOTE,
+            _annotate,
+            is_codewhale_agent_command,
+        )
+
+        detach_codewhale = is_codewhale_agent_command(command)
+        if detach_codewhale:
+            # The model-supplied timeout is capped at 600s and then kills the
+            # process. A coding run must outlive that cap.
+            background = True
+
         prepared = self._prepare_command(
             command, working_dir, timeout, shell, login, background=bool(background),
         )
         if isinstance(prepared, str):
             return prepared
+        if detach_codewhale:
+            prepared.timeout = None
 
         if background:
-            return await self._execute_background(prepared, str(command))
+            started = await self._execute_background(prepared, str(command))
+            if detach_codewhale and isinstance(started, ToolResult) and not started.is_error:
+                return _annotate(started, _DETACH_NOTE)
+            return started
 
         if yield_time_ms is not None:
             return await self._execute_session(prepared, yield_time_ms, max_output_chars)
@@ -336,10 +364,19 @@ class ExecTool(Tool):
                 prepared.login,
             )
 
+            async def _drain_then_wait() -> tuple[bytes, bytes, bool]:
+                # Both pipes can close while the process keeps running, so the exit
+                # wait must sit inside the timeout/cancellation window too.
+                drained = await self._drain_streams(
+                    process.stdout, process.stderr, self._MAX_DRAIN_BYTES,
+                )
+                if not drained[2]:
+                    await process.wait()
+                return drained
+
             try:
-                stdout, stderr = await asyncio.wait_for(
-                    process.communicate(),
-                    timeout=prepared.timeout,
+                stdout, stderr, overflowed = await asyncio.wait_for(
+                    _drain_then_wait(), timeout=prepared.timeout,
                 )
             except asyncio.TimeoutError:
                 info = await self._kill_process(process)
@@ -350,6 +387,13 @@ class ExecTool(Tool):
                 # t55: the outcome of the stop is kept (confirmed or not) for the caller's record.
                 self.last_termination = dict(await self._kill_process(process), command=str(command)[:200])
                 raise
+
+            if overflowed:
+                # The command is still producing output past _MAX_DRAIN_BYTES; stop
+                # reading and kill it rather than let it keep running unread (its
+                # pipe would otherwise fill and it would block, not exit on its own).
+                info = await self._kill_process(process)
+                self.last_termination = dict(info or {}, command=str(command)[:200])
 
             output_parts = []
 
@@ -362,6 +406,12 @@ class ExecTool(Tool):
                     output_parts.append(f"STDERR:\n{stderr_text}")
 
             output_parts.append(f"\nExit code: {process.returncode}")
+            if overflowed:
+                output_parts.append(
+                    f"\nOutput exceeded the {self._MAX_DRAIN_BYTES:,}-byte safety limit; "
+                    "the command was terminated. Outcome unknown: verify actual state "
+                    "before retrying." + termination_note(self.last_termination)
+                )
 
             result = "\n".join(output_parts) if output_parts else "(no output)"
 
@@ -703,6 +753,59 @@ class ExecTool(Tool):
         if not resolved:
             return None, ToolResult.error(f"Error: shell not found: {shell}")
         return resolved, None
+
+    @staticmethod
+    async def _drain_streams(
+        stdout_reader: asyncio.StreamReader | None,
+        stderr_reader: asyncio.StreamReader | None,
+        cap: int,
+    ) -> tuple[bytes, bytes, bool]:
+        """Read both subprocess streams concurrently, up to `cap` bytes each.
+
+        Reads chunk-by-chunk instead of draining one stream to EOF before the
+        other (as separate per-stream loops run under asyncio.gather would): a
+        stream that overflows fast (e.g. stdout) but whose sibling stays open and
+        idle (e.g. an empty stderr, since the process is still running) must still
+        be detected immediately -- not block until the sibling's own EOF, which
+        only arrives once the (not-yet-killed) process exits.
+
+        Returns (stdout, stderr, overflowed). Reaching EOF on both streams before
+        the cap is hit signals both write ends closed -- normally because the
+        process exited, the same signal process.communicate() itself waits on.
+        """
+        buffers: dict[str, bytearray] = {"stdout": bytearray(), "stderr": bytearray()}
+        totals: dict[str, int] = {"stdout": 0, "stderr": 0}
+        readers: dict[str, asyncio.StreamReader] = {
+            name: reader
+            for name, reader in (("stdout", stdout_reader), ("stderr", stderr_reader))
+            if reader is not None
+        }
+        pending: dict[str, asyncio.Task] = {
+            name: asyncio.ensure_future(reader.read(65536)) for name, reader in readers.items()
+        }
+        overflowed = False
+        try:
+            while pending and not overflowed:
+                done, _ = await asyncio.wait(pending.values(), return_when=asyncio.FIRST_COMPLETED)
+                for name in list(pending):
+                    task = pending[name]
+                    if task not in done:
+                        continue
+                    del pending[name]
+                    chunk = task.result()
+                    if not chunk:
+                        continue  # This stream hit EOF; drop it from pending, keep draining the other.
+                    totals[name] += len(chunk)
+                    if totals[name] > cap:
+                        buffers[name] += chunk[: len(chunk) - (totals[name] - cap)]
+                        overflowed = True
+                        break
+                    buffers[name] += chunk
+                    pending[name] = asyncio.ensure_future(readers[name].read(65536))
+        finally:
+            for task in pending.values():
+                task.cancel()
+        return bytes(buffers["stdout"]), bytes(buffers["stderr"]), overflowed
 
     @staticmethod
     async def _kill_process(process: asyncio.subprocess.Process) -> dict:

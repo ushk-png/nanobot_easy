@@ -188,7 +188,7 @@ def test_agent_loop_hands_direct_requests_to_the_normal_loop(monkeypatch) -> Non
     loop._runtime_events = lambda: _Runtime()
     ctx = SimpleNamespace(
         msg=SimpleNamespace(content="보고서 검토해 줘", channel="telegram", chat_id="1", metadata={}),
-        selected_context=None,
+        selected_context=None, model=None, provider=None,
         session_key="telegram:1",
         visible_run_started_at=None,
         initial_messages=[{"role": "user", "content": "이전"}, {"role": "assistant", "content": "답"}, {"role": "user", "content": "보고서 검토해 줘"}],

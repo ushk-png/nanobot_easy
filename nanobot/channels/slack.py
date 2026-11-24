@@ -1,12 +1,15 @@
 """Slack channel implementation using Socket Mode."""
 
 import asyncio
+import math
 import re
+from contextlib import suppress
 from pathlib import Path
 from typing import Any
 
 import httpx
 from pydantic import Field
+from slack_sdk.errors import SlackApiError
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 from slack_sdk.socket_mode.websockets import SocketModeClient
@@ -21,6 +24,8 @@ from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
 from nanobot.pairing import is_approved
 from nanobot.utils.helpers import safe_filename, split_message
+
+_MAX_RETRY_AFTER_SECONDS = 30.0
 
 
 class SlackDMConfig(Base):
@@ -178,11 +183,14 @@ class SlackChannel(BaseChannel):
                     )
                     if buttons and index == len(chunks) - 1:
                         kwargs["blocks"] = self._build_button_blocks(chunk, buttons)
-                    await self._web_client.chat_postMessage(**kwargs)
+                    await self._call_with_rate_limit_retry(
+                        self._web_client.chat_postMessage, **kwargs,
+                    )
 
             for media_path in msg.media or []:
                 try:
-                    await self._web_client.files_upload_v2(
+                    await self._call_with_rate_limit_retry(
+                        self._web_client.files_upload_v2,
                         channel=target_chat_id,
                         file=media_path,
                         thread_ts=thread_ts_param,
@@ -198,6 +206,40 @@ class SlackChannel(BaseChannel):
         except Exception:
             self.logger.exception("Error sending message")
             raise
+
+    async def _call_with_rate_limit_retry(self, method: Any, **kwargs: Any) -> Any:
+        """Call a Slack Web API method, honoring Slack's own Retry-After header
+        on a 429 rather than the channel manager's fixed retry backoff (1s, 2s,
+        4s), which is typically far shorter than what Slack actually asks for
+        and would otherwise burn through all its retries against a still-rate-
+        limited endpoint.
+        """
+        try:
+            return await method(**kwargs)
+        except SlackApiError as e:
+            response = e.response
+            if getattr(response, "status_code", None) != 429:
+                raise
+            delay = 1.0
+            headers = getattr(response, "headers", None) or {}
+            for key, value in headers.items():
+                if key.lower() == "retry-after":
+                    with suppress(TypeError, ValueError):
+                        delay = float(value)
+                    break
+            if not math.isfinite(delay) or delay < 0:
+                delay = 1.0
+            if delay > _MAX_RETRY_AFTER_SECONDS:
+                # The manager dispatches every channel's outbound messages from one
+                # loop, so a long sleep here would stall all of them; fail instead.
+                self.logger.warning(
+                    "Slack rate limited for {}s (> {}s cap); not waiting", delay,
+                    _MAX_RETRY_AFTER_SECONDS,
+                )
+                raise
+            self.logger.warning("Slack rate limited; retrying in {}s", delay)
+            await asyncio.sleep(delay)
+            return await method(**kwargs)
 
     async def _resolve_target_chat_id(self, target: str) -> str:
         """Resolve human-friendly Slack targets to concrete IDs when needed."""

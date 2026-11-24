@@ -83,7 +83,7 @@ def test_hardened_profile_does_not_load_plugins_or_executors(tmp_path, monkeypat
     registry = ToolRegistry()
     names = loader.load(ToolContext(config=config, workspace=str(tmp_path)), registry)
     assert {"read_file", "write_file", "grep", "search_memory"} <= set(names)
-    assert not set(names) & {"exec", "exec_job", "run_cli_app", "spawn", "delegate", "my"}
+    assert not set(names) & {"exec", "exec_job", "run_cli_app", "codewhale", "spawn", "delegate", "my"}
     assert not any(name.startswith("mcp_") for name in names)
 
 

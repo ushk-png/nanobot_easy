@@ -87,6 +87,7 @@ _MAX_INJECTION_CYCLES = 5
 _STALL_FAILURE_STATUSES = frozenset({"error", "unknown"})
 # Safety-boundary refusals already carry their own "do not retry" guidance.
 _STALL_POLICY_DETAILS = ("ssrf_violation", "workspace_violation")
+_GENERIC_ERROR_HINT = "\n\n[Analyze the error above and try a different approach.]"
 _STALL_REPEAT_MIN_CHARS = 40
 _STALL_REPEAT_RATIO = 0.9
 # Only a complete request to replay an answer, never "repeat the operation" or
@@ -1947,7 +1948,7 @@ class AgentRunner:
     ) -> tuple[Any, dict[str, str], BaseException | None]:
         from nanobot.agent.tools.base import ToolResult
 
-        hint = "\n\n[Analyze the error above and try a different approach.]"
+        hint = _GENERIC_ERROR_HINT
         lookup_error = repeated_external_lookup_error(
             tool_call.name,
             tool_call.arguments,
@@ -2219,6 +2220,9 @@ class AgentRunner:
                 workspace_violation_counts,
             )
             event["detail"] = self._event_detail("workspace_violation: ", raw_text)
+            # A boundary block is not a reason to "try a different approach" (that invites a bypass); the
+            # no-bypass wording of the block itself and the repeat escalation below stay.
+            soft_payload = soft_payload.replace(_GENERIC_ERROR_HINT, "")
             if escalation is not None:
                 logger.warning(
                     "Tool {} hit workspace boundary repeatedly; escalating hint",

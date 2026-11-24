@@ -30,7 +30,8 @@ async def test_update_plan_structure_is_verified(env):
     assert "transport failure" in cp.update_plan(sel, {"next_action": "continue", "cause": "transient_error",
                                                        "failed_call": "nope", "change_reason": "retry"})
     assert "active assumption" in cp.update_plan(sel, {"next_action": "revise_plan", "cause": "wrong_assumption",
-                                                       "assumption": "made up", "change_reason": "x"})
+                                                       "assumption": "made up", "change_reason": "x",
+                                                       "method": "a different method"})
     assert "record attempt errored" in cp.update_plan(sel, {"next_action": "final_report", "cause": "verifier_defect",
                                                             "check": "c", "change_reason": "x"})
     ok = cp.update_plan(sel, {"next_action": "continue", "obtained": "nothing yet"})

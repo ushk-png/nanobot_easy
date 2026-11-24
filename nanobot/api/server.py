@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import hmac
 import json as _json
 import time
 import uuid
@@ -18,6 +17,7 @@ from aiohttp import web
 from loguru import logger
 
 from nanobot.config.paths import get_media_dir
+from nanobot.security.secrets import constant_time_equals
 from nanobot.utils.helpers import safe_filename
 from nanobot.utils.media_decode import (
     MAX_FILE_SIZE,
@@ -116,6 +116,24 @@ def _sse_chunk(delta: str, model: str, chunk_id: str, finish_reason: str | None 
 
 _SSE_DONE = b"data: [DONE]\n\n"
 
+# A client picks session_id freely (request body/multipart field); a fresh value per
+# request would otherwise grow this dict forever for the life of the gateway process.
+_MAX_SESSION_LOCKS = 2000
+
+
+def _get_session_lock(session_locks: dict[str, asyncio.Lock], session_key: str) -> asyncio.Lock:
+    lock = session_locks.get(session_key)
+    if lock is not None:
+        return lock
+    if len(session_locks) >= _MAX_SESSION_LOCKS:
+        # Only drop locks nothing is waiting on/holding right now; a soft cap is fine --
+        # it's fine to briefly exceed it when every current entry happens to be busy.
+        for key in [k for k, existing in session_locks.items() if not existing.locked()]:
+            del session_locks[key]
+            if len(session_locks) < _MAX_SESSION_LOCKS:
+                break
+    return session_locks.setdefault(session_key, asyncio.Lock())
+
 # ---------------------------------------------------------------------------
 # Upload helpers
 # ---------------------------------------------------------------------------
@@ -140,9 +158,15 @@ def _parse_json_content(body: dict) -> tuple[str, list[str]]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text":
-                text_parts.append(part.get("text", ""))
+                part_text = part.get("text", "")
+                if not isinstance(part_text, str):
+                    raise ValueError("Invalid content format")
+                text_parts.append(part_text)
             elif part.get("type") == "image_url":
-                url = part.get("image_url", {}).get("url", "")
+                image_url = part.get("image_url", {})
+                url = image_url.get("url", "") if isinstance(image_url, dict) else None
+                if not isinstance(url, str):
+                    raise ValueError("Invalid content format")
                 if url.startswith("data:"):
                     saved = _save_base64_data_url(url, media_dir)
                     if saved:
@@ -222,6 +246,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 body = await request.json()
             except Exception:
                 return _error_json(400, "Invalid JSON body")
+            if not isinstance(body, dict):
+                return _error_json(400, "Request body must be a JSON object")
             stream = body.get("stream", False)
             requested_model = body.get("model")
             text, media_paths = _parse_json_content(body)
@@ -239,7 +265,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
 
     session_key = f"api:{session_id}" if session_id else API_SESSION_KEY
     session_locks: dict[str, asyncio.Lock] = request.app["session_locks"]
-    session_lock = session_locks.setdefault(session_key, asyncio.Lock())
+    session_lock = _get_session_lock(session_locks, session_key)
 
     logger.info(
         "API request session_key={} media={} text={} stream={}",
@@ -320,6 +346,7 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     try:
         async with session_lock:
             try:
+                messages_before = len(agent_loop.sessions.get_or_create(session_key).messages)
                 response = await asyncio.wait_for(
                     agent_loop.process_direct(
                         content=text,
@@ -333,22 +360,35 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
                 response_text = _response_text(response)
 
                 if not response_text or not response_text.strip():
-                    logger.warning("Empty response for session {}, retrying", session_key)
-                    retry_response = await asyncio.wait_for(
-                        agent_loop.process_direct(
-                            content=text,
-                            media=media_paths if media_paths else None,
-                            session_key=session_key,
-                            channel="api",
-                            chat_id=API_CHAT_ID,
-                            persist_user_message=False,
-                        ),
-                        timeout=timeout_s,
-                    )
-                    response_text = _response_text(retry_response)
-                    if not response_text or not response_text.strip():
-                        logger.warning("Empty response after retry, using fallback")
+                    # persist_user_message=False only skips re-recording the user's text;
+                    # it still runs a full turn, tools included. Retrying would re-execute
+                    # any tool the empty-response attempt already ran (writes, sends, etc).
+                    new_messages = agent_loop.sessions.get_or_create(session_key).messages[messages_before:]
+                    ran_tools = any(m.get("tool_calls") or m.get("role") == "tool" for m in new_messages)
+                    if ran_tools:
+                        logger.warning(
+                            "Empty response for session {} after tool calls; not retrying "
+                            "to avoid repeating side effects, using fallback",
+                            session_key,
+                        )
                         response_text = fallback
+                    else:
+                        logger.warning("Empty response for session {}, retrying", session_key)
+                        retry_response = await asyncio.wait_for(
+                            agent_loop.process_direct(
+                                content=text,
+                                media=media_paths if media_paths else None,
+                                session_key=session_key,
+                                channel="api",
+                                chat_id=API_CHAT_ID,
+                                persist_user_message=False,
+                            ),
+                            timeout=timeout_s,
+                        )
+                        response_text = _response_text(retry_response)
+                        if not response_text or not response_text.strip():
+                            logger.warning("Empty response after retry, using fallback")
+                            response_text = fallback
 
             except asyncio.TimeoutError:
                 return _error_json(504, f"Request timed out after {timeout_s}s")
@@ -422,7 +462,7 @@ def create_app(
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
             return _error_json(401, "Missing Authorization header. Use: Bearer <api_key>")
-        if not hmac.compare_digest(auth[len("Bearer "):], api_key):
+        if not constant_time_equals(auth[len("Bearer "):], api_key):
             return _error_json(401, "Invalid API key")
         return await handler(request)
 

@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import tomllib
+from collections import OrderedDict
 from importlib.metadata import PackageNotFoundError
 from pathlib import Path
 from types import SimpleNamespace
@@ -1100,10 +1101,10 @@ def test_optional_dependency_metadata_for_enable():
         "python-socketio>=5.16.0,<6.0.0",
         "msgpack>=1.1.0,<2.0.0",
     ]
-    assert deps["napcat"] == ["aiohttp>=3.9.0,<4.0.0"]
-    assert deps["qq"] == ["aiohttp>=3.9.0,<4.0.0", "qq-botpy>=1.2.0,<2.0.0"]
+    assert deps["napcat"] == ["aiohttp>=3.14.4,<4.0.0"]
+    assert deps["qq"] == ["aiohttp>=3.14.4,<4.0.0", "qq-botpy>=1.2.0,<2.0.0"]
     assert deps["slack"] == [
-        "aiohttp>=3.9.0,<4.0.0",
+        "aiohttp>=3.14.4,<4.0.0",
         "slack-sdk>=3.39.0,<4.0.0",
         "slackify-markdown>=0.2.0,<1.0.0",
     ]
@@ -1695,6 +1696,39 @@ def test_outbound_duplicate_suppression_is_scoped_to_origin_message() -> None:
     assert mgr._should_suppress_outbound(duplicate) is True
     assert mgr._should_suppress_outbound(separate_turn) is False
     assert mgr._should_suppress_outbound(new_origin_content) is False
+
+
+def test_origin_reply_fingerprints_cache_is_bounded() -> None:
+    """Without a cap this dict grows for the life of the process -- one or two
+    entries per outbound message, forever."""
+    from nanobot.channels.manager import _MAX_ORIGIN_REPLY_FINGERPRINTS
+
+    fake_config = SimpleNamespace(
+        channels=ChannelsConfig(send_max_retries=3),
+        providers=SimpleNamespace(groq=SimpleNamespace(api_key="")),
+    )
+
+    mgr = ChannelManager.__new__(ChannelManager)
+    mgr.config = fake_config
+    mgr.bus = MessageBus()
+    mgr.channels = {}
+    mgr._dispatch_task = None
+    mgr._origin_reply_fingerprints = OrderedDict()
+
+    for i in range(_MAX_ORIGIN_REPLY_FINGERPRINTS + 50):
+        mgr._should_suppress_outbound(
+            OutboundMessage(
+                channel="feishu",
+                chat_id="chat123",
+                content=f"message {i}",
+                metadata={"message_id": f"msg-{i}"},
+            )
+        )
+
+    assert len(mgr._origin_reply_fingerprints) == _MAX_ORIGIN_REPLY_FINGERPRINTS
+    # Oldest entries were evicted first.
+    assert ("feishu", "chat123", "msg-0") not in mgr._origin_reply_fingerprints
+    assert ("feishu", "chat123", f"msg-{_MAX_ORIGIN_REPLY_FINGERPRINTS + 49}") in mgr._origin_reply_fingerprints
 
 
 @pytest.mark.asyncio

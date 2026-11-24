@@ -69,6 +69,7 @@ class BedrockProvider(LLMProvider):
             os.environ["AWS_BEARER_TOKEN_BEDROCK"] = self.api_key
         try:
             import boto3
+            from botocore.config import Config
         except ImportError as exc:  # pragma: no cover - exercised only without boto3 installed
             raise RuntimeError(
                 "AWS Bedrock provider requires boto3. Run `nanobot plugins enable bedrock`."
@@ -84,6 +85,9 @@ class BedrockProvider(LLMProvider):
             client_kwargs["region_name"] = self.region
         if self.api_base:
             client_kwargs["endpoint_url"] = self.api_base
+        # nanobot's own retry (chat_with_retry) already handles 429/5xx/timeouts with
+        # backoff and Retry-After, so botocore's built-in retries would multiply with it.
+        client_kwargs["config"] = Config(retries={"max_attempts": 0})
         return session.client("bedrock-runtime", **client_kwargs)
 
     @staticmethod

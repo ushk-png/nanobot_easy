@@ -37,6 +37,8 @@ def _make_loop(tmp_path):
          patch("nanobot.agent.loop.SubagentManager") as mock_sub_mgr:
         mock_sub_mgr.return_value.cancel_by_session = AsyncMock(return_value=0)
         loop = AgentLoop(bus=bus, provider=provider, workspace=tmp_path)
+    # run() cleanup awaits refresher.close() when one exists; a MagicMock can't be awaited.
+    loop.context.memory_prompt.refresher = None
     return loop
 
 @pytest.mark.asyncio

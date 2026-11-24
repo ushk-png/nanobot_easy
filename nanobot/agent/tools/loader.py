@@ -23,12 +23,14 @@ _SAFE_MODE_BLOCKED_TOOLS = frozenset({
     "exec_job",
     "list_exec_sessions",
     "run_cli_app",
+    "codewhale",
     "write_file",
     "write_stdin",
 })
 _SAFE_MODE_BLOCKED_PREFIXES = ("mcp_",)
 _HARDENED_BLOCKED_TOOLS = {
-    "exec", "exec_job", "write_stdin", "list_exec_sessions", "run_cli_app", "spawn", "delegate", "my",
+    "exec", "exec_job", "write_stdin", "list_exec_sessions", "run_cli_app", "codewhale",
+    "spawn", "delegate", "my",
     "student_learning", "genie_study_review",
 }
 

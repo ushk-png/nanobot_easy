@@ -41,11 +41,14 @@ class ActivateTools(Tool):
             unknown = set(names) - self.registry.available_names()
             if unknown:
                 return ToolResult.error("Unavailable tools: " + ", ".join(sorted(unknown)))
-        if not self.registry.activated:
-            self.registry.selected = set(names) if names is not None else None
-        elif names is None:
+        if names is None:
             self.registry.selected = None
-        elif self.registry.selected is not None:
+        elif self.registry.selected is None:
+            # First selection this turn, or narrowing down from a prior "all" (including a
+            # seeded turn that started pre-activated with no restriction): a specific list
+            # can't be unioned into "unrestricted", so it replaces it instead of no-op'ing.
+            self.registry.selected = set(names)
+        else:
             self.registry.selected.update(names)
         # Restore at system priority, outside tool-result truncation/offloading. Rebuilt from
         # the preserved full guidance and the selected set each time, never appended to.

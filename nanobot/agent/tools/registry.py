@@ -24,7 +24,7 @@ INTENT_METADATA_REQUIRED_TOOLS = frozenset((
 
 # Some tools are only state-changing for particular actions. Keep their metadata
 # fields visible in schemas, but enforce the fields only for changing actions.
-INTENT_METADATA_CONDITIONAL_TOOLS = frozenset(("cron", "exec_job", "my"))
+INTENT_METADATA_CONDITIONAL_TOOLS = frozenset(("cron", "exec_job", "my", "codewhale"))
 
 _INTENT_METADATA_SCHEMA: dict[str, dict[str, Any]] = {
     "intent_summary": {
@@ -152,6 +152,8 @@ class ToolRegistry:
             return params.get("action") == "set"
         if name == "exec_job" and isinstance(params, dict):
             return params.get("action") == "kill"
+        if name == "codewhale" and isinstance(params, dict):
+            return params.get("action", "run") != "status"
         return False
 
     @classmethod

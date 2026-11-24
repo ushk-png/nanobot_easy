@@ -484,7 +484,19 @@ def _runtime_for(cfg_path: Path, ws_path: Path):
     )
 
 
-def run_up(*, config_path: str, workspace_path: str, print_fn: Callable[[str], None] = print) -> int:
+def run_up(
+    *,
+    config_path: str,
+    workspace_path: str,
+    print_fn: Callable[[str], None] = print,
+    gateway_port: int | None = None,
+) -> int:
+    """Start the gateway. ``gateway_port`` overrides the config's ``gateway.port``.
+
+    A restart passes the port the running gateway was actually started on: persona
+    gateways are launched with ``--port`` and several configs share one ``gateway.port``,
+    so the config value alone can point at another instance's port.
+    """
     from nanobot.gateway import GatewayStartOptions
 
     cfg_path = Path(config_path).expanduser().resolve(strict=False)
@@ -514,7 +526,8 @@ def run_up(*, config_path: str, workspace_path: str, print_fn: Callable[[str], N
         print_fn(f"WebUI bundle still not found after install: {dist_index}")
         return 1
 
-    gateway_host, gateway_port, webui_host, webui_port = read_gateway_ports(cfg_path)
+    gateway_host, config_gateway_port, webui_host, webui_port = read_gateway_ports(cfg_path)
+    gateway_port = gateway_port or config_gateway_port
     webui_url = f"http://{webui_host}:{webui_port}/"
 
     runtime = _runtime_for(cfg_path, ws_path)
@@ -669,13 +682,50 @@ def run_restart(*, config_path: str, workspace_path: str, print_fn: Callable[[st
         print_fn(f"detached restart scheduled; log: {status.log_path}")
         return 0
 
+    # A restart must come back on the port the gateway is using now, not on whatever the config says.
+    port = status.port if status.running else None
+    blocker = _restart_blocker(cfg_path, status, port)
+    if blocker:
+        print_fn(f"restart aborted before stopping the gateway: {blocker}")
+        return 1
+
     down_code = run_down(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn)
     if down_code not in (0,):
         return down_code
-    up_code = run_up(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn)
+    up_code = run_up(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn, gateway_port=port)
     if up_code == 0:
         restart_companion_gateways(cfg_path, print_fn=print_fn)
     return up_code
+
+
+def _restart_blocker(cfg_path: Path, status, port: int | None) -> str | None:
+    """Why the new gateway could not bind, checked while the old one is still running.
+
+    Stopping first and discovering a port clash afterwards leaves the instance down.
+    A port held by the gateway being restarted is free once it stops; one held by any
+    other process is not.
+    """
+    if not status.running:
+        return None
+    # The new gateway reads this config with this process's environment; a ${VAR} that is unset
+    # here (for example a restart typed in a shell without the gateway's env file) kills it at startup.
+    try:
+        from nanobot.config.loader import load_config, resolve_config_env_vars
+
+        resolve_config_env_vars(load_config(cfg_path))
+    except Exception as exc:
+        return f"the config cannot be loaded in this environment ({' '.join(str(exc).split())[:160]})"
+    try:
+        gateway_host, config_port, webui_host, webui_port = read_gateway_ports(cfg_path)
+    except (OSError, ValueError):
+        return None
+    for host, number in ((gateway_host, port or config_port), (webui_host, webui_port)):
+        if not port_in_use(host, number):
+            continue
+        owner = pid_on_port(number)
+        if owner is not None and owner != status.pid and not is_ancestor_pid(status.pid, start_pid=owner):
+            return f"{host}:{number} is held by pid={owner}, not by the gateway being restarted (pid={status.pid})"
+    return None
 
 
 def companion_gateway_specs(config_path: Path) -> tuple[tuple[str, Path, Path, int], ...]:

@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import pytest
 
 from nanobot.providers.anthropic_provider import AnthropicProvider
+from nanobot.providers.azure_openai_provider import AzureOpenAIProvider
 from nanobot.providers.base import LLMProvider, LLMResponse
 from nanobot.providers.openai_compat_provider import OpenAICompatProvider
 
@@ -72,6 +73,40 @@ def test_anthropic_handle_error_extracts_structured_metadata() -> None:
     assert response.error_type == "rate_limit_error"
     assert response.error_retry_after_s == 1.5
     assert response.error_should_retry is True
+
+
+def test_azure_handle_error_extracts_structured_metadata() -> None:
+    """Azure previously had its own bare-bones _handle_error with none of these fields,
+    so retry policy fell back to brittle substring matching on the raw error text."""
+    class FakeStatusError(Exception):
+        pass
+
+    err = FakeStatusError("boom")
+    err.status_code = 429
+    err.response = _fake_response(
+        status_code=429,
+        headers={"retry-after": "2", "x-should-retry": "true"},
+    )
+    err.body = {"error": {"type": "rate_limit_exceeded", "code": "rate_limit_exceeded"}}
+
+    response = AzureOpenAIProvider._handle_error(err)
+
+    assert response.finish_reason == "error"
+    assert response.error_status_code == 429
+    assert response.error_type == "rate_limit_exceeded"
+    assert response.error_code == "rate_limit_exceeded"
+    assert response.error_retry_after_s == 2.0
+    assert response.error_should_retry is True
+
+
+def test_azure_handle_error_marks_timeout_kind() -> None:
+    class FakeTimeoutError(Exception):
+        pass
+
+    response = AzureOpenAIProvider._handle_error(FakeTimeoutError("timeout"))
+
+    assert response.finish_reason == "error"
+    assert response.error_kind == "timeout"
 
 
 def test_anthropic_handle_error_marks_connection_kind() -> None:

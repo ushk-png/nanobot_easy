@@ -12,6 +12,12 @@ from nanobot.config.schema import AgentDefaults
 from nanobot.providers.base import GenerationSettings, LLMResponse
 
 
+@pytest.fixture
+def summary_input_fits(monkeypatch):
+    """Toy windows here are smaller than the summarizer's own system prompt, so the input-fit decision would
+    always refuse; these tests cover pressure/boundary logic, and the fit decision has its own tests."""
+    monkeypatch.setattr(memory_module.Consolidator, "_summary_fits", lambda self, messages, session_key: True)
+
 def _make_loop(
     tmp_path,
     *,
@@ -59,6 +65,7 @@ def _session_with_turns(loop: AgentLoop, *, turns: int):
         (0.9, 200, [300, 175], 1),
     ],
 )
+@pytest.mark.usefixtures("summary_input_fits")
 async def test_consolidation_ratio_controls_target(
     tmp_path,
     monkeypatch,

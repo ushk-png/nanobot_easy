@@ -299,9 +299,28 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
             if text:
                 await queue.put(_sse(_content_chunk(text, chunk_id=chunk_id, model=snapshot.model)))
 
+        seen_tool_argument_fragments: set[str] = set()
+        tool_call_indexes: dict[str, int] = {}
+
         async def on_tool_call_delta(delta: dict[str, Any]) -> None:
             mark_progress()
-            await queue.put(_sse(_tool_delta_chunk(delta, chunk_id=chunk_id, model=snapshot.model)))
+            outbound = dict(delta)
+            call_id = str(outbound.get("call_id") or "")
+            if outbound.get("index") is None and call_id:
+                if call_id not in tool_call_indexes:
+                    tool_call_indexes[call_id] = len(tool_call_indexes)
+                outbound["index"] = tool_call_indexes[call_id]
+            fragment = str(outbound.get("arguments_delta") or "")
+            complete = outbound.get("arguments")
+            key = call_id or str(outbound.get("index") or 0)
+            if fragment:
+                seen_tool_argument_fragments.add(key)
+            elif complete not in (None, "") and key not in seen_tool_argument_fragments:
+                outbound["arguments_delta"] = str(complete)
+                seen_tool_argument_fragments.add(key)
+            elif complete not in (None, ""):
+                return
+            await queue.put(_sse(_tool_delta_chunk(outbound, chunk_id=chunk_id, model=snapshot.model)))
 
         async def run_provider() -> None:
             try:

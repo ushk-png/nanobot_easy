@@ -25,6 +25,10 @@ def _hash_file(p: str) -> str | None:
         return None
 
 
+def _hash_bytes(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
 class FileStates:
     """Per-session read/write tracker.
 
@@ -38,8 +42,13 @@ class FileStates:
     def __init__(self) -> None:
         self._state: dict[str, ReadState] = {}
 
-    def record_read(self, path: str | Path, offset: int = 1, limit: int | None = None) -> None:
-        """Record that a file was read (called after successful read)."""
+    def record_read(self, path: str | Path, offset: int = 1, limit: int | None = None,
+                    *, content: bytes | None = None) -> None:
+        """Record that a file was read (called after successful read).
+
+        Pass the bytes the caller already read as ``content`` to hash them directly
+        instead of re-opening and re-reading the file from disk for this alone.
+        """
         p = str(Path(path).resolve())
         try:
             mtime = os.path.getmtime(p)
@@ -49,7 +58,7 @@ class FileStates:
             mtime=mtime,
             offset=offset,
             limit=limit,
-            content_hash=_hash_file(p),
+            content_hash=_hash_bytes(content) if content is not None else _hash_file(p),
             can_dedup=True,
         )
 
@@ -176,8 +185,9 @@ def reset_file_states(token: Token[FileStates | None]) -> None:
 _default = FileStates()
 
 
-def record_read(path: str | Path, offset: int = 1, limit: int | None = None) -> None:
-    _default.record_read(path, offset=offset, limit=limit)
+def record_read(path: str | Path, offset: int = 1, limit: int | None = None,
+                *, content: bytes | None = None) -> None:
+    _default.record_read(path, offset=offset, limit=limit, content=content)
 
 
 def record_write(path: str | Path) -> None:

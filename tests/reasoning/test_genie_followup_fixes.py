@@ -99,7 +99,7 @@ def test_stepwise_reply_is_sent_on_streaming_channels(monkeypatch) -> None:
     loop._runtime_events = lambda: _Runtime()
     msg = InboundMessage(channel="telegram", sender_id="u", chat_id="1", content="선정해 주세요 A B C D")
     ctx = SimpleNamespace(
-        msg=msg, session_key="telegram:1", selected_context=None,
+        msg=msg, session_key="telegram:1", selected_context=None, model=None, provider=None,
         visible_run_started_at=None, initial_messages=[],
         final_content=None, tools_used=None, all_messages=None, stop_reason=None,
         had_injections=None, on_progress=None, on_stream=_stream,

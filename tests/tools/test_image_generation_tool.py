@@ -202,3 +202,41 @@ async def test_generate_image_tool_rejects_reference_outside_workspace(tmp_path:
     result = await tool.execute(prompt="edit", reference_images=[str(outside)])
 
     assert "reference_images must be inside the workspace" in result
+
+
+class _AlwaysEmptyImageClient:
+    instances: list["_AlwaysEmptyImageClient"] = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        self.calls: list[dict[str, Any]] = []
+        _AlwaysEmptyImageClient.instances.append(self)
+
+    async def generate(self, **kwargs: Any) -> GeneratedImageResponse:
+        self.calls.append(kwargs)
+        return GeneratedImageResponse(images=[], content="", raw={})
+
+
+@pytest.mark.asyncio
+async def test_generate_image_tool_stops_after_bounded_attempts_on_empty_responses(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A provider that silently returns zero images on every call (e.g. a content
+    filter) must not be retried forever -- each call is a real paid API request."""
+    set_config_path(tmp_path / "config.json")
+    _AlwaysEmptyImageClient.instances = []
+    monkeypatch.setattr(
+        "nanobot.agent.tools.image_generation.get_image_gen_provider",
+        lambda name: _AlwaysEmptyImageClient if name == "openrouter" else None,
+    )
+    tool = ImageGenerationTool(
+        workspace=tmp_path,
+        config=ImageGenerationToolConfig(enabled=True, max_images_per_turn=2),
+        provider_config=ProviderConfig(api_key="sk-or-test"),
+    )
+
+    result = await tool.execute(prompt="draw a cat", count=2)
+
+    assert result.startswith("Error:")
+    fake = _AlwaysEmptyImageClient.instances[0]
+    assert 0 < len(fake.calls) < 20

@@ -155,7 +155,7 @@ def test_blank_answer_run_is_not_reported_completed_by_the_agent_loop(monkeypatc
     loop.model = "xai-grok/grok-4.7"
     loop._runtime_events = lambda: _Runtime()
     ctx = SimpleNamespace(
-        msg=SimpleNamespace(content=REQUEST), selected_context=None,
+        msg=SimpleNamespace(content=REQUEST), selected_context=None, model=None, provider=None,
         session_key="telegram:test",
         visible_run_started_at=None,
         initial_messages=[],

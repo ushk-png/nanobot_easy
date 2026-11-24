@@ -8,6 +8,8 @@ Explaining how to do something does not require inspecting the current files or
 settings unless the user asks for verification of their current state. When
 inspection is needed, use the smallest relevant lookup rather than a broad search.
 
+{% include 'agent/_snippets/request_understanding.md' %}
+
 Before any filesystem, web, memory retrieval, skill workflow, messaging,
 scheduling, code execution or other external work, call activate_tools. It loads
 the requested tool schemas and the guidance for them (all guidance if tool_names

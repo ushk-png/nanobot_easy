@@ -396,3 +396,112 @@ def test_restart_restarts_companions_only_after_primary_success(tmp_path: Path, 
     code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
     assert code == 1
     assert calls == []
+
+
+# ---------------------------------------------------------------------------
+# restart must come back on the port the gateway runs on, and never stop it into a failure
+# ---------------------------------------------------------------------------
+
+
+def _persona_config(tmp_path: Path, *, gateway_port: int, websocket_port: int = 0) -> tuple[Path, Path]:
+    config_path = tmp_path / ".local" / "config.testy.json"
+    config_path.parent.mkdir(parents=True)
+    config_path.write_text(json.dumps({
+        "gateway": {"port": gateway_port}, "channels": {"websocket": {"port": websocket_port}},
+    }))
+    return config_path, tmp_path / ".local" / "workspace-testy"
+
+
+def _running(port: int | None = 18797, pid: int = 4242) -> GatewayStatus:
+    return GatewayStatus(running=True, pid=pid, state_path=Path("s"), log_path=Path("l"), port=port)
+
+
+def test_restart_starts_the_new_gateway_on_the_port_the_old_one_used(tmp_path: Path, monkeypatch):
+    # Several persona configs share gateway.port; the real port was given on the command line.
+    config_path, workspace = _persona_config(tmp_path, gateway_port=18793)
+    ports: list[int | None] = []
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: FakeRuntime(_running(18797)))
+    monkeypatch.setattr(up_mod, "is_ancestor_pid", lambda *_a, **_kw: False)
+    monkeypatch.setattr(up_mod, "port_in_use", lambda *_a: False)
+    monkeypatch.setattr(up_mod, "run_down", lambda **_kw: 0)
+    monkeypatch.setattr(up_mod, "run_up", lambda **kw: ports.append(kw.get("gateway_port")) or 0)
+    monkeypatch.setattr(up_mod, "restart_companion_gateways", lambda *_a, **_kw: None)
+
+    assert up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace),
+                              print_fn=lambda *_: None) == 0
+
+    assert ports == [18797]
+
+
+def test_run_up_uses_the_port_it_was_given_over_the_config(tmp_path: Path, monkeypatch):
+    config_path, workspace = _persona_config(tmp_path, gateway_port=18793)
+    fake = FakeRuntime(GatewayStatus(running=False, pid=None, state_path=Path("s"), log_path=Path("l")))
+    monkeypatch.setattr(up_mod, "repo_root", lambda: tmp_path)
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: fake)
+    monkeypatch.setattr(up_mod, "port_in_use", lambda *_a: False)
+    monkeypatch.setattr(up_mod, "wait_for_health", lambda *_a, **_kw: True)
+    monkeypatch.setattr(up_mod, "open_browser_if_available", lambda *_a: None)
+    (tmp_path / "nanobot" / "web" / "dist").mkdir(parents=True)
+    (tmp_path / "nanobot" / "web" / "dist" / "index.html").write_text("x")
+    monkeypatch.setattr(up_mod, "ensure_webui_dist", lambda *_a, **_kw: None)
+
+    up_mod.run_up(config_path=str(config_path), workspace_path=str(workspace),
+                  print_fn=lambda *_: None, gateway_port=18797)
+
+    assert fake.start_options is not None and fake.start_options.port == 18797
+
+
+def test_restart_does_not_stop_the_gateway_when_another_process_holds_the_new_port(
+    tmp_path: Path, monkeypatch,
+):
+    config_path, workspace = _persona_config(tmp_path, gateway_port=18793)
+    stopped: list[str] = []
+    messages: list[str] = []
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: FakeRuntime(_running(18797, pid=4242)))
+    monkeypatch.setattr(up_mod, "is_ancestor_pid", lambda *_a, **_kw: False)
+    monkeypatch.setattr(up_mod, "port_in_use", lambda _host, port: port == 18797)
+    monkeypatch.setattr(up_mod, "pid_on_port", lambda _port: 999)       # someone else
+    monkeypatch.setattr(up_mod, "run_down", lambda **_kw: stopped.append("down") or 0)
+    monkeypatch.setattr(up_mod, "run_up", lambda **_kw: stopped.append("up") or 0)
+
+    code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace),
+                              print_fn=messages.append)
+
+    assert code == 1 and stopped == []
+    assert any("aborted" in line and "999" in line for line in messages)
+
+
+def test_restart_proceeds_when_the_port_is_held_by_the_gateway_being_restarted(tmp_path: Path, monkeypatch):
+    config_path, workspace = _persona_config(tmp_path, gateway_port=18793)
+    steps: list[str] = []
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: FakeRuntime(_running(18797, pid=4242)))
+    monkeypatch.setattr(up_mod, "is_ancestor_pid", lambda *_a, **_kw: False)
+    monkeypatch.setattr(up_mod, "port_in_use", lambda *_a: True)
+    monkeypatch.setattr(up_mod, "pid_on_port", lambda _port: 4242)      # the gateway itself
+    monkeypatch.setattr(up_mod, "run_down", lambda **_kw: steps.append("down") or 0)
+    monkeypatch.setattr(up_mod, "run_up", lambda **_kw: steps.append("up") or 0)
+    monkeypatch.setattr(up_mod, "restart_companion_gateways", lambda *_a, **_kw: None)
+
+    assert up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace),
+                              print_fn=lambda *_: None) == 0
+    assert steps == ["down", "up"]
+
+
+def test_restart_does_not_stop_the_gateway_when_the_config_needs_an_unset_env_var(tmp_path: Path, monkeypatch):
+    config_path, workspace = _persona_config(tmp_path, gateway_port=18793)
+    data = json.loads(config_path.read_text())
+    data["channels"]["telegram"] = {"enabled": True, "token": "${NANOBOT_TEST_UNSET_TOKEN}"}
+    config_path.write_text(json.dumps(data))
+    monkeypatch.delenv("NANOBOT_TEST_UNSET_TOKEN", raising=False)
+    steps: list[str] = []
+    messages: list[str] = []
+    monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: FakeRuntime(_running(18797)))
+    monkeypatch.setattr(up_mod, "is_ancestor_pid", lambda *_a, **_kw: False)
+    monkeypatch.setattr(up_mod, "run_down", lambda **_kw: steps.append("down") or 0)
+    monkeypatch.setattr(up_mod, "run_up", lambda **_kw: steps.append("up") or 0)
+
+    code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace),
+                              print_fn=messages.append)
+
+    assert code == 1 and steps == []
+    assert any("aborted" in line and "NANOBOT_TEST_UNSET_TOKEN" in line for line in messages)

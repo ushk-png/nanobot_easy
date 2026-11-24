@@ -73,8 +73,8 @@ def test_status_context_pct_uses_budget_not_total():
         context_tokens_estimate=120000,
         max_completion_tokens=8192,
     )
-    # budget = 128000 - 8192 - 1024 = 118784; pct = 120000/118784*100 ≈ 101%
-    assert "(101% of input budget)" in content
+    # budget = 128000 - 8192 - 12800 (10% safety buffer) = 107008; pct = 120000/107008*100 ≈ 112%
+    assert "(112% of input budget)" in content
 
 
 def test_status_context_pct_capped_at_999():

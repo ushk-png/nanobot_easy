@@ -220,6 +220,36 @@ async def test_read_media_bytes_missing_file() -> None:
     assert filename is None
 
 
+@pytest.mark.asyncio
+async def test_read_media_bytes_rejects_redirect_from_validated_url(monkeypatch) -> None:
+    """Only the initial URL is SSRF-validated, so a redirect must not be followed
+    (a public URL could otherwise bounce the fetch to an internal address)."""
+    monkeypatch.setattr("nanobot.channels.qq.validate_url_target", lambda url: (True, ""))
+    channel = QQChannel(QQConfig(app_id="app", secret="secret"), MessageBus())
+    calls: list[dict] = []
+
+    class _Resp:
+        status = 302
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc) -> None:
+            return None
+
+    class _Http:
+        def get(self, url, **kwargs):
+            calls.append(kwargs)
+            return _Resp()
+
+    channel._http = _Http()
+
+    data, filename = await channel._read_media_bytes("https://public.example/img.png")
+
+    assert (data, filename) == (None, None)
+    assert calls == [{"allow_redirects": False}]
+
+
 # -------------------------------------------------------
 # Tests for _send_media exception handling
 # -------------------------------------------------------

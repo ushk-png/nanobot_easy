@@ -54,7 +54,10 @@ async def test_real_record_replay_reproduces_the_block_then_settles(env):
     sel = await real_design(env)
     # REAL-RECORD: the same gate result as recorded in t41
     gate = sel.mutation_gate("write_file")
-    assert gate and gate.startswith(FX["mutation_gate"][0]["result"].split(" Classify")[0])
+    # The t46 gate keeps the recorded wording up to the "(ask the user if needed)" clause and
+    # then appends the way out, so compare only that stable prefix.
+    recorded = FX["mutation_gate"][0]["result"].split(" Classify")[0].split(" or answer")[0]
+    assert gate and gate.startswith(recorded)
     assert [c["code"] for c in sel.unresolved_conditions()] == ["design_unresolved"]
     assert "settle_unresolved" in gate                              # the gate now names the way out
     # MOCK executor settlement, verified by code

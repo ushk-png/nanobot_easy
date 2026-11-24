@@ -20,6 +20,16 @@ _WINDOWS_ENV_KEYS = {
 }
 
 
+def _fake_stream(data: bytes) -> asyncio.StreamReader:
+    """A real StreamReader standing in for a mocked process's stdout/stderr,
+    since execute() now drains process.stdout/stderr directly instead of
+    calling the no-longer-used process.communicate()."""
+    reader = asyncio.StreamReader()
+    reader.feed_data(data)
+    reader.feed_eof()
+    return reader
+
+
 # ---------------------------------------------------------------------------
 # _build_env
 # ---------------------------------------------------------------------------
@@ -260,7 +270,8 @@ class TestPathAppendPlatform:
     async def test_unix_uses_env_var_in_fixed_export(self):
         """On Unix, path_append must not be interpolated into shell source."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         captured_cmd = None
@@ -289,7 +300,8 @@ class TestPathAppendPlatform:
     async def test_unix_path_prepend_uses_env_var_in_fixed_export(self):
         """On Unix, path_prepend must not be interpolated into shell source."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         captured_cmd = None
@@ -317,7 +329,8 @@ class TestPathAppendPlatform:
     @pytest.mark.asyncio
     async def test_unix_path_prepend_and_append_order(self):
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         captured_cmd = None
@@ -348,7 +361,8 @@ class TestPathAppendPlatform:
     async def test_windows_modifies_env(self):
         """On Windows, path_append is appended to PATH in the env dict."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         captured_env = {}
@@ -371,7 +385,8 @@ class TestPathAppendPlatform:
     @pytest.mark.asyncio
     async def test_windows_path_prepend_and_append_order(self):
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         captured_env = {}
@@ -405,7 +420,8 @@ class TestSandboxPlatform:
     async def test_bwrap_skipped_on_windows(self):
         """bwrap must be silently skipped on Windows, not crash."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok", b"")
+        mock_proc.stdout = _fake_stream(b"ok")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -424,7 +440,8 @@ class TestSandboxPlatform:
     async def test_bwrap_applied_on_unix(self):
         """On Unix, sandbox wrapping should still happen normally."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"sandboxed", b"")
+        mock_proc.stdout = _fake_stream(b"sandboxed")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -451,7 +468,8 @@ class TestExecuteEndToEnd:
     async def test_windows_full_path(self):
         """Full execute() flow on Windows: env, spawn, output formatting."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"hello world\r\n", b"")
+        mock_proc.stdout = _fake_stream(b"hello world\r\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -469,7 +487,8 @@ class TestExecuteEndToEnd:
     async def test_unix_full_path(self):
         """Full execute() flow on Unix: env, spawn, output formatting."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"hello world\n", b"")
+        mock_proc.stdout = _fake_stream(b"hello world\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -487,7 +506,8 @@ class TestExecuteEndToEnd:
     async def test_execute_defaults_to_non_login_shell(self):
         """The public execute path must not silently request a login shell."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"ok\n", b"")
+        mock_proc.stdout = _fake_stream(b"ok\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
         captured_login = []
 
@@ -505,6 +525,72 @@ class TestExecuteEndToEnd:
             await tool.execute(command="echo ok", login=True)
 
         assert captured_login == [False, True]
+
+
+# ---------------------------------------------------------------------------
+# output byte cap (bounds memory independent of the timeout window)
+# ---------------------------------------------------------------------------
+
+class TestOutputByteCap:
+
+    @pytest.mark.asyncio
+    async def test_drain_streams_stops_at_cap(self):
+        stdout = _fake_stream(b"x" * 100)
+        stderr = _fake_stream(b"")
+        out, err, overflowed = await ExecTool._drain_streams(stdout, stderr, cap=10)
+        assert overflowed is True
+        assert len(out) == 10
+        assert err == b""
+
+    @pytest.mark.asyncio
+    async def test_drain_streams_returns_full_data_under_cap(self):
+        stdout = _fake_stream(b"hello")
+        stderr = _fake_stream(b"problem")
+        out, err, overflowed = await ExecTool._drain_streams(stdout, stderr, cap=1000)
+        assert overflowed is False
+        assert out == b"hello"
+        assert err == b"problem"
+
+    @pytest.mark.asyncio
+    async def test_drain_streams_detects_overflow_on_stderr_while_stdout_idle(self):
+        """An idle sibling stream (no data, not yet EOF) must not block detecting
+        overflow on the other -- it would otherwise hang until the caller's
+        outer timeout, since the process is still running and hasn't closed it."""
+        stdout = asyncio.StreamReader()  # never fed; stays open, mimics a running process
+        stderr = _fake_stream(b"x" * 100)
+        out, err, overflowed = await asyncio.wait_for(
+            ExecTool._drain_streams(stdout, stderr, cap=10), timeout=5,
+        )
+        assert overflowed is True
+        assert len(err) == 10
+        assert out == b""
+
+    @pytest.mark.asyncio
+    async def test_runaway_output_is_capped_and_process_killed(self):
+        """A command that keeps producing output must be stopped at the byte
+        cap rather than accumulate unbounded memory for the full timeout."""
+        with patch("nanobot.agent.tools.shell._IS_WINDOWS", False):
+            tool = ExecTool(timeout=30)
+        with patch.object(ExecTool, "_MAX_DRAIN_BYTES", 1000):
+            result = await tool.execute(command="yes")
+
+        assert "exceeded" in result.lower()
+        assert "1,000-byte safety limit" in result
+
+    @pytest.mark.asyncio
+    @pytest.mark.skipif(sys.platform == "win32", reason="POSIX shell fd redirection")
+    async def test_timeout_applies_after_output_streams_close(self):
+        """A process that closes stdout/stderr but keeps running makes the drain
+        return at EOF; the wait for its exit must still honor the timeout."""
+        tool = ExecTool(timeout=1)
+        started = asyncio.get_running_loop().time()
+        result = await asyncio.wait_for(
+            tool.execute(command="exec >&- 2>&-; sleep 20"), timeout=10,
+        )
+        elapsed = asyncio.get_running_loop().time() - started
+
+        assert "timed out" in result.lower()
+        assert elapsed < 6
 
 
 # ---------------------------------------------------------------------------
@@ -576,7 +662,8 @@ class TestWindowsMultilineExec:
     @pytest.mark.asyncio
     async def test_multiline_python_uses_powershell(self):
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n2\n", b"")
+        mock_proc.stdout = _fake_stream(b"1\n2\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -597,7 +684,8 @@ class TestWindowsMultilineExec:
     @pytest.mark.asyncio
     async def test_multiline_node_uses_powershell(self):
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n", b"")
+        mock_proc.stdout = _fake_stream(b"1\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -617,7 +705,8 @@ class TestWindowsMultilineExec:
     async def test_single_line_uses_powershell(self):
         """Single-line commands also route through PowerShell now."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n", b"")
+        mock_proc.stdout = _fake_stream(b"1\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -634,7 +723,8 @@ class TestWindowsMultilineExec:
     @pytest.mark.asyncio
     async def test_unix_unchanged(self):
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"1\n2\n", b"")
+        mock_proc.stdout = _fake_stream(b"1\n2\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -660,7 +750,8 @@ class TestResolveShellWindows:
     async def test_shell_powershell_accepted(self):
         """shell='powershell' should resolve and route through PowerShell."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b"hello\n", b"")
+        mock_proc.stdout = _fake_stream(b"hello\n")
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (
@@ -681,7 +772,8 @@ class TestResolveShellWindows:
     async def test_shell_cmd_accepted(self):
         """shell='cmd' should preserve the command string for cmd.exe parsing."""
         mock_proc = AsyncMock()
-        mock_proc.communicate.return_value = (b'"a & b"\n', b"")
+        mock_proc.stdout = _fake_stream(b'"a & b"\n')
+        mock_proc.stderr = _fake_stream(b"")
         mock_proc.returncode = 0
 
         with (

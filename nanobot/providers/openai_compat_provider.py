@@ -1428,53 +1428,8 @@ class OpenAICompatProvider(LLMProvider):
             reasoning_content="".join(reasoning_parts) or None,
         )
 
-    @classmethod
-    def _extract_error_metadata(cls, e: Exception) -> dict[str, Any]:
-        response = getattr(e, "response", None)
-        headers = getattr(response, "headers", None)
-        payload = (
-            getattr(e, "body", None)
-            or getattr(e, "doc", None)
-            or getattr(response, "text", None)
-        )
-        if payload is None and response is not None:
-            response_json = getattr(response, "json", None)
-            if callable(response_json):
-                try:
-                    payload = response_json()
-                except Exception:
-                    payload = None
-        error_type, error_code = LLMProvider._extract_error_type_code(payload)
-
-        status_code = getattr(e, "status_code", None)
-        if status_code is None and response is not None:
-            status_code = getattr(response, "status_code", None)
-
-        should_retry: bool | None = None
-        if headers is not None:
-            raw = headers.get("x-should-retry")
-            if isinstance(raw, str):
-                lowered = raw.strip().lower()
-                if lowered == "true":
-                    should_retry = True
-                elif lowered == "false":
-                    should_retry = False
-
-        error_kind: str | None = None
-        error_name = e.__class__.__name__.lower()
-        if "timeout" in error_name:
-            error_kind = "timeout"
-        elif "connection" in error_name:
-            error_kind = "connection"
-
-        return {
-            "error_status_code": int(status_code) if status_code is not None else None,
-            "error_kind": error_kind,
-            "error_type": error_type,
-            "error_code": error_code,
-            "error_retry_after_s": cls._extract_retry_after_from_headers(headers),
-            "error_should_retry": should_retry,
-        }
+    # _extract_error_metadata is inherited from LLMProvider (shared by every
+    # OpenAI-SDK-shaped provider, Azure included).
 
     @staticmethod
     def _handle_error(

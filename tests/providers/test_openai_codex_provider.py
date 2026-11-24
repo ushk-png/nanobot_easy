@@ -214,6 +214,29 @@ async def test_codex_prompt_cache_key_uses_stable_conversation_prefix(monkeypatc
 
 
 @pytest.mark.asyncio
+async def test_codex_sends_max_output_tokens(monkeypatch) -> None:
+    """chat()/chat_stream() accepted max_tokens but never forwarded it into the request
+    body, leaving Codex the only provider with no output-length/cost cap."""
+    bodies: list[dict] = []
+
+    _mock_codex_token(monkeypatch)
+
+    async def fake_request(url, headers, body, verify, proxy=None,
+                           on_content_delta=None, on_thinking_delta=None, on_tool_call_delta=None):
+        bodies.append(body)
+        return "ok", [], "stop", {}, None
+
+    monkeypatch.setattr("nanobot.providers.openai_codex_provider._request_codex", fake_request)
+
+    provider = OpenAICodexProvider()
+    await provider.chat([{"role": "user", "content": "hi"}], max_tokens=1234)
+    await provider.chat_stream([{"role": "user", "content": "hi"}], max_tokens=5678)
+
+    assert bodies[0]["max_output_tokens"] == 1234
+    assert bodies[1]["max_output_tokens"] == 5678
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("configured_model", "expected_model"),
     [
