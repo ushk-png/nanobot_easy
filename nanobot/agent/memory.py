@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterator
 from loguru import logger
 
 from nanobot.providers import usage_ledger
+from nanobot.session.history_visibility import is_turn_start_message
 from nanobot.session.manager import Session
 from nanobot.utils.gitstore import GitStore
 from nanobot.utils.helpers import (
@@ -784,10 +785,10 @@ def _recent_start_index_by_tokens(
     start_idx = len(messages) - kept
     if not extend_to_user or kept >= len(messages):
         return start_idx
-    if any(m.get("role") == "user" for m in messages[start_idx:]):
+    if any(is_turn_start_message(m) for m in messages[start_idx:]):
         return start_idx
     recovered_user = next(
-        (i for i in range(start_idx - 1, -1, -1) if messages[i].get("role") == "user"),
+        (i for i in range(start_idx - 1, -1, -1) if is_turn_start_message(messages[i])),
         None,
     )
     if recovered_user is None:
@@ -875,7 +876,7 @@ class Consolidator:
         last_boundary: tuple[int, int] | None = None
         for idx in range(start, len(session.messages)):
             message = session.messages[idx]
-            if idx > start and message.get("role") == "user":
+            if idx > start and is_turn_start_message(message):
                 last_boundary = (idx, removed_tokens)
                 if removed_tokens >= tokens_to_remove:
                     return last_boundary
@@ -922,7 +923,7 @@ class Consolidator:
             return None  # The whole tail already fits the replay budget.
         sliced = tail[start_idx:]
         for i, (_idx, message) in enumerate(sliced):
-            if message.get("role") == "user":
+            if is_turn_start_message(message):
                 start = i
                 if i > 0 and sliced[i - 1][1].get("_channel_delivery"):
                     start = i - 1
@@ -1089,7 +1090,7 @@ class Consolidator:
         request, or None when not even the first turn does (nothing may then be summarized or skipped)."""
         bounds: list[int] = []
         for i in range(start + 1, end):
-            if messages[i].get("role") == "user":
+            if is_turn_start_message(messages[i]):
                 bounds.append(i - 1 if messages[i - 1].get("_channel_delivery") and i - 1 > start else i)
         bounds = sorted(set(bounds)) + [end]
         lo, hi, best = 0, len(bounds) - 1, None

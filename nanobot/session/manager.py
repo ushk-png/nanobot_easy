@@ -17,7 +17,11 @@ from typing import Any
 from loguru import logger
 
 from nanobot.config.paths import get_legacy_sessions_dir
-from nanobot.session.history_visibility import is_task_control_message, task_result_for_replay
+from nanobot.session.history_visibility import (
+    is_task_control_message,
+    is_turn_start_message,
+    task_result_for_replay,
+)
 from nanobot.session.lifecycle import bind_session_writes
 from nanobot.utils.helpers import (
     ensure_dir,
@@ -341,14 +345,14 @@ class Session:
         start_idx = max(0, len(self.messages) - max_messages)
         if extend_to_user:
             start_idx = next(
-                (i for i in range(start_idx, -1, -1) if self.messages[i].get("role") == "user"),
+                (i for i in range(start_idx, -1, -1) if is_turn_start_message(self.messages[i])),
                 start_idx,
             )
 
         retained = self.messages[start_idx:]
 
         # Prefer starting at a user turn when one exists within the retained window.
-        first_user = next((i for i, m in enumerate(retained) if m.get("role") == "user"), None)
+        first_user = next((i for i, m in enumerate(retained) if is_turn_start_message(m)), None)
         if first_user is not None:
             retained = retained[first_user:]
         elif not extend_to_user:
@@ -356,7 +360,7 @@ class Session:
             # latest user in the full session and take a capped forward window.
             latest_user = next(
                 (i for i in range(len(self.messages) - 1, -1, -1)
-                 if self.messages[i].get("role") == "user"),
+                 if is_turn_start_message(self.messages[i])),
                 None,
             )
             if latest_user is not None:
