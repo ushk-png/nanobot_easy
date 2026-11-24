@@ -277,16 +277,19 @@ class ExecTool(Tool):
             "Execute a shell command and return its output. "
             "Use this for tests, builds, package commands, git commands, and "
             "other process execution. Prefer read_file/find_files/grep for "
-            "inspection and apply_patch/write_file/edit_file for file changes "
-            "instead of cat, shell find/grep, echo, or sed. "
+            "inspection. For code changes use the codewhale tool when it is "
+            "available; otherwise use apply_patch/write_file/edit_file instead of "
+            "cat, shell find/grep, echo, or sed. "
             "Use -y or --yes flags to avoid interactive prompts. "
             f"{platform_note}"
             "For long-running or interactive commands, pass yield_time_ms; "
             "if the command keeps running, exec returns a session_id that can "
             "be polled or written to with write_stdin. For installs, upgrades "
             "or other commands that may take minutes, pass background=true and "
-            "check the job with exec_job instead of raising timeout. Output is "
-            "truncated at 10 000 chars; timeout defaults to 60s."
+            "check the job with exec_job instead of raising timeout. "
+            "A codewhale exec coding run is detached and is not killed at the "
+            "600s foreground cap; poll that job and do not start a second copy. "
+            "Output is truncated at 10 000 chars; timeout defaults to 60s."
         )
 
     @property
@@ -310,14 +313,31 @@ class ExecTool(Tool):
         if max_output_chars is None:
             max_output_chars = max_output_tokens
 
+        from nanobot.agent.tools.codewhale import (
+            _DETACH_NOTE,
+            _annotate,
+            is_codewhale_agent_command,
+        )
+
+        detach_codewhale = is_codewhale_agent_command(command)
+        if detach_codewhale:
+            # The model-supplied timeout is capped at 600s and then kills the
+            # process. A coding run must outlive that cap.
+            background = True
+
         prepared = self._prepare_command(
             command, working_dir, timeout, shell, login, background=bool(background),
         )
         if isinstance(prepared, str):
             return prepared
+        if detach_codewhale:
+            prepared.timeout = None
 
         if background:
-            return await self._execute_background(prepared, str(command))
+            started = await self._execute_background(prepared, str(command))
+            if detach_codewhale and isinstance(started, ToolResult) and not started.is_error:
+                return _annotate(started, _DETACH_NOTE)
+            return started
 
         if yield_time_ms is not None:
             return await self._execute_session(prepared, yield_time_ms, max_output_chars)

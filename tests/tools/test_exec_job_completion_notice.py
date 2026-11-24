@@ -128,3 +128,18 @@ def test_the_notice_carries_the_outcome_and_log_tail_for_the_origin_chat(tmp_pat
     assert "abc123" in msg.content and "exit_code: 0" in msg.content
     assert "all tests passed" in msg.content
     assert manager is not None
+
+
+def test_the_notice_warns_when_the_log_shows_an_unanswerable_permission_prompt(tmp_path):
+    from nanobot.agent.tools.exec_job import ExecJob
+
+    log = tmp_path / "j.log"
+    log.write_text("tool Run failed: Tool 'Run' denied by user - the call was not approved.\n")
+    job = ExecJob(job_id="abc", command="codewhale exec x", cwd=str(tmp_path), pid=1, log_path=log,
+                  meta_path=tmp_path / "j.json", started_at=1.0, timeout=None, returncode=0, finished_at=2.0,
+                  origin={"channel": "telegram", "chat_id": "42", "session_key": "telegram:42"})
+
+    content = exec_job_notice(job).content
+
+    assert "probably did not do the work" in content
+    assert "Do not start the same command again" not in content

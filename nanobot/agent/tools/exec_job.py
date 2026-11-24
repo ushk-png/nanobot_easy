@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import signal
 import time
 import uuid
@@ -251,6 +252,14 @@ class ExecJobManager:
 
 DEFAULT_EXEC_JOB_MANAGER = ExecJobManager()
 
+_STALL_RE = re.compile(r"denied by user|awaiting approval|call was not approved", re.IGNORECASE)
+
+
+def permission_stall(log_tail: str) -> bool:
+    """True when a job's log shows it stopped at a permission prompt nobody could answer."""
+    return bool(_STALL_RE.search(log_tail))
+
+
 _NOTICE_TAIL_LINES = 25
 _NOTICE_TAIL_CHARS = 3000
 
@@ -277,7 +286,7 @@ def exec_job_notice(job: ExecJob):
         "agent/exec_job_notice.md",
         job_id=job.job_id, outcome=outcome, state=job.state, exit_code=job.returncode,
         elapsed=f"{max(0.0, ended - job.started_at):.0f}", command=" ".join(job.command.split())[:200],
-        log_path=str(job.log_path), tail=tail or "(no output)",
+        log_path=str(job.log_path), tail=tail or "(no output)", stalled=permission_stall(tail),
     )
     metadata: dict[str, Any] = {
         "injected_event": "subagent_result", "subagent_task_id": f"exec-job-{job.job_id}",

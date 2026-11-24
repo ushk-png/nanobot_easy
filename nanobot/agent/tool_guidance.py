@@ -18,6 +18,7 @@ TOOL_GROUPS = {
     **dict.fromkeys(("write_file", "edit_file", "apply_patch"), "files_write"),
     **dict.fromkeys(("exec", "exec_job", "write_stdin", "list_exec_sessions"), "exec"),
     "run_cli_app": "cli_app",
+    "codewhale": "codewhale",
     **dict.fromkeys(("web_search", "web_fetch"), "web"),
     **dict.fromkeys(("search_memory", "read_memory_events", "forget_memory_events"), "memory"),
     **dict.fromkeys(("skill_search", "skill_decision", "skill_registry",
@@ -37,7 +38,7 @@ SECTION_GROUPS = {
     "Search & Discovery": {"files_read", "exec"},
     "Discovery and Reading": {"files_read"},
     # Commands can change code too; retain the existing inspect/edit/verify workflow.
-    "File and Coding Workflows": {"files_write", "exec"},
+    "File and Coding Workflows": {"files_write", "exec", "codewhale"},
     "Process Execution": {"exec"},
     "CLI App Attachments": {"cli_app"},
     "Web and External Information": {"web"},
