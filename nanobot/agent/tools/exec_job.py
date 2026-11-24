@@ -8,6 +8,7 @@ import os
 import signal
 import time
 import uuid
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -16,7 +17,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
-from nanobot.agent.tools.context import current_request_session_key
+from nanobot.agent.tools.context import current_request_context, current_request_session_key
 from nanobot.agent.tools.schema import IntegerSchema, StringSchema, tool_parameters_schema
 
 _IS_WINDOWS = os.name == "nt"
@@ -50,6 +51,8 @@ class ExecJob:
     timed_out: bool = False
     killed: bool = False
     watcher: asyncio.Task | None = field(default=None, repr=False)
+    # Chat that started the job: where its completion is announced once no turn is waiting on it.
+    origin: dict[str, str] | None = None
 
     @property
     def state(self) -> str:
@@ -69,6 +72,17 @@ class ExecJob:
             "state": self.state, "exit_code": self.returncode,
             "finished_at": self.finished_at,
         }
+
+
+def _current_origin() -> dict[str, str] | None:
+    ctx = current_request_context()
+    if ctx is None or not ctx.channel or not ctx.chat_id or ctx.channel == "system":
+        return None
+    origin = {"channel": ctx.channel, "chat_id": str(ctx.chat_id),
+              "session_key": ctx.session_key or f"{ctx.channel}:{ctx.chat_id}"}
+    if ctx.message_id:
+        origin["message_id"] = str(ctx.message_id)
+    return origin
 
 
 def _write_meta(job: ExecJob) -> None:
@@ -112,6 +126,11 @@ class ExecJobManager:
         self.max_tracked = max_tracked
         self._jobs: dict[str, ExecJob] = {}
         self._lock = asyncio.Lock()
+        self._announcer: Callable[[ExecJob], Awaitable[None]] | None = None
+
+    def set_announcer(self, announcer: Callable[[ExecJob], Awaitable[None]] | None) -> None:
+        """Register what runs when a job ends on its own, so the agent that started it is woken."""
+        self._announcer = announcer
 
     async def start(
         self,
@@ -145,6 +164,7 @@ class ExecJobManager:
                 log_path=log_path, meta_path=log_dir / f"{job_id}.json",
                 started_at=time.time(), timeout=timeout,
                 owner_session_key=owner_session_key, process=process,
+                origin=_current_origin(),
             )
             self._jobs[job_id] = job
             self._prune_locked()
@@ -172,6 +192,17 @@ class ExecJobManager:
         job.finished_at = time.time()
         _write_meta(job)
         logger.info("exec background job {} finished state={} exit={}", job.job_id, job.state, job.returncode)
+        await self._announce(job)
+
+    async def _announce(self, job: ExecJob) -> None:
+        # A job the model killed is already known to it. Every other ending (exit, failure, timeout) may happen
+        # after the turn that started the job is over, when nothing would ever read the log again.
+        if self._announcer is None or job.origin is None or job.killed:
+            return
+        try:
+            await self._announcer(job)
+        except Exception:
+            logger.exception("exec background job {} completion could not be announced", job.job_id)
 
     async def _kill(self, job: ExecJob) -> None:
         process = job.process
@@ -219,6 +250,45 @@ class ExecJobManager:
 
 
 DEFAULT_EXEC_JOB_MANAGER = ExecJobManager()
+
+_NOTICE_TAIL_LINES = 25
+_NOTICE_TAIL_CHARS = 3000
+
+
+def exec_job_notice(job: ExecJob):
+    """The inbound message that tells the owning chat a background job has ended.
+
+    It reuses the sub-agent result channel: the loop routes it into the running turn when there is one, otherwise
+    it starts a turn, and a repeated id is not persisted twice.
+    """
+    from nanobot.bus.events import InboundMessage
+    from nanobot.utils.prompt_templates import render_template
+
+    origin = job.origin or {}
+    ended = job.finished_at or time.time()
+    if job.timed_out:
+        outcome = f"hit its {job.timeout}s limit and was terminated"
+    elif job.returncode == 0:
+        outcome = "finished successfully"
+    else:
+        outcome = f"failed with exit code {job.returncode}"
+    tail = read_tail(job.log_path, _NOTICE_TAIL_LINES)[-_NOTICE_TAIL_CHARS:]
+    content = render_template(
+        "agent/exec_job_notice.md",
+        job_id=job.job_id, outcome=outcome, state=job.state, exit_code=job.returncode,
+        elapsed=f"{max(0.0, ended - job.started_at):.0f}", command=" ".join(job.command.split())[:200],
+        log_path=str(job.log_path), tail=tail or "(no output)",
+    )
+    metadata: dict[str, Any] = {
+        "injected_event": "subagent_result", "subagent_task_id": f"exec-job-{job.job_id}",
+    }
+    if origin.get("message_id"):
+        metadata["origin_message_id"] = origin["message_id"]
+    return InboundMessage(
+        channel="system", sender_id="subagent",
+        chat_id=f"{origin.get('channel', 'cli')}:{origin.get('chat_id', 'direct')}",
+        content=content, session_key_override=origin.get("session_key"), metadata=metadata,
+    )
 
 
 def format_job(job: ExecJob, tail_lines: int) -> str:

@@ -31,6 +31,7 @@ from nanobot.agent.runner import _MAX_INJECTIONS_PER_TURN, AgentRunner, AgentRun
 from nanobot.agent.skills import _STRIP_SKILL_FRONTMATTER, SYSTEM_SKILLS_DIR
 from nanobot.agent.subagent import SubagentManager
 from nanobot.agent.tools.context import RequestContext, bind_request_context, reset_request_context
+from nanobot.agent.tools.exec_job import DEFAULT_EXEC_JOB_MANAGER, exec_job_notice
 from nanobot.agent.tools.file_state import FileStateStore, bind_file_states, reset_file_states
 from nanobot.agent.tools.message import MessageTool
 from nanobot.agent.tools.registry import ToolRegistry
@@ -468,6 +469,8 @@ class AgentLoop:
             student_mode_config=student_mode_config,
         )
         self._unified_session = unified_session
+        # A background job that ends after its turn is over would otherwise never be reported.
+        DEFAULT_EXEC_JOB_MANAGER.set_announcer(self._announce_exec_job)
         self._max_messages = replay_max_messages_for_context(self.context_window_tokens)
         self._running = False
         self._mcp_servers = {} if _tc.hardened_mode else (mcp_servers or {})
@@ -2819,6 +2822,9 @@ class AgentLoop:
                 )
             )
         session.updated_at = datetime.now()
+
+    async def _announce_exec_job(self, job) -> None:
+        await self.bus.publish_inbound(exec_job_notice(job))
 
     def _persist_subagent_followup(self, session: Session, msg: InboundMessage) -> bool:
         """Persist subagent follow-ups before prompt assembly so history stays durable.
