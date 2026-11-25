@@ -1260,7 +1260,10 @@ class AgentLoop:
             session_key=active_session_key,
             metadata=dict(metadata or {}),
         )
-        file_state_token = bind_file_states(self._file_state_store.for_session(active_session_key))
+        file_state_token = bind_file_states(self._file_state_store.for_session(
+            active_session_key,
+            (session.history_epoch, session.last_consolidated) if session is not None else 0,
+        ))
         request_token = bind_request_context(request_ctx)
         workspace_token = bind_workspace_scope(effective_scope)
         # Compute lazily because long_task may create goal metadata during this run.

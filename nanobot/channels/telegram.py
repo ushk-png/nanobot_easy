@@ -326,6 +326,7 @@ class _StreamBuf:
     last_edit: float = 0.0
     stream_id: str | None = None
     withheld: bool = False
+    extra_sent: int = 0  # final-message chunks after the first that were already delivered
 
 
 @dataclass
@@ -751,8 +752,16 @@ class TelegramChannel(BaseChannel):
                     allow_sending_without_reply=True
                 )
 
+        # A retry of the same message must not resend what already went out (the channel manager
+        # calls send() again with the same object when a later part fails).
+        if not isinstance(msg.metadata, dict):
+            msg.metadata = {}
+        progress = msg.metadata.setdefault("_telegram_send_progress", {"media": 0, "chunks": 0})
+
         # Send media files
-        for media_path in (msg.media or []):
+        for media_index, media_path in enumerate(msg.media or []):
+            if media_index < progress["media"]:
+                continue
             try:
                 media_type = self._get_media_type(media_path)
                 sender = {
@@ -784,6 +793,7 @@ class TelegramChannel(BaseChannel):
                         **thread_kwargs,
                         **extra,
                     )
+                    progress["media"] = media_index + 1
                     continue
 
                 media_bytes = Path(media_path).read_bytes()
@@ -797,6 +807,7 @@ class TelegramChannel(BaseChannel):
                     **extra,
                     **send_kwargs,
                 )
+                progress["media"] = media_index + 1
             except Exception:
                 filename = media_path.rsplit("/", 1)[-1]
                 self.logger.exception("Failed to send media {}", media_path)
@@ -806,6 +817,7 @@ class TelegramChannel(BaseChannel):
                     reply_parameters=reply_params,
                     **thread_kwargs,
                 )
+                progress["media"] = media_index + 1  # the failure notice counts as handled
 
         # Send text content
         if msg.content and msg.content != "[empty message]":
@@ -833,12 +845,15 @@ class TelegramChannel(BaseChannel):
 
             chunks = _split_telegram_markdown(text, TELEGRAM_MAX_MESSAGE_LEN)
             for i, chunk in enumerate(chunks):
+                if i < progress["chunks"]:
+                    continue
                 is_last = (i == len(chunks) - 1)
                 await self._send_text(
                     chat_id, chunk, reply_params, thread_kwargs,
                     render_as_blockquote=render_as_blockquote,
                     reply_markup=reply_markup if is_last else None,
                 )
+                progress["chunks"] = i + 1
 
     async def _call_with_retry(self, fn, *args, **kwargs):
         """Call an async Telegram API function with retry on pool/network timeout and RetryAfter."""
@@ -1063,27 +1078,32 @@ class TelegramChannel(BaseChannel):
                 # to avoid doubling connection demand during pool exhaustion.
                 if self._is_not_modified_error(e):
                     self.logger.debug("Final stream edit already applied for {}", chat_id)
-                    self._remember_stream_answer(
-                        chat_id, stream_id, raw_text, resuming=resuming,
-                    )
-                    self._stream_bufs.pop(chat_id, None)
-                    return
-                self.logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
-                # Fall back to raw markdown (not HTML) so users don't see raw tags.
-                primary_plain = split_message(raw_text, TELEGRAM_MAX_MESSAGE_LEN)[0] if len(raw_text) > TELEGRAM_MAX_MESSAGE_LEN else raw_text
-                try:
-                    await self._call_with_retry(
-                        self._app.bot.edit_message_text,
-                        chat_id=int_chat_id, message_id=buf.message_id,
-                        text=primary_plain,
-                    )
-                except Exception as e2:
-                    if self._is_not_modified_error(e2):
-                        self.logger.debug("Final stream plain edit already applied for {}", chat_id)
-                    else:
-                        self.logger.warning("Final stream edit failed: {}", e2)
-                        raise  # Let ChannelManager handle retry
-            for extra_html_chunk in extra_html_chunks:
+                    if not extra_html_chunks or buf.extra_sent >= len(extra_html_chunks):
+                        self._remember_stream_answer(
+                            chat_id, stream_id, raw_text, resuming=resuming,
+                        )
+                        self._stream_bufs.pop(chat_id, None)
+                        return
+                    # A retry after the first part was already shown: the rest still has to go out.
+                else:
+                    self.logger.debug("Final stream edit failed (HTML), trying plain: {}", e)
+                    # Fall back to raw markdown (not HTML) so users don't see raw tags.
+                    primary_plain = split_message(raw_text, TELEGRAM_MAX_MESSAGE_LEN)[0] if len(raw_text) > TELEGRAM_MAX_MESSAGE_LEN else raw_text
+                    try:
+                        await self._call_with_retry(
+                            self._app.bot.edit_message_text,
+                            chat_id=int_chat_id, message_id=buf.message_id,
+                            text=primary_plain,
+                        )
+                    except Exception as e2:
+                        if self._is_not_modified_error(e2):
+                            self.logger.debug("Final stream plain edit already applied for {}", chat_id)
+                        else:
+                            self.logger.warning("Final stream edit failed: {}", e2)
+                            raise  # Let ChannelManager handle retry
+            for chunk_index, extra_html_chunk in enumerate(extra_html_chunks):
+                if chunk_index < buf.extra_sent:
+                    continue  # delivered by an earlier attempt of this same final message
                 try:
                     await self._call_with_retry(
                         self._app.bot.send_message,
@@ -1094,6 +1114,7 @@ class TelegramChannel(BaseChannel):
                 except Exception:
                     # Fall back to _send_text which handles HTML→plain gracefully.
                     await self._send_text(int_chat_id, extra_html_chunk)
+                buf.extra_sent = chunk_index + 1
             self._remember_stream_answer(
                 chat_id, stream_id, raw_text, resuming=resuming,
             )

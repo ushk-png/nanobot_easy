@@ -136,6 +136,9 @@ class Session:
     metadata: dict[str, Any] = field(default_factory=dict)
     last_consolidated: int = 0  # Number of messages already consolidated to files
     _generation: int = field(default=0, repr=False, compare=False)
+    # Bumped whenever earlier messages stop being replayed to the model (clear, trimming,
+    # compaction). In-memory only: per-session read tracking restarts when it changes.
+    history_epoch: int = field(default=0, repr=False, compare=False)
 
     def __post_init__(self) -> None:
         # An out-of-range offset (corrupt metadata) would hide all history; reset it.
@@ -310,6 +313,7 @@ class Session:
         # Quotes of this conversation's user messages (opt-in) end with the conversation.
         self.metadata.pop("user_scope_messages", None)
         self.messages = []
+        self.history_epoch += 1
         self.last_consolidated = 0
         self.updated_at = datetime.now()
         self.metadata.pop("_last_summary", None)
@@ -408,6 +412,7 @@ class Session:
         )
 
         self.messages = retained
+        self.history_epoch += 1
         self.last_consolidated = new_lc
         self.updated_at = datetime.now()
         return RetentionResult(

@@ -71,3 +71,38 @@ async def test_tools_run_without_waiting_for_a_running_subagent(tmp_path) -> Non
     assert time.monotonic() - started < 10
     tool_messages = [m for m in result.messages if m.get("role") == "tool"]
     assert tool_messages and "Superseded" not in str(tool_messages[0]["content"])
+
+
+@pytest.mark.asyncio
+async def test_a_subagent_result_does_not_cancel_the_planned_tool_calls(tmp_path) -> None:
+    """Review C3-03: a finished sub-agent was treated as a new user instruction, so the tool
+    calls were answered "Superseded" and the request was rewritten."""
+    (tmp_path / "notes.md").write_text("hello\n")
+    _TrackedRead.ran = False
+    tools = ToolRegistry()
+    tools.register(_TrackedRead(workspace=tmp_path))
+    delivered = {"done": False}
+
+    async def drain_pending(*, limit: int = 3, wait: bool = True):
+        if not delivered["done"] and not _TrackedRead.ran:
+            delivered["done"] = True
+            return [{"role": "user", "content": "[subagent result] background job finished",
+                     "injected_event": "subagent_result"}]
+        return []
+
+    result = await asyncio.wait_for(
+        AgentRunner(_Provider()).run(AgentRunSpec(
+            initial_messages=[{"role": "user", "content": "notes.md 검토해줘"}],
+            tools=tools, model="fake", max_iterations=5, max_tool_result_chars=4000,
+            workspace=tmp_path, session_key="telegram:42", concurrent_tools=True,
+            injection_callback=drain_pending, task_note_enabled=True, task_note_metadata={},
+        )),
+        timeout=15,
+    )
+    assert _TrackedRead.ran is True
+    roles = [m.get("role") for m in result.messages]
+    tool_index = roles.index("tool")
+    assert "Superseded" not in str(result.messages[tool_index]["content"])
+    later = [m for m in result.messages[tool_index + 1:] if m.get("injected_event") == "subagent_result"]
+    assert later, "the sub-agent result must still reach the model after the tool result"
+    assert [e.get("status") for e in result.tool_events] == ["ok"]

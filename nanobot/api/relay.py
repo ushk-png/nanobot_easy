@@ -189,6 +189,19 @@ class RelayRuntime:
             return None
         return self.store.verify_relay_token(token, remote_ip=_remote_ip(request))
 
+    async def authenticate_async(self, request: web.Request) -> RelayClientRecord | None:
+        """Verify the token off the event loop.
+
+        Verification hashes the token with 200k PBKDF2 rounds and updates SQLite. The relay runs
+        inside the gateway, so doing that on the loop delayed every channel for each request.
+        """
+        token = _bearer_token(request)
+        if not token:
+            return None
+        return await asyncio.to_thread(
+            self.store.verify_relay_token, token, remote_ip=_remote_ip(request)
+        )
+
 
 async def handle_health(_request: web.Request) -> web.Response:
     return web.json_response({"status": "ok", "service": "nanobot-relay"})
@@ -196,7 +209,7 @@ async def handle_health(_request: web.Request) -> web.Response:
 
 async def handle_models(request: web.Request) -> web.Response:
     runtime: RelayRuntime = request.app["relay_runtime"]
-    client = runtime.authenticate(request)
+    client = await runtime.authenticate_async(request)
     if client is None:
         return _error_json(401, "Missing or invalid relay token", "authentication_error")
     try:
@@ -227,7 +240,7 @@ async def handle_models(request: web.Request) -> web.Response:
 
 async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
     runtime: RelayRuntime = request.app["relay_runtime"]
-    client = runtime.authenticate(request)
+    client = await runtime.authenticate_async(request)
     if client is None:
         return _error_json(401, "Missing or invalid relay token", "authentication_error")
     try:

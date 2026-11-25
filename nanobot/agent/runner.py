@@ -344,17 +344,25 @@ class AgentRunner:
                 len(injected_messages), _MAX_INJECTIONS_PER_TURN, dropped,
             )
             injected_messages = injected_messages[:_MAX_INJECTIONS_PER_TURN]
-        if spec.selected_context and injected_messages:
+        # A sub-agent result is delivered to the model but is not a new user instruction: it must
+        # not rewrite the request, discard completion reports or cancel the pending tool calls.
+        instructions = [m for m in injected_messages if not self._is_subagent_result(m)]
+        if spec.selected_context and instructions:
             if spec.selected_context.control:
-                spec.selected_context.control.ingest_messages(injected_messages)
+                spec.selected_context.control.ingest_messages(instructions)
             spec.selected_context.completion_reports.clear()
             spec.selected_context.trace.count("redesigns", "new_user_instruction_executor_reconciliation")
-        if spec.task_state is not None and injected_messages:
-            spec.task_state.revise(injected_messages)
+        if spec.task_state is not None and instructions:
+            spec.task_state.revise(instructions)
             injected_messages.append(spec.task_state.guidance())
         if injected_messages and (observer := active_read_observer.get()) is not None:
             observer.reset()
         return injected_messages
+
+    @staticmethod
+    def _is_subagent_result(message: Any) -> bool:
+        """A finished sub-agent reporting back: information for the model, not a new instruction."""
+        return isinstance(message, dict) and message.get("injected_event") == "subagent_result"
 
     @staticmethod
     def _has_injection_content(content: Any) -> bool:
@@ -808,6 +816,10 @@ class AgentRunner:
                     # Only a check for a newer user message: never park the turn here until a
                     # running sub-agent reports (the loop would wait up to 300 s per tool batch).
                     pending_before_tools = await self._drain_injections(spec, wait=False)
+                deferred_results: list[dict[str, Any]] = []
+                if pending_before_tools and all(self._is_subagent_result(m) for m in pending_before_tools):
+                    # Only sub-agent results arrived: run the tools as planned, then show the model both.
+                    deferred_results, pending_before_tools = pending_before_tools, []
                 if pending_before_tools:
                     # Complete the old tool protocol without executing a now-stale action.
                     results = ["Superseded by a new user instruction; reinterpret before execution."
@@ -826,6 +838,13 @@ class AgentRunner:
                         spec.task_state.pending_messages = []
                         had_injections = True
                         injection_cycles += 1
+                if spec.task_state is not None and spec.task_state.deferred_messages:
+                    deferred_results.extend(spec.task_state.deferred_messages)
+                    spec.task_state.deferred_messages = []
+                if deferred_results:
+                    pending_before_tools = [*pending_before_tools, *deferred_results]
+                    had_injections = True
+                    injection_cycles += 1
                 if spec.selected_context and spec.selected_context.control.pending:
                     pending_before_tools.extend(spec.selected_context.control.pending)
                     spec.selected_context.control.pending = []
@@ -1824,7 +1843,8 @@ class AgentRunner:
         for batch in batches:
             if spec.task_state is not None:
                 followups = await self._drain_injections(spec, wait=False)
-                spec.task_state.pending_messages.extend(followups)
+                spec.task_state.deferred_messages.extend(m for m in followups if self._is_subagent_result(m))
+                spec.task_state.pending_messages.extend(m for m in followups if not self._is_subagent_result(m))
                 if spec.task_state.pending_messages:
                     tool_results.extend((
                         "Superseded by a new user instruction; reinterpret before execution.",

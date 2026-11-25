@@ -284,3 +284,30 @@ class TestReadFailuresNeverWipeApprovals:
         path.write_text("[1, 2]", encoding="utf-8")
         assert store.get_approved("telegram") == []
         assert list(path.parent.glob("pairing.json.corrupt-*"))
+
+
+class TestPendingCodeFlood:
+    """Review A01: every stranger DM created a new code and rewrote the file."""
+
+    def test_the_same_sender_keeps_one_pending_code(self) -> None:
+        import json
+
+        first = store.generate_code("telegram", "stranger")
+        again = [store.generate_code("telegram", "stranger") for _ in range(20)]
+        assert set(again) == {first}
+        assert len(json.loads(store._store_path().read_text())["pending"]) == 1
+        assert store.generate_code("telegram", "other") != first  # another sender, another code
+        assert store.generate_code("discord", "stranger") != first  # same id on another channel
+
+    def test_pending_codes_are_capped_and_the_oldest_goes_first(self, monkeypatch) -> None:
+        import json
+
+        clock = {"now": 1_000.0}
+        monkeypatch.setattr(store.time, "time", lambda: clock["now"])
+        codes = []
+        for index in range(store._MAX_PENDING + 5):
+            clock["now"] += 1
+            codes.append(store.generate_code("telegram", f"user{index}"))
+        pending = json.loads(store._store_path().read_text())["pending"]
+        assert len(pending) == store._MAX_PENDING
+        assert codes[0] not in pending and codes[-1] in pending

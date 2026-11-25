@@ -15,7 +15,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
+from nanobot.config.paths import get_instance_webui_file, get_webui_dir
 
 WEBUI_SIDEBAR_STATE_SCHEMA_VERSION = 1
 _MAX_STATE_FILE_BYTES = 256 * 1024
@@ -29,7 +29,7 @@ _ALLOWED_SORTS = {"updated_desc", "created_desc", "title_asc"}
 
 
 def webui_sidebar_state_path() -> Path:
-    return get_webui_dir() / "sidebar-state.json"
+    return get_instance_webui_file("sidebar-state.json", get_webui_dir())
 
 
 def default_webui_sidebar_state() -> dict[str, Any]:

@@ -306,6 +306,7 @@ class TaskNote:
         self.superseded_mutations: list[dict] = []
         self.attempts: list[dict] = []
         self.pending_messages: list[dict] = []
+        self.deferred_messages: list[dict] = []  # sub-agent results to show after the tools ran
         self.reporting_only = False
         self.runtime_linked_result_refs: list[str] = []
         self.progress = TaskProgress()

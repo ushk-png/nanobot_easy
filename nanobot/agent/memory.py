@@ -1452,6 +1452,7 @@ class Consolidator:
                 }
 
             session.messages = kept
+            session.history_epoch += 1
             session.last_consolidated = 0
             try:
                 saved = self.sessions.save(session)
