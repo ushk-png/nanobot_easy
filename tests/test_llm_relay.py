@@ -293,6 +293,38 @@ async def test_relay_stream_with_progress_outlives_timeout(tmp_path, aiohttp_cli
     assert provider.cancelled is False
 
 
+@dataclass
+class ThinkingProvider:
+    """Streams only reasoning summaries (no answer text) for longer than the timeout."""
+
+    gap: float
+    steps: int
+
+    async def chat_stream_with_retry(self, **kwargs):
+        import asyncio
+
+        on_thinking_delta = kwargs.get("on_thinking_delta")
+        for _ in range(self.steps):
+            await asyncio.sleep(self.gap)
+            if on_thinking_delta:
+                await on_thinking_delta("thinking")
+        await kwargs["on_content_delta"]("answer")
+        return LLMResponse(content="answer", finish_reason="stop")
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_stream_reasoning_deltas_count_as_progress(tmp_path, aiohttp_client, monkeypatch):
+    # No answer token for ~0.6s, longer than the 0.3s timeout, but thinking keeps arriving.
+    provider = ThinkingProvider(gap=0.1, steps=6)
+    resp = await _relay_post(tmp_path, aiohttp_client, monkeypatch, provider, stream=True, timeout=0.3)
+    text = await resp.text()
+    assert "answer" in text
+    assert "data: [DONE]" in text
+    assert "idle" not in text
+    assert "thinking" not in text
+
+
 @pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
 @pytest.mark.asyncio
 async def test_relay_stream_silent_gap_aborts_and_cancels_provider(tmp_path, aiohttp_client, monkeypatch):
