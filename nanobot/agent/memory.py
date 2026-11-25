@@ -21,6 +21,7 @@ from nanobot.session.history_visibility import is_turn_start_message
 from nanobot.session.manager import Session
 from nanobot.utils.gitstore import GitStore
 from nanobot.utils.helpers import (
+    _write_text_atomic,
     ensure_dir,
     estimate_message_tokens,
     estimate_prompt_tokens,
@@ -133,10 +134,10 @@ class MemoryStore:
             if entries:
                 self._write_entries(entries)
                 last_cursor = entries[-1]["cursor"]
-                self._cursor_file.write_text(str(last_cursor), encoding="utf-8")
+                _write_text_atomic(self._cursor_file, str(last_cursor))
                 # Default to "already processed" so upgrades do not replay the
                 # user's entire historical archive into Dream on first start.
-                self._dream_cursor_file.write_text(str(last_cursor), encoding="utf-8")
+                _write_text_atomic(self._dream_cursor_file, str(last_cursor))
 
             backup_path = self._next_legacy_backup_path()
             self.legacy_history_file.replace(backup_path)
@@ -235,7 +236,7 @@ class MemoryStore:
         return self.read_file(self.memory_file)
 
     def write_memory(self, content: str) -> None:
-        self.memory_file.write_text(content, encoding="utf-8")
+        _write_text_atomic(self.memory_file, content)
 
     # -- SOUL.md -------------------------------------------------------------
 
@@ -243,7 +244,7 @@ class MemoryStore:
         return self.read_file(self.soul_file)
 
     def write_soul(self, content: str) -> None:
-        self.soul_file.write_text(content, encoding="utf-8")
+        _write_text_atomic(self.soul_file, content)
 
     # -- USER.md -------------------------------------------------------------
 
@@ -251,7 +252,7 @@ class MemoryStore:
         return self.read_file(self.user_file)
 
     def write_user(self, content: str) -> None:
-        self.user_file.write_text(content, encoding="utf-8")
+        _write_text_atomic(self.user_file, content)
 
     # -- context injection (used by context.py) ------------------------------
 
@@ -311,7 +312,7 @@ class MemoryStore:
                 record["session_key"] = session_key
             with open(self.history_file, "a", encoding="utf-8") as f:
                 f.write(json.dumps(record, ensure_ascii=False) + "\n")
-            self._cursor_file.write_text(str(cursor), encoding="utf-8")
+            _write_text_atomic(self._cursor_file, str(cursor))
         return cursor
 
     @staticmethod
@@ -516,7 +517,7 @@ class MemoryStore:
         return 0
 
     def set_last_dream_cursor(self, cursor: int) -> None:
-        self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
+        _write_text_atomic(self._dream_cursor_file, str(cursor))
 
     def _read_dream_state(self) -> dict[str, Any]:
         try:
@@ -529,7 +530,7 @@ class MemoryStore:
         if not state:
             self._dream_state_file.unlink(missing_ok=True)
             return
-        self._dream_state_file.write_text(json.dumps(state), encoding="utf-8")
+        _write_text_atomic(self._dream_state_file, json.dumps(state))
 
     def dream_cursor_should_advance(self, diff_body: str, completed: bool, last_cursor: int) -> bool:
         """Decide whether a finished Dream run may move the cursor to *last_cursor*.
@@ -1452,6 +1453,7 @@ class Consolidator:
                 }
 
             session.messages = kept
+            session.history_epoch += 1
             session.last_consolidated = 0
             try:
                 saved = self.sessions.save(session)

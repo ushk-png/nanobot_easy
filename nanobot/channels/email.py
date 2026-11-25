@@ -341,6 +341,7 @@ class EmailChannel(BaseChannel):
                 self.config.smtp_host,
                 self.config.smtp_port,
                 timeout=timeout,
+                context=ssl.create_default_context(),
             ) as smtp:
                 smtp.login(self.config.smtp_username, self.config.smtp_password)
                 smtp.send_message(msg)
@@ -472,7 +473,7 @@ class EmailChannel(BaseChannel):
                     continue
 
                 # --- Anti-spoofing: verify Authentication-Results ---
-                spf_pass, dkim_pass = self._check_authentication_results(parsed)
+                spf_pass, dkim_pass = self._check_authentication_results(parsed, sender)
                 if self.config.verify_spf and not spf_pass:
                     self.logger.warning(
                         "From {} rejected: SPF verification failed "
@@ -560,7 +561,10 @@ class EmailChannel(BaseChannel):
 
     def _open_imap_client(self, mailbox: str, *, missing_mailbox_ok: bool = False) -> Any | None:
         if self.config.imap_use_ssl:
-            client: Any = imaplib.IMAP4_SSL(self.config.imap_host, self.config.imap_port)
+            client: Any = imaplib.IMAP4_SSL(
+                self.config.imap_host, self.config.imap_port,
+                ssl_context=ssl.create_default_context(),  # verify the server certificate
+            )
         else:
             client = imaplib.IMAP4(self.config.imap_host, self.config.imap_port)
 
@@ -829,20 +833,43 @@ class EmailChannel(BaseChannel):
         return payload.strip()
 
     @staticmethod
-    def _check_authentication_results(parsed_msg: Any) -> tuple[bool, bool]:
-        """Parse Authentication-Results headers for SPF and DKIM verdicts.
+    def _check_authentication_results(
+        parsed_msg: Any, from_addr: str | None = None
+    ) -> tuple[bool, bool]:
+        """Read the receiving server's SPF and DKIM verdicts.
+
+        Only the topmost ``Authentication-Results`` header counts: the receiving MTA prepends
+        its own, so every header below it was written by the sender or an earlier hop and can
+        say anything. With ``from_addr``, a pass must also be about the From domain (relaxed
+        alignment) or be backed by ``dmarc=pass``; an unaligned pass, such as an attacker
+        domain that passes its own SPF, does not authenticate the visible sender.
 
         Returns:
             A tuple of (spf_pass, dkim_pass) booleans.
         """
-        spf_pass = False
-        dkim_pass = False
-        for ar_header in parsed_msg.get_all("Authentication-Results") or []:
-            ar_lower = ar_header.lower()
-            if re.search(r"\bspf\s*=\s*pass\b", ar_lower):
-                spf_pass = True
-            if re.search(r"\bdkim\s*=\s*pass\b", ar_lower):
-                dkim_pass = True
+        headers = parsed_msg.get_all("Authentication-Results") or []
+        if not headers:
+            return False, False
+        top = str(headers[0]).lower()
+        from_domain = from_addr.rsplit("@", 1)[-1].strip().lower() if from_addr and "@" in from_addr else ""
+
+        def aligned(pattern: str) -> bool:
+            match = re.search(pattern, top)
+            if not match:
+                return False
+            domain = match.group(1).rsplit("@", 1)[-1].strip(".")
+            return bool(domain) and (
+                domain == from_domain
+                or from_domain.endswith("." + domain)
+                or domain.endswith("." + from_domain)
+            )
+
+        dmarc_pass = bool(from_domain) and bool(re.search(r"\bdmarc\s*=\s*pass\b", top))
+        spf_pass = bool(re.search(r"\bspf\s*=\s*pass\b", top))
+        dkim_pass = bool(re.search(r"\bdkim\s*=\s*pass\b", top))
+        if from_domain and not dmarc_pass:
+            spf_pass = spf_pass and aligned(r"smtp\.mailfrom\s*=\s*\"?([^\s;\"]+)")
+            dkim_pass = dkim_pass and aligned(r"header\.(?:d|i)\s*=\s*\"?@?([^\s;\"]+)")
         return spf_pass, dkim_pass
 
     @classmethod

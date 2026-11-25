@@ -49,7 +49,7 @@ Permission gates and untrusted-input rules remain present from the first call.
 Built-in execution workflows are deferred, not deleted. Existing intent metadata,
 workspace checks, tool execution and verification are unchanged.
 
-This mode is bypassed for ephemeral/subagent turns, full stepwise mode, and the
+This mode is bypassed for ephemeral/subagent turns and the
 context-selection path. Lightweight task-note mode can be combined with it: simple
 answers remain compact, and work requests retain update_task evidence checks.
 

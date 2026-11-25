@@ -375,3 +375,30 @@ async def test_restricted_agent_refuses_a_workspace_outside_its_own(tmp_path):
         assert "outside the configured workspace" in str(result)
     finally:
         await _cleanup(manager)
+
+
+@pytest.mark.parametrize("command", [
+    "sleep 999999; codewhale exec x",
+    "yes > /dev/null || codewhale exec x",
+    "cat big.log | codewhale exec x",
+    "echo hi && codewhale exec x",
+])
+def test_a_codewhale_segment_inside_a_longer_command_is_not_detached(command) -> None:
+    """Review N12: such a command used to run in the background with no timeout at all."""
+    from nanobot.agent.tools.codewhale import is_codewhale_agent_command
+
+    assert is_codewhale_agent_command(command, standalone=True) is False
+
+
+def test_a_plain_codewhale_run_is_still_detached() -> None:
+    from nanobot.agent.tools.codewhale import is_codewhale_agent_command
+
+    assert is_codewhale_agent_command("codewhale exec 'fix; the bug && more'", standalone=True) is True
+    assert is_codewhale_agent_command("codewhale -C /work exec 'task'", standalone=True) is True
+
+
+def test_unquoted_separators_are_found_even_without_spaces() -> None:
+    from nanobot.agent.tools.codewhale import is_codewhale_agent_command
+
+    for command in ("sleep 9;codewhale exec x", "sleep 9&codewhale exec x", "true\ncodewhale exec x"):
+        assert is_codewhale_agent_command(command, standalone=True) is False

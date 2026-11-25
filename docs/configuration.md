@@ -1412,22 +1412,11 @@ exceeds the replay budget, the user request and a legal recent tail are retained
 without restoring its entire tool transcript. A necessary user request can itself
 exceed the budget.
 
-### Optional reasoning assistance
-
-`agents.defaults.stepwise.requestDrivenAssist` defaults to `false`. With
-`stepwise.enabled: true`, the default automatic stepwise route remains available.
-Set both values to `true` to let the normal agent choose the bounded
-`reasoning_assist` tool instead of automatically routing each request through steps.
-The tool is turn-local and does not expand a caller's explicit tool allowlist or
-the context-selection path. It grants no shell or external execution permission.
-Standalone continuation requests restore only unfinished saved reasoning tasks.
-Turning this option off restores automatic routing; saved cases remain in the
-workspace's `memory/reasoning-sessions/` directory.
-
 ### Task evidence and completion checks
 
-`agents.defaults.stepwise.lightweight` enables optional task evidence checks independently
-of `stepwise.enabled`; it defaults to `false`. Keep selected read targets limited to the
+`agents.defaults.stepwise.lightweight` enables optional task evidence checks; it defaults to `false`.
+The staged reasoning engine that used to share the `stepwise` section was removed, and its old keys
+(`enabled`, `layout`, `requestDrivenAssist` ...) are ignored if they are still in a config file. Keep selected read targets limited to the
 requested files or line/page ranges. Runtime diagnostics should select the relevant log
 range rather than require the entire growing log.
 
@@ -2026,6 +2015,8 @@ Two transport modes are supported:
 > [!IMPORTANT]
 > HTTP/SSE MCP URLs are validated before probing or connecting, and every outgoing MCP HTTP request is validated again before redirects are followed. `localhost`, `127.0.0.1`, RFC1918/private IPs, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints are blocked by default. This can break previously working local or private HTTP MCP configs until the endpoint is explicitly allowed with `tools.ssrfWhitelist`, preferably with a single-host CIDR such as `127.0.0.1/32`, `::1/128`, or `192.168.1.50/32`. Stdio MCP servers are not affected.
 
+A server that starts but never answers is given up after `connectTimeout` seconds (default `30`; `0` = no limit) while connecting, so one stuck MCP server cannot stall the gateway at startup or on reload. The connection is retried on a later message.
+
 Use `toolTimeout` to override the default 30s per-call timeout for slow servers:
 
 ```json
@@ -2095,6 +2086,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables workspace restriction for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS or Windows (bwrap depends on Linux kernel namespaces). |
 | `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
 | `tools.exec.timeout` | `60` | Default hard timeout in seconds for shell commands. Config values may exceed the per-call tool cap; set `0` to disable the hard timeout for trusted long-running commands. |
+| `tools.exec.protectCredentials` | `true` | Blocks shell commands that would read nanobot's own credential files (the config file, `.env`, token/OAuth stores, `~/.ssh`, cloud credential files) with `cat`, `grep`, `cp`, `curl --data @…` and similar readers. Set `false` only if you accept that the agent can read secrets through the shell; the settings pages remain the supported way to change credentials. |
 | `tools.exec.pathPrepend` | `""` | Extra directories to prepend to `PATH` when running shell commands. Use this when configured tools should win executable lookup precedence, such as a Python virtual environment's `bin` or `Scripts` directory. |
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `tools.exec.backgroundTimeout` | `1800` | Hard limit (seconds) for `exec` jobs started with `background=true` when the call gives no `timeout`; `0` = no limit. Job logs are written under `<workspace>/.nanobot/exec-jobs/`. |
@@ -2122,6 +2114,10 @@ Pairing lets users get access to the bot through a simple code exchange — no c
 4. The user can now chat with the bot normally.
 
 Pairing only works in **DMs** — unapproved users in group chats are silently ignored.
+
+On Slack and Mattermost, `allowFrom` is enforced for channel messages, DMs and button clicks, and the DM policy defaults to `allowlist` (`dm.allowFrom`, top-level `allowFrom` or a pairing approval); `dm.policy: "open"` lets anyone DM the bot. A channel you list in `groupAllowFrom` with `groupPolicy: "allowlist"` admits everyone in it.
+
+The store `pairing.json` sits in the instance data folder (next to the config file). Instances whose config files share one folder therefore share approvals. If the file cannot be read for a moment (for example too many open files), approved users are kept: a write waits for a successful read instead of starting from an empty list. A file that is not valid JSON is moved aside as `pairing.json.corrupt-<time>` before a new one is started.
 
 ### Pairing-only mode
 

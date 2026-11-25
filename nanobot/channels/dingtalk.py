@@ -5,6 +5,7 @@ import json
 import mimetypes
 import os
 import time
+import uuid
 import zipfile
 from contextlib import suppress
 from inspect import isawaitable
@@ -21,6 +22,9 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.schema import Base
 from nanobot.security.network import validate_resolved_url, validate_url_target
+from nanobot.utils.helpers import safe_filename
+
+_MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024  # inbound attachments are held in memory first
 
 DINGTALK_MAX_REMOTE_MEDIA_BYTES = 20 * 1024 * 1024
 DINGTALK_MAX_REMOTE_MEDIA_REDIRECTS = 3
@@ -141,7 +145,7 @@ class NanobotDingTalkHandler(CallbackHandler):
                 or message.data.get("openConversationId")
             )
 
-            self.channel.logger.info("Received message from {} ({}): {}", sender_name, sender_id, content)
+            self.channel.logger.info("Received message from {} ({}), {} chars", sender_name, sender_id, len(content or ""))
 
             # Forward to Nanobot via _on_message (non-blocking).
             # Store reference to prevent GC before task completes.
@@ -742,7 +746,7 @@ class DingTalkChannel(BaseChannel):
         permission checks before publishing to the bus.
         """
         try:
-            self.logger.info("inbound: {} from {}", content, sender_name)
+            self.logger.info("inbound: {} chars from {}", len(content or ""), sender_name)
             is_group = conversation_type == "2" and conversation_id
             chat_id = f"group:{conversation_id}" if is_group else sender_id
             session_key = None
@@ -799,9 +803,21 @@ class DingTalkChannel(BaseChannel):
                 return None
 
             # Save to media directory (accessible under workspace)
-            download_dir = get_media_dir("dingtalk") / sender_id
+            # `filename` and `sender_id` come from the chat message and are used before the
+            # allowFrom check: a name like ../../x or an absolute path must stay inside the
+            # media folder, and a repeated name must not overwrite another sender's file.
+            if len(file_resp.content) > _MAX_DOWNLOAD_BYTES:
+                self.logger.error("file download refused: {} bytes exceeds the limit", len(file_resp.content))
+                return None
+            safe_name = safe_filename(Path(str(filename).replace("\\", "/")).name) or "file"
+            safe_sender = safe_filename(str(sender_id)).lstrip(".") or "unknown"
+            media_root = get_media_dir("dingtalk").resolve()
+            download_dir = media_root / safe_sender
             download_dir.mkdir(parents=True, exist_ok=True)
-            file_path = download_dir / filename
+            file_path = download_dir / f"{uuid.uuid4().hex[:8]}_{safe_name}"
+            if not file_path.resolve().is_relative_to(media_root):
+                self.logger.error("file download refused: path escapes the media folder")
+                return None
             await asyncio.to_thread(file_path.write_bytes, file_resp.content)
             self.logger.info("file saved: {}", file_path)
             return str(file_path)

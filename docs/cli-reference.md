@@ -140,8 +140,8 @@ by state file and also open the WebUI. Each takes `--config/-c` and `--workspace
 | Command | Description |
 |---|---|
 | `nanobot up` | Make sure config and the WebUI build exist, start the gateway if it is not running (or restart it when the code changed since it started), and open the browser |
-| `nanobot down` | Stop the tracked gateway. Refuses to stop a gateway from inside its own process tree |
-| `nanobot restart` | Stop the tracked gateway and start it again |
+| `nanobot down` | Stop the tracked gateway. Refuses to stop a gateway from inside its own process tree. If nothing is tracked, it stops a process found on this config's ports only when that process's command line shows it is a nanobot gateway started with this same config file; any other process is left alone. A disabled WebSocket channel owns no port |
+| `nanobot restart` | Stop the tracked gateway and start it again. Only that instance is restarted. With `--companions`, restarting `config.json` is also followed by the persona gateways beside it, one by one (each given up after 180 s) |
 
 `nanobot restart` differs from `nanobot gateway restart` in these ways:
 
@@ -280,6 +280,14 @@ nanobot channels status
 ```
 
 See [`chat-apps.md`](./chat-apps.md) for channel-specific setup.
+
+## Memory Maintenance
+
+| Command | Description |
+|---|---|
+| `nanobot memory backfill` | Dry run: report conversation turns that are in the session files but missing from the memory event store (for example after a crash or `/new`) |
+| `nanobot memory backfill --apply` | Back up the memory database, then insert only the missing turns; running it again adds nothing |
+| `nanobot memory backfill --workspace <path>` | Target a workspace directory (or pass `--config <file>` to use that config's workspace). One of the two is required |
 
 ## Optional Features
 

@@ -132,8 +132,19 @@ def sign_or_stage_media_path(
             return None
         target_dir = media_dir("websocket")
         safe_name = safe_filename(path.name) or "attachment"
-        staged = target_dir / f"{uuid.uuid4().hex[:12]}-{safe_name}"
-        shutil.copyfile(path, staged)
+        # A thread replay stages the same file on every page load. Name the copy after the
+        # source (path, size, modification time) so a repeat load reuses it instead of adding a
+        # new copy each time; a changed file gets a new name.
+        stat = path.stat()
+        identity = f"{path.resolve()}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8", "surrogatepass")
+        staged = target_dir / f"{hashlib.sha256(identity).hexdigest()[:12]}-{safe_name}"
+        if not (staged.is_file() and staged.stat().st_size == stat.st_size):
+            partial = staged.with_name(f".{uuid.uuid4().hex[:8]}.part")
+            try:
+                shutil.copyfile(path, partial)
+                partial.replace(staged)
+            finally:
+                partial.unlink(missing_ok=True)
     except OSError as exc:
         if logger is not None:
             logger.warning("failed to stage outbound media {}: {}", path, exc)

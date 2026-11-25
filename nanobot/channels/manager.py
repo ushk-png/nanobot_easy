@@ -28,6 +28,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.registry import DEFAULT_ENABLED_CHANNELS
 from nanobot.config.schema import Config
+from nanobot.utils.background import spawn_background
 from nanobot.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
 
 if TYPE_CHECKING:
@@ -308,7 +309,7 @@ class ChannelManager:
         target = self.channels.get(notice.channel)
         if not target:
             return
-        asyncio.create_task(self._send_with_retry(
+        spawn_background(self._send_with_retry(
             target,
             OutboundMessage(
                 channel=notice.channel,
@@ -456,6 +457,10 @@ class ChannelManager:
                 continue
             except asyncio.CancelledError:
                 break
+            except Exception:
+                # One bad message (a locked database, a malformed event) must not end the
+                # dispatcher: nothing restarts this task, and every channel would go silent.
+                logger.exception("Outbound dispatch failed; dropping this message and continuing")
 
     @staticmethod
     def _accepts_keyword(callable_obj: Callable[..., Any], name: str) -> bool:

@@ -225,7 +225,7 @@ _HOSTED_TOOLS_ENABLED: ContextVar[bool] = ContextVar("nanobot_hosted_tools_enabl
 def hosted_tools_disabled():
     """Within this block, providers must not attach server-side (hosted) tools.
 
-    Used by calls whose tool scope is fixed by code, e.g. stepwise reasoning stages.
+    Used by calls whose tool scope is fixed by code, e.g. a fixed internal step.
     """
     token = _HOSTED_TOOLS_ENABLED.set(False)
     try:
@@ -294,6 +294,9 @@ class LLMProvider(ABC):
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
+    # A provider can ask for an hour (Retry-After: 3600). Standard mode retries at most 3 times,
+    # so an unbounded wait would hold the turn and the session lock for hours.
+    _STANDARD_MAX_RETRY_AFTER = 120
     _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
     _RETRY_HEARTBEAT_CHUNK = 30
     _TRANSIENT_ERROR_MARKERS = (
@@ -309,6 +312,12 @@ class LLMProvider(ABC):
         "connection",
         "server error",
         "temporarily unavailable",
+        # Responses-API stream failures arrive as "Response failed: <code>" with underscores,
+        # which the space-separated markers above never matched, so one cut stream ended the turn.
+        "missing_terminal_event",
+        "server_error",
+        "rate_limit_exceeded",
+        "service_unavailable",
         "速率限制",
         "访问量过大",
     )
@@ -1269,6 +1278,8 @@ class LLMProvider(ABC):
             delay = self._extract_retry_after_from_response(response) or base_delay
             if persistent:
                 delay = min(delay, self._PERSISTENT_MAX_DELAY)
+            else:
+                delay = min(delay, self._STANDARD_MAX_RETRY_AFTER)
             if max_retry_delay_s is not None:
                 delay = min(delay, max_retry_delay_s)
 

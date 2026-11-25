@@ -1332,3 +1332,31 @@ def test_default_agent_profile_tools_are_registered() -> None:
 
     assert _DEFAULT_AGENT_PROFILE_TOOLS == ["read_file", "grep", "find_files"]
     assert set(_DEFAULT_AGENT_PROFILE_TOOLS) <= registered_read_only_search_tools
+
+
+def test_editing_an_agent_keeps_its_advanced_settings(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Review A26: the simple form used to reset tools, skills, model and limits to defaults."""
+    from nanobot.config.loader import get_config_path, load_config, save_config
+    from nanobot.config.schema import SubagentProfile
+    from nanobot.webui.settings_api import save_agent_profile
+
+    _isolated_config(tmp_path, monkeypatch)
+    config = load_config(get_config_path())
+    config.agents.defaults.subagent_profiles["analyst"] = SubagentProfile(
+        description="old", when_to_use=["old"], when_not_to_use=["never for chat"],
+        tools=["read_file", "grep", "web_search"], skills=["research"], model="fast",
+        max_iterations=7, temperature=0.3, can_spawn=True,
+    )
+    save_config(config, get_config_path())
+
+    save_agent_profile({
+        "original_name": ["analyst"], "name": ["senior-analyst"], "requirements": ["new requirements"],
+    })
+
+    profile = load_config(get_config_path()).agents.defaults.subagent_profiles["senior-analyst"]
+    assert profile.description == "new requirements"
+    assert profile.when_to_use == ["new requirements"]
+    assert profile.tools == ["read_file", "grep", "web_search"]
+    assert profile.skills == ["research"]
+    assert profile.when_not_to_use == ["never for chat"]
+    assert (profile.model, profile.max_iterations, profile.temperature, profile.can_spawn) == ("fast", 7, 0.3, True)

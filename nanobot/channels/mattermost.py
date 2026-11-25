@@ -34,7 +34,8 @@ _CHANNEL_TYPES = {
 class MattermostDMConfig(Base):
     """Mattermost DM policy configuration."""
     enabled: bool = True
-    policy: str = "open"
+    # "allowlist" (default): dm.allowFrom, top-level allowFrom or a pairing approval. "open": anyone.
+    policy: str = "allowlist"
     allow_from: list[str] = Field(default_factory=list)
 
 
@@ -340,19 +341,29 @@ class MattermostChannel(BaseChannel):
     def is_allowed(self, sender_id: str) -> bool:
         return True
 
+    async def _sender_allowed(self, sender_id: str) -> bool:
+        """Top-level ``allowFrom`` (matched by id, username or email) or a pairing approval."""
+        if is_approved(self.name, str(sender_id)):
+            return True
+        return await self._match_sender(sender_id, self.config.allow_from)
+
     async def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
         if channel_type == "dm":
             if not self.config.dm.enabled:
                 return False
-            if is_approved(self.name, str(sender_id)):
-                return True
-            if self.config.dm.policy == "allowlist":
-                return await self._match_sender(sender_id, self.config.dm.allow_from)
-            return True
+            if self.config.dm.policy == "open":
+                return True  # explicit opt-in: anyone on the server may DM the bot
+            return (
+                await self._match_sender(sender_id, self.config.dm.allow_from)
+                or await self._sender_allowed(sender_id)
+            )
 
-        if self.config.group_policy == "allowlist":
-            return chat_id in self.config.group_allow_from
-        return True
+        # Channels. An explicitly approved channel (allowlist policy) admits everyone in it;
+        # otherwise the sender must be in allowFrom or paired. allowFrom used to be ignored, so
+        # anyone able to mention the bot ran tools with the owner's rights.
+        if self.config.group_policy == "allowlist" and chat_id in self.config.group_allow_from:
+            return True
+        return await self._sender_allowed(sender_id)
 
     def _should_respond_in_channel(self, text: str, chat_id: str) -> bool:
         if self.config.group_policy == "open":

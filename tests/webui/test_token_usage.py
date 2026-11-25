@@ -146,3 +146,68 @@ async def test_token_usage_hook_classifies_source_from_session_key(tmp_path, mon
     payload = token_usage_payload(now=datetime(2026, 6, 3, tzinfo=timezone.utc))
 
     assert payload["days"][0]["sources"]["cron"]["total_tokens"] == 15
+
+
+def _record_many(webui_dir: str, count: int, queue) -> None:
+    from pathlib import Path
+
+    from nanobot.webui import token_usage
+
+    token_usage.get_webui_dir = lambda: Path(webui_dir)
+    failures = 0
+    for _ in range(count):
+        try:
+            token_usage.record_token_usage({"prompt_tokens": 10, "completion_tokens": 0})
+        except Exception:
+            failures += 1
+    queue.put(failures)
+
+
+def test_several_gateway_processes_do_not_lose_or_corrupt_records(tmp_path) -> None:
+    """Review A31: six gateways share token-usage.json; 565 of 900 records were lost."""
+    import json
+    import multiprocessing as mp
+
+    ctx = mp.get_context("spawn")
+    processes, each = 4, 40
+    queue = ctx.Queue()
+    workers = [ctx.Process(target=_record_many, args=(str(tmp_path), each, queue)) for _ in range(processes)]
+    for worker in workers:
+        worker.start()
+    for worker in workers:
+        worker.join(timeout=120)
+    assert sum(queue.get(timeout=5) for _ in workers) == 0
+    data = json.loads((tmp_path / "token-usage.json").read_text())
+    assert sum(day["requests"] for day in data["days"].values()) == processes * each
+    assert not list(tmp_path.glob("token-usage.json.*.tmp"))
+
+
+def test_unreadable_state_file_is_not_replaced_by_an_empty_history(tmp_path, monkeypatch) -> None:
+    import builtins
+    import errno
+    import json
+
+    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path)
+    record_token_usage({"prompt_tokens": 10, "completion_tokens": 0})
+    path = tmp_path / "token-usage.json"
+    before = path.read_text()
+    real_open = builtins.open
+
+    def failing(file, *args, **kwargs):
+        if str(file).endswith("token-usage.json") and "w" not in (args[0] if args else "r"):
+            raise OSError(errno.EIO, "I/O error")
+        return real_open(file, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "open", failing)
+    record_token_usage({"prompt_tokens": 5, "completion_tokens": 0})  # skipped, not a reset
+    monkeypatch.setattr(builtins, "open", real_open)
+    assert path.read_text() == before
+    assert json.loads(before)["days"]
+
+
+def test_invalid_json_state_is_kept_aside(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr("nanobot.webui.token_usage.get_webui_dir", lambda: tmp_path)
+    (tmp_path / "token-usage.json").write_text("{half", encoding="utf-8")
+    record_token_usage({"prompt_tokens": 7, "completion_tokens": 0})
+    kept = list(tmp_path.glob("token-usage.json.corrupt-*"))
+    assert len(kept) == 1 and kept[0].read_text() == "{half"

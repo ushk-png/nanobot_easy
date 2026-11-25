@@ -61,11 +61,30 @@ class CodewhaleToolConfig(Base):
     sandbox: str = ""
 
 
-def is_codewhale_agent_command(command: str) -> bool:
-    """True when a shell command starts a Codewhale coding run (`codewhale exec`)."""
+def _is_single_command(command: str) -> bool:
+    """No unquoted ``;``, ``&``, ``&&``, ``||``, ``|`` or newline (so ``sleep 9;codewhale exec`` fails)."""
+    if "\n" in command:
+        return False
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        return not any(set(token) <= set(";&|") for token in lexer)
+    except ValueError:
+        return False
+
+
+def is_codewhale_agent_command(command: str, *, standalone: bool = False) -> bool:
+    """True when a shell command starts a Codewhale coding run (`codewhale exec`).
+
+    With ``standalone`` the whole command must be that one invocation (no ``;``, ``&&``, ``||``
+    or pipes). The exec tool uses it to lift the timeout: a segment such as
+    ``sleep 999999; codewhale exec x`` must not make the entire command unbounded.
+    """
     try:
         tokens = shlex.split(command)
     except ValueError:
+        return False
+    if standalone and not _is_single_command(command):
         return False
     starts = {0}
     for index, token in enumerate(tokens):
@@ -375,6 +394,7 @@ class CodewhaleTool(Tool):
             path_prepend=self.exec_path_prepend,
             path_append=self.exec_path_append,
             allowed_env_keys=self.exec_allowed_env_keys,
+            protect_credentials=False,  # the command line is the prompt, not a file read
         )
         prepared = runner._prepare_command(command, target, background=True)
         if isinstance(prepared, str):

@@ -557,7 +557,7 @@ async def test_with_thread_context_fetches_replies_in_dm_thread() -> None:
 @pytest.mark.asyncio
 async def test_dm_root_message_has_no_thread_ts_and_no_thread_session() -> None:
     """A top-level DM should not synthesize a thread_ts and uses the default session."""
-    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    channel = SlackChannel(SlackConfig(enabled=True, allow_from=["*"]), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -588,7 +588,7 @@ async def test_dm_root_message_has_no_thread_ts_and_no_thread_session() -> None:
 @pytest.mark.asyncio
 async def test_dm_thread_message_keeps_thread_ts_and_threaded_session() -> None:
     """A DM message inside a real thread should preserve thread_ts and isolate the session."""
-    channel = SlackChannel(SlackConfig(enabled=True), MessageBus())
+    channel = SlackChannel(SlackConfig(enabled=True, allow_from=["*"]), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -620,7 +620,7 @@ async def test_dm_thread_message_keeps_thread_ts_and_threaded_session() -> None:
 
 @pytest.mark.asyncio
 async def test_slack_slash_command_skips_thread_context() -> None:
-    channel = SlackChannel(SlackConfig(enabled=True, allow_from=[]), MessageBus())
+    channel = SlackChannel(SlackConfig(enabled=True, allow_from=["*"]), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._with_thread_context = AsyncMock(return_value="wrapped")  # type: ignore[method-assign]
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -649,7 +649,7 @@ async def test_slack_slash_command_skips_thread_context() -> None:
 
 @pytest.mark.asyncio
 async def test_slack_file_share_downloads_media_and_reaches_agent() -> None:
-    channel = SlackChannel(SlackConfig(enabled=True, bot_token="xoxb-test"), MessageBus())
+    channel = SlackChannel(SlackConfig(enabled=True, allow_from=["*"], bot_token="xoxb-test"), MessageBus())
     channel._bot_user_id = "UBOT"
     channel._web_client = _FakeAsyncWebClient()
     channel._handle_message = AsyncMock()  # type: ignore[method-assign]
@@ -715,9 +715,37 @@ def test_slack_download_failure_marker_is_actionable() -> None:
 
 
 def test_slack_channel_uses_channel_aware_allow_policy() -> None:
+    """Review N33: allowFrom was never read, so any workspace member could run tools."""
     channel = SlackChannel(SlackConfig(enabled=True, allow_from=[]), MessageBus())
-    assert channel.is_allowed("U1") is True
-    assert channel._is_allowed("U1", "C123", "channel") is True
+    assert channel.is_allowed("U1") is True  # policy is decided per channel in _is_allowed
+    assert channel._is_allowed("U1", "C123", "channel") is False  # nobody listed: nobody allowed
+    assert channel._is_allowed("U1", "D123", "im") is False  # DM policy defaults to allowlist
+
+
+def test_allow_from_gates_channels_dms_and_button_clicks() -> None:
+    channel = SlackChannel(
+        SlackConfig(enabled=True, allow_from=["UOWNER"], group_policy="mention"), MessageBus()
+    )
+    for chat, kind in (("C0001", "channel"), ("D0001", "im")):
+        assert channel._is_allowed("UOWNER", chat, kind) is True
+        assert channel._is_allowed("USTRANGER", chat, kind) is False
+    star = SlackChannel(SlackConfig(enabled=True, allow_from=["*"]), MessageBus())
+    assert star._is_allowed("USTRANGER", "C0001", "channel") is True
+    assert star._is_allowed("USTRANGER", "D0001", "im") is True
+
+
+def test_dm_policy_open_is_an_explicit_opt_in() -> None:
+    config = SlackConfig.model_validate({"enabled": True, "dm": {"policy": "open"}})
+    channel = SlackChannel(config, MessageBus())
+    assert channel._is_allowed("USTRANGER", "D0001", "im") is True
+    assert channel._is_allowed("USTRANGER", "C0001", "channel") is False
+
+
+def test_dm_allow_from_admits_listed_users_only() -> None:
+    config = SlackConfig.model_validate({"enabled": True, "dm": {"allowFrom": ["UFRIEND"]}})
+    channel = SlackChannel(config, MessageBus())
+    assert channel._is_allowed("UFRIEND", "D0001", "im") is True
+    assert channel._is_allowed("USTRANGER", "D0001", "im") is False
 
 
 def test_mention_policy_responds_to_mentions_in_any_channel() -> None:
@@ -741,7 +769,7 @@ def test_allowlist_policy_restricts_to_approved_channels() -> None:
     # An unapproved channel is always rejected.
     assert channel._should_respond_in_channel("app_mention", "<@UBOT> hi", "C_NOPE") is False
     # _is_allowed also gates on the channel allowlist.
-    assert channel._is_allowed("U1", "C_OK", "channel") is True
+    assert channel._is_allowed("U1", "C_OK", "channel") is True  # explicitly approved channel
     assert channel._is_allowed("U1", "C_NOPE", "channel") is False
 
 

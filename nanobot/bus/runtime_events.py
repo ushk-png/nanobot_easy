@@ -17,6 +17,7 @@ from typing import Any
 from loguru import logger
 
 from nanobot.bus.events import InboundMessage
+from nanobot.utils.background import track_task
 
 
 @dataclass(frozen=True)
@@ -130,7 +131,7 @@ class RuntimeEventBus:
         except RuntimeError:
             logger.debug("dropping runtime event without a running loop: {}", type(event).__name__)
             return
-        loop.create_task(self.publish(event))
+        track_task(loop.create_task(self.publish(event)), name="runtime-event")
 
 
 class RuntimeEventPublisher:

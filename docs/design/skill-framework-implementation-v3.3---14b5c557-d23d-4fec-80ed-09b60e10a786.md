@@ -1,3 +1,5 @@
+> **구현 삭제 안내 (2026-11-25).** 아래 표에 나오는 `nanobot/workflow/`, `agent/tools/workflow.py`, `nanobot/reasoning/` 와 `nanobot stepwise` 는 코드에서 삭제되었습니다. 해당 항목은 설계 기록으로만 읽어 주세요.
+
 # Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.16
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 

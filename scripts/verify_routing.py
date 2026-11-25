@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import json
 import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -56,16 +57,34 @@ def main() -> int:
         )
     )
     parser.add_argument("--config", default=None, help="Config JSON path; enables skills.embedding when set")
-    parser.add_argument("--workspace", default=".local/workspace", help="Workspace directory")
+    parser.add_argument(
+        "--workspace", default=None,
+        help="Workspace whose skillstore.db to use. WRITES to it (schema migration, reindex). "
+             "Default: a fresh temporary workspace, so no real instance is touched.",
+    )
+    parser.add_argument(
+        "--allow-embedding-cost", action="store_true",
+        help="Allow --config to re-embed every skill with the configured (paid) embedding model.",
+    )
     parser.add_argument("--top-k", type=int, default=3, help="Candidates to inspect per case")
     args = parser.parse_args()
 
     config = load_config(Path(args.config).expanduser()) if args.config else None
-    workspace = Path(args.workspace).expanduser()
-    if config is not None and args.workspace == ".local/workspace":
-        workspace = config.workspace_path
+    if args.workspace:
+        workspace = Path(args.workspace).expanduser()
+    else:
+        workspace = Path(tempfile.mkdtemp(prefix="verify_routing_"))
+    print(f"verify_routing: workspace={workspace}", file=sys.stderr)
+    embedding = make_skill_embedding_fn(config) if config is not None else None
+    if embedding is not None and not args.allow_embedding_cost:
+        print(
+            "verify_routing: --config enables paid embeddings for every skill; "
+            "pass --allow-embedding-cost to continue.",
+            file=sys.stderr,
+        )
+        return 2
     store = SkillStore(workspace)
-    if config is not None and (embedding := make_skill_embedding_fn(config)) is not None:
+    if embedding is not None:
         embedding_fn, embedding_model, dimensions = embedding
         store.reindex(
             system_dir=SYSTEM_SKILLS_DIR,

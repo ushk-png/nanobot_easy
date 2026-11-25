@@ -7,6 +7,7 @@ import os
 from contextvars import ContextVar, Token
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 
 @dataclass(slots=True)
@@ -145,15 +146,23 @@ class FileStateStore:
     __slots__ = ("_states_by_key",)
 
     def __init__(self) -> None:
-        self._states_by_key: dict[str, FileStates] = {}
+        self._states_by_key: dict[str, tuple[Any, FileStates]] = {}
 
-    def for_session(self, session_key: str | None) -> FileStates:
+    def for_session(self, session_key: str | None, epoch: Any = 0) -> FileStates:
+        """Read/write state of one session.
+
+        ``epoch`` identifies the part of the history the model can still see. When it changes
+        (``/new``, trimming, compaction), earlier reads are no longer in the model's context, so
+        the tracking starts fresh: a repeated read returns the content again instead of a
+        "file unchanged" stub that points at text the model no longer has. Only the latest
+        state per session is kept, which also bounds memory.
+        """
         key = session_key or "__default__"
-        states = self._states_by_key.get(key)
-        if states is None:
-            states = FileStates()
-            self._states_by_key[key] = states
-        return states
+        entry = self._states_by_key.get(key)
+        if entry is None or entry[0] != epoch:
+            entry = (epoch, FileStates())
+            self._states_by_key[key] = entry
+        return entry[1]
 
     def clear(self) -> None:
         self._states_by_key.clear()

@@ -360,3 +360,49 @@ async def test_relay_client_disconnect_cancels_active_provider(tmp_path, aiohttp
     async with asyncio.timeout(1):
         while not provider.cancelled:
             await asyncio.sleep(0.01)
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_relay_token_check_does_not_block_the_event_loop(
+    tmp_path: Path,
+    aiohttp_client,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Review C14: verifying a token (200k PBKDF2 rounds + SQLite) ran on the gateway's loop."""
+    import asyncio
+    import time
+
+    store = SkillStore(tmp_path)
+    issued = store.issue_relay_client(client_id="grok-build", model_preset="relay-coding")
+    real_verify = store.verify_relay_token
+
+    def slow_verify(*args, **kwargs):
+        time.sleep(0.4)
+        return real_verify(*args, **kwargs)
+
+    monkeypatch.setattr(store, "verify_relay_token", slow_verify)
+    monkeypatch.setattr(
+        relay_api,
+        "build_provider_snapshot",
+        lambda _config, preset_name=None: ProviderSnapshot(
+            provider=FakeProvider(calls=[]), model="m", context_window_tokens=1000, signature=("t", preset_name)
+        ),
+    )
+    client = await aiohttp_client(create_relay_app(_config(tmp_path), store))
+
+    gaps: list[float] = []
+
+    async def heartbeat() -> None:
+        last = time.monotonic()
+        while True:
+            await asyncio.sleep(0.02)
+            now = time.monotonic()
+            gaps.append(now - last)
+            last = now
+
+    task = asyncio.create_task(heartbeat())
+    response = await client.get("/v1/models", headers={"Authorization": f"Bearer {issued.token}"})
+    task.cancel()
+    assert response.status == 200
+    assert gaps and max(gaps) < 0.25, f"the event loop stalled for {max(gaps):.2f}s during authentication"

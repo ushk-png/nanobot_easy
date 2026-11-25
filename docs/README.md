@@ -21,7 +21,6 @@ If you find a docs mistake, outdated command, or confusing step in the upstream 
 | Restarting a gateway safely | [`cli-reference.md`](./cli-reference.md#launcher-commands-up-down-restart), [`architecture.md`](./architecture.md#gateway-runtime-and-restart) |
 | Coding guidance and evaluation protocol | [`development.md`](./development.md#coding-guidance-and-evaluation) |
 | Research skills and evaluation results | [`complex-research.md`](./complex-research.md) |
-| Stepwise reasoning (opt-in) | [`design/stepwise-llm-reasoning.md`](./design/stepwise-llm-reasoning.md) |
 | Pinned runtime deployment | [`../deploy/README.md`](../deploy/README.md) |
 
 ### Design records

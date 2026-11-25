@@ -296,7 +296,9 @@ async def test_eof_failure_is_not_repaired_or_retried_as_a_design(env, monkeypat
         request_id='mock-eof-once')
     assert selected.design is None
     assert selected.blocked == 'design_provider_error'
-    assert len(entries) == 1
+    # A stream that ends without a terminal event is a transient transport failure (review B31):
+    # it gets the configured transient retries, but never a design repair or recovery.
+    assert len(entries) == 1 + ContextSelectionConfig().design_transient_retries
     assert 'design_recoveries' not in selected.trace.counters
     await asyncio.gather(*list(_cleanup_tasks))
 

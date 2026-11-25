@@ -282,9 +282,7 @@ schema defaults, and a local instance's settings are not product defaults.
 | Ordinary agent loop | `agent/loop.py`, `agent/runner.py`, `agent/premature_final.py` | Always the default response path |
 | Intent-first context selection | `agent/context_selection.py` | `agents.defaults.contextSelection.enabled=false`; asks for confirmation when a mutation target is ambiguous |
 | Time-allocation contract | `agent/time_allocation.py` | `contextSelection.timeAllocationContractEnabled=false`; takes effect only on the context-selection path |
-| Stepwise reasoning | `nanobot/reasoning/` | `stepwise.enabled=false`; applied per agent with `nanobot stepwise apply`; per-run defaults 120 s and 8 model calls |
 | Retrieval evidence packets | `nanobot/evidence/`, `agent/tools/web.py` | `tools.web.evidence.enabled=false`; packets rank candidates and never verify claims |
-| Durable workflow | `nanobot/workflow/`, `agent/tools/workflow.py` | `tools.workflow.enabled=false` |
 | Codewhale coding runs | `agent/tools/codewhale.py` | `tools.codewhale.enable=false`; needs a Codewhale binary and, usually, an LLM relay client |
 
 The prompt-weight settings above are different: they are on by default, and a local

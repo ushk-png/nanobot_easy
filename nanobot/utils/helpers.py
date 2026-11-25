@@ -1,6 +1,7 @@
 """Utility functions for nanobot."""
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -509,12 +510,20 @@ def maybe_persist_tool_result(
         _cleanup_tool_result_buckets(root, bucket)
     except Exception:
         logger.exception("Failed to clean stale tool result buckets in {}", root)
+    stored = json.dumps(content, ensure_ascii=False, indent=2) if suffix == "json" and isinstance(content, list) else text_payload
     path = bucket / f"{safe_filename(tool_call_id)}.{suffix}"
+    if path.exists():
+        try:
+            same = path.read_text(encoding="utf-8") == stored
+        except OSError:
+            same = False
+        if not same:
+            # A provider reused this tool_call_id for different output: the reference must
+            # point at THIS output, not at the older file that happens to have the same name.
+            digest = hashlib.sha1(stored.encode("utf-8")).hexdigest()[:8]
+            path = bucket / f"{safe_filename(tool_call_id)}-{digest}.{suffix}"
     if not path.exists():
-        if suffix == "json" and isinstance(content, list):
-            _write_text_atomic(path, json.dumps(content, ensure_ascii=False, indent=2))
-        else:
-            _write_text_atomic(path, text_payload)
+        _write_text_atomic(path, stored)
 
     preview = text_payload[:_TOOL_RESULT_PREVIEW_CHARS]
     return _render_tool_result_reference(

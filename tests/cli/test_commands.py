@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from nanobot.agent.memory import MemoryStore
@@ -61,6 +62,14 @@ def _fake_provider():
 
 class _StopGatewayError(RuntimeError):
     pass
+
+
+def _run_gateway_until_stopped(*args, **kwargs) -> None:
+    """Run the gateway where a test stops it by making a task raise (a crash exits non-zero)."""
+    try:
+        cli_commands._run_gateway(*args, **kwargs)
+    except typer.Exit as stop:
+        assert stop.exit_code == 1
 
 
 def test_gateway_signal_handler_first_signal_stops_and_second_forces() -> None:
@@ -1758,7 +1767,10 @@ def _patch_serve_runtime(monkeypatch, config: Config, seen: dict[str, object]) -
         model_name: str,
         request_timeout: float,
         api_key: str = "",
+        bind_host: str = "",
+        bind_port: int = 0,
     ):
+        seen["bind"] = (bind_host, bind_port)
         seen["agent_loop"] = agent_loop
         seen["model_name"] = model_name
         seen["request_timeout"] = request_timeout
@@ -2283,7 +2295,7 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
         _fake_run_local_trigger_queue,
     )
 
-    cli_commands._run_gateway(config, health_server_enabled=False)
+    _run_gateway_until_stopped(config, health_server_enabled=False)
 
     agent = seen["agent"]
     agent_kwargs = seen["agent_from_config_kwargs"]
@@ -2292,6 +2304,116 @@ def test_gateway_local_trigger_queue_submits_agent_turns(
     assert kwargs["store"] is agent_kwargs["local_trigger_store"]
     assert "bus" not in kwargs
     assert kwargs["submit_turn"] is agent.submit_local_trigger_turn
+
+
+def test_gateway_exits_nonzero_when_a_runtime_task_dies(
+    monkeypatch,
+    tmp_path: Path,
+) -> None:
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "config-workspace")
+    config.agents.defaults.dream.enabled = False
+    config.gateway.heartbeat.enabled = False
+    bus = MagicMock()
+    seen: dict[str, object] = {}
+
+    _patch_cli_command_runtime(
+        monkeypatch,
+        config,
+        message_bus=lambda: bus,
+        session_manager=lambda _workspace: _FakeSessionManager(),
+        cron_service=lambda _store_path: _FakeCronService(),
+    )
+
+    class _FakeMemory:
+        def get_latest_cursor(self) -> int:
+            return 0
+
+        def get_last_dream_cursor(self) -> int:
+            return 0
+
+        def set_last_dream_cursor(self, _cursor: int) -> None:
+            return None
+
+    class _FakeContext:
+        memory = _FakeMemory()
+
+    class _FakeSessionManager:
+        def flush_all(self) -> int:
+            return 0
+
+        def list_sessions(self) -> list[dict[str, object]]:
+            return []
+
+    class _FakeCronService:
+        def __init__(self) -> None:
+            self.on_job = None
+
+        async def start(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+        def status(self) -> dict[str, int]:
+            return {"jobs": 0}
+
+        def register_system_job(self, _job) -> None:
+            return None
+
+    class _FakeAgentLoop:
+        @classmethod
+        def from_config(cls, config, bus=None, **extra):
+            seen["agent_from_config_kwargs"] = extra
+            return cls(**extra)
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.model = "test-model"
+            self.provider = _fake_provider()
+            self.tools = {}
+            self.context = _FakeContext()
+            self.sessions = kwargs["session_manager"]
+            self.submit_local_trigger_turn = AsyncMock()
+            seen["agent"] = self
+
+        def _schedule_background(self, _coro) -> None:
+            return None
+
+        async def run(self) -> None:
+            await asyncio.Event().wait()
+
+        async def close_mcp(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+    class _FakeChannelManager:
+        enabled_channels: list[str] = []
+
+        def __init__(self, *_args, **_kwargs) -> None:
+            return None
+
+        async def start_all(self) -> None:
+            await asyncio.Event().wait()
+
+        async def stop_all(self) -> None:
+            return None
+
+    async def _fake_run_local_trigger_queue(**kwargs):
+        raise OSError("trigger store write failed")
+
+    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _FakeChannelManager)
+    monkeypatch.setattr(
+        "nanobot.triggers.local_runner.run_local_trigger_queue",
+        _fake_run_local_trigger_queue,
+    )
+
+    # Review B34: a dead task used to end the gateway with exit code 0, so nothing restarted it.
+    with pytest.raises(typer.Exit) as raised:
+        cli_commands._run_gateway(config, health_server_enabled=False)
+    assert raised.value.exit_code == 1
 
 
 def test_gateway_workspace_override_does_not_migrate_legacy_cron(
@@ -2552,7 +2674,8 @@ def test_gateway_health_endpoint_binds_and_serves_expected_responses(
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
-    assert result.exit_code == 0
+    # The test stops the gateway by making a task raise; a dead task is a crash (exit 1).
+    assert result.exit_code == 1
     assert captured["host"] == "127.0.0.1"
     assert captured["port"] == 18791
     assert "Health endpoint: http://127.0.0.1:18791/health" in result.stdout
@@ -2672,7 +2795,8 @@ def test_gateway_shutdown_lets_agent_task_own_mcp_cleanup(
 
     result = runner.invoke(app, ["gateway", "--config", str(config_file)])
 
-    assert result.exit_code == 0
+    # The test stops the gateway by making a task raise; a dead task is a crash (exit 1).
+    assert result.exit_code == 1
     assert seen["agent_stopped"] is True
     assert seen["agent_task_cleaned_up"] is True
     assert seen["channels_stopped"] is True
@@ -2710,6 +2834,9 @@ def test_gateway_shutdown_event_exits_forever_runtime_tasks(
                 await asyncio.Event().wait()
             finally:
                 seen["agent_task_cleaned_up"] = True
+
+        async def submit_local_trigger_turn(self, *_args, **_kwargs) -> None:
+            return None
 
         async def close_mcp(self) -> None:
             raise AssertionError("gateway must not close MCP from the outer task")

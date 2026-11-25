@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import collections
 import os
 import signal
 import time
@@ -27,6 +28,9 @@ MAX_WAIT_FOR_MS = 120_000
 DEFAULT_MAX_OUTPUT_CHARS = 10_000
 MAX_OUTPUT_CHARS = 50_000
 OUTPUT_DRAIN_GRACE_S = 0.1
+# Output kept between two polls. A noisy process polled rarely must not grow gateway memory; the
+# oldest output is dropped and the next poll says how much.
+MAX_BUFFERED_CHARS = 200_000
 
 
 @dataclass(slots=True)
@@ -63,6 +67,7 @@ class _ExecSession:
         cwd: str,
         timeout: int | None,
         owner_session_key: str | None = None,
+        idle_timeout: int | None = None,
     ) -> None:
         self.session_id = session_id
         self.process = process
@@ -73,11 +78,31 @@ class _ExecSession:
         # timeout None/0 means no limit; an infinite deadline is never reached.
         self.deadline = time.monotonic() + timeout if timeout else float("inf")
         self.last_access = time.monotonic()
-        self._chunks: list[str] = []
+        self._chunks: collections.deque[str] = collections.deque()
+        self._buffered_chars = 0
+        self._dropped_chars = 0
         self._lock = asyncio.Lock()
         self._timed_out = False
+        self.idle_timeout = idle_timeout
         self._stdout_task = asyncio.create_task(self._read_stream(process.stdout, ""))
         self._stderr_task = asyncio.create_task(self._read_stream(process.stderr, "STDERR:\n"))
+        # The time limit and the idle limit must hold even when nobody calls the tool again.
+        self._watchdog = asyncio.create_task(self._watch())
+
+    async def _watch(self) -> None:
+        while self.process.returncode is None:
+            now = time.monotonic()
+            limit = self.deadline
+            if self.idle_timeout:
+                limit = min(limit, self.last_access + self.idle_timeout)
+            if now >= limit:
+                if now >= self.deadline:
+                    self._timed_out = True
+                await self.kill()
+                return
+            wait_s = 5.0 if limit == float("inf") else min(limit - now, 5.0)
+            with suppress(asyncio.TimeoutError):
+                await asyncio.wait_for(self.process.wait(), timeout=max(wait_s, 0.01))
 
     async def _read_stream(
         self,
@@ -97,6 +122,11 @@ class _ExecSession:
                 first = False
             async with self._lock:
                 self._chunks.append(text)
+                self._buffered_chars += len(text)
+                while self._buffered_chars > MAX_BUFFERED_CHARS and len(self._chunks) > 1:
+                    dropped = self._chunks.popleft()
+                    self._buffered_chars -= len(dropped)
+                    self._dropped_chars += len(dropped)
 
     async def write(self, chars: str) -> str | None:
         if self.process.returncode is not None:
@@ -156,7 +186,11 @@ class _ExecSession:
         async with self._lock:
             output = "".join(self._chunks)
             self._chunks.clear()
+            self._buffered_chars = 0
+            dropped_chars, self._dropped_chars = self._dropped_chars, 0
 
+        if dropped_chars:
+            output = f"[{dropped_chars} earlier characters were discarded]\n{output}"
         output, truncated = _truncate_output(output, max_output_chars)
         return _SessionPoll(
             output=output,
@@ -221,6 +255,7 @@ class ExecSessionManager:
                 cwd=cwd,
                 timeout=timeout,
                 owner_session_key=owner_session_key,
+                idle_timeout=self.idle_timeout,
             )
             self._sessions[session_id] = session
 

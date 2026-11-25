@@ -91,16 +91,15 @@ class OpenAICodexProvider(LLMProvider):
                     on_tool_call_delta=on_tool_call_delta,
                 )
             except Exception as e:
-                if "CERTIFICATE_VERIFY_FAILED" not in str(e):
-                    raise
-                logger.warning("SSL verification failed for Codex API; retrying with verify=False")
-                content, tool_calls, finish_reason, usage, reasoning_content = await _request_codex(
-                    DEFAULT_CODEX_URL, headers, body, verify=False,
-                    proxy=self.proxy,
-                    on_content_delta=on_content_delta,
-                    on_thinking_delta=on_thinking_delta,
-                    on_tool_call_delta=on_tool_call_delta,
-                )
+                if "CERTIFICATE_VERIFY_FAILED" in str(e):
+                    # Never retry without verification: the retry would carry the OAuth bearer
+                    # token and the whole conversation to whoever presented the bad certificate.
+                    raise RuntimeError(
+                        "TLS certificate verification failed for the Codex API. Check the network "
+                        "(proxy, captive portal) or install the missing CA certificate "
+                        "(e.g. set SSL_CERT_FILE). Not retrying without verification."
+                    ) from e
+                raise
             return LLMResponse(
                 content=content,
                 tool_calls=tool_calls,

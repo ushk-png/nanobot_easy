@@ -68,6 +68,8 @@ class MyTool(Tool, ContextAware):
         "_session_locks", "_active_tasks", "_background_tasks",
         # Security boundaries (inspect + modify both blocked)
         "restrict_to_workspace", "channels_config",
+        # Whole tools config (MCP env/headers, OAuth client secrets, exec policy) and provider factories
+        "tools_config", "_image_generation_provider_configs", "_model_provider_factory",
         "_concurrency_gate", "_unified_session", "_extra_hooks",
     })
 
@@ -92,6 +94,24 @@ class MyTool(Tool, ContextAware):
         "api_key", "secret", "password", "token", "credential",
         "private_key", "access_token", "refresh_token", "auth",
     })
+
+    _CREDENTIAL_CONTAINERS = frozenset({"env", "headers", "extra_headers", "authorization", "cookies"})
+
+    @classmethod
+    def _is_credential_container(cls, name: str) -> bool:
+        """Names that hold credentials even though the name itself is not a secret word."""
+        return cls._is_sensitive_field_name(name) or name.lower() in cls._CREDENTIAL_CONTAINERS
+
+    @classmethod
+    def _scrub(cls, value: Any) -> Any:
+        """Copy of a dict with credential-looking entries hidden, for display only."""
+        if isinstance(value, dict):
+            return {
+                key: ("<hidden>" if isinstance(key, str) and cls._is_credential_container(key)
+                      else cls._scrub(item))
+                for key, item in value.items()
+            }
+        return value
 
     @classmethod
     def _is_sensitive_field_name(cls, name: str) -> bool:
@@ -199,7 +219,7 @@ class MyTool(Tool, ContextAware):
                 return None, f"'{part}' is not accessible"
             if part in self.BLOCKED:
                 return None, f"'{part}' is not accessible"
-            if part.lower() in self._SENSITIVE_NAMES:
+            if part.lower() in self._SENSITIVE_NAMES or self._is_credential_container(part):
                 return None, f"'{part}' is not accessible"
             try:
                 if isinstance(obj, dict):
@@ -268,7 +288,7 @@ class MyTool(Tool, ContextAware):
             if not ks:
                 return f"{key}: {{}}" if key else "{}"
             if len(ks) <= 5:
-                r = repr(val)
+                r = repr(MyTool._scrub(val))
                 if len(r) <= 200:
                     return f"{key}: {r}" if key else r
             preview = ", ".join(str(k) for k in ks[:15])

@@ -35,91 +35,107 @@ async def run_local_trigger_queue(
             recovered,
         )
     while True:
-        deliveries = store.claim_deliveries(limit=batch_size)
+        try:
+            deliveries = store.claim_deliveries(limit=batch_size)
+        except Exception:
+            # A store error (disk full, permissions) must not end the queue task: the gateway
+            # stops when any runtime task dies. Try again on the next poll.
+            logger.exception("Trigger: could not claim deliveries; retrying")
+            await asyncio.sleep(poll_interval_s)
+            continue
         if not deliveries:
             await asyncio.sleep(poll_interval_s)
             continue
 
         for delivery in deliveries:
             try:
-                await _deliver_delivery(
-                    store,
-                    delivery,
-                    submit_turn=submit_turn,
-                )
-                store.complete_delivery(delivery)
-            except asyncio.CancelledError as exc:
-                store.retry_delivery(delivery, str(exc) or exc.__class__.__name__)
-                _write_delivery_run_record(
-                    store,
-                    delivery,
-                    status="interrupted",
-                    error=str(exc) or exc.__class__.__name__,
-                )
+                try:
+                    await _deliver_delivery(
+                        store,
+                        delivery,
+                        submit_turn=submit_turn,
+                    )
+                    store.complete_delivery(delivery)
+                except asyncio.CancelledError as exc:
+                    store.retry_delivery(delivery, str(exc) or exc.__class__.__name__)
+                    _write_delivery_run_record(
+                        store,
+                        delivery,
+                        status="interrupted",
+                        error=str(exc) or exc.__class__.__name__,
+                    )
+                    raise
+                except _TerminalDeliveryError as exc:
+                    store.record_delivery(
+                        delivery.trigger_id,
+                        status="error",
+                        error=str(exc),
+                        run_at_ms=delivery.created_at_ms,
+                    )
+                    _write_delivery_run_record(
+                        store,
+                        delivery,
+                        status="error",
+                        error=str(exc),
+                    )
+                    store.complete_delivery(delivery)
+                    logger.warning(
+                        "Trigger: dropped delivery {} for {}: {}",
+                        delivery.id,
+                        delivery.trigger_id,
+                        exc,
+                    )
+                except AutomationTurnError as exc:
+                    error = str(exc) or exc.__class__.__name__
+                    store.record_delivery(
+                        delivery.trigger_id,
+                        status="error",
+                        error=error,
+                        run_at_ms=delivery.created_at_ms,
+                    )
+                    _write_delivery_run_record(
+                        store,
+                        delivery,
+                        status="error",
+                        error=error,
+                    )
+                    store.complete_delivery(delivery)
+                    logger.warning(
+                        "Trigger: delivery {} for {} reached the agent but failed: {}",
+                        delivery.id,
+                        delivery.trigger_id,
+                        error,
+                    )
+                except Exception as exc:
+                    error = str(exc) or exc.__class__.__name__
+                    retried = store.retry_delivery(delivery, error)
+                    _write_delivery_run_record(
+                        store,
+                        delivery,
+                        status="retrying" if retried else "error",
+                        error=error,
+                    )
+                    store.record_delivery(
+                        delivery.trigger_id,
+                        status="error",
+                        error=error,
+                        run_at_ms=delivery.created_at_ms,
+                    )
+                    logger.exception(
+                        "Trigger: failed delivery {} for {}{}",
+                        delivery.id,
+                        delivery.trigger_id,
+                        "; queued retry" if retried else "; moved to failed queue",
+                    )
+            except asyncio.CancelledError:
                 raise
-            except _TerminalDeliveryError as exc:
-                store.record_delivery(
-                    delivery.trigger_id,
-                    status="error",
-                    error=str(exc),
-                    run_at_ms=delivery.created_at_ms,
-                )
-                _write_delivery_run_record(
-                    store,
-                    delivery,
-                    status="error",
-                    error=str(exc),
-                )
-                store.complete_delivery(delivery)
-                logger.warning(
-                    "Trigger: dropped delivery {} for {}: {}",
-                    delivery.id,
-                    delivery.trigger_id,
-                    exc,
-                )
-            except AutomationTurnError as exc:
-                error = str(exc) or exc.__class__.__name__
-                store.record_delivery(
-                    delivery.trigger_id,
-                    status="error",
-                    error=error,
-                    run_at_ms=delivery.created_at_ms,
-                )
-                _write_delivery_run_record(
-                    store,
-                    delivery,
-                    status="error",
-                    error=error,
-                )
-                store.complete_delivery(delivery)
-                logger.warning(
-                    "Trigger: delivery {} for {} reached the agent but failed: {}",
-                    delivery.id,
-                    delivery.trigger_id,
-                    error,
-                )
-            except Exception as exc:
-                error = str(exc) or exc.__class__.__name__
-                retried = store.retry_delivery(delivery, error)
-                _write_delivery_run_record(
-                    store,
-                    delivery,
-                    status="retrying" if retried else "error",
-                    error=error,
-                )
-                store.record_delivery(
-                    delivery.trigger_id,
-                    status="error",
-                    error=error,
-                    run_at_ms=delivery.created_at_ms,
-                )
+            except Exception:
+                # The bookkeeping itself failed (for example saving a run record). The
+                # delivery stays in processing and is recovered when the gateway restarts.
                 logger.exception(
-                    "Trigger: failed delivery {} for {}{}",
+                    "Trigger: bookkeeping failed for delivery {}; it stays in processing",
                     delivery.id,
-                    delivery.trigger_id,
-                    "; queued retry" if retried else "; moved to failed queue",
                 )
-
 
 class _TerminalDeliveryError(RuntimeError):
     pass
