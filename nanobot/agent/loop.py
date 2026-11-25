@@ -57,13 +57,6 @@ from nanobot.memory.event_store import MEMORY_TOOL_NAMES, ConversationEventStore
 from nanobot.memory.models import MemoryScope, RawEvent
 from nanobot.providers.base import LLMProvider
 from nanobot.providers.factory import ProviderSnapshot
-from nanobot.reasoning.bridge import (
-    ReasoningSessions,
-    reasoning_mode_notice,
-    recent_conversation,
-    run_reasoning_procedure,
-    user_reply,
-)
 from nanobot.security.workspace_access import (
     WorkspaceScopeResolver,
     bind_workspace_scope,
@@ -102,8 +95,6 @@ from nanobot.utils.llm_runtime import LLMRuntime
 from nanobot.utils.runtime import (
     EMPTY_FINAL_RESPONSE_MESSAGE,
 )
-from nanobot.workflow.delivery import WorkflowDeliveryHook, clear_workflow_turn_delivery
-from nanobot.workflow.service import WorkflowService
 
 if TYPE_CHECKING:
     from nanobot.config.schema import (
@@ -245,11 +236,6 @@ class AgentLoop:
         context_window_tokens: int | None = None,
         context_block_limit: int | None = None,
         reasoning_effort: str | None = None,
-        stepwise_enabled: bool = False,
-        stepwise_applied_at: str | None = None,
-        stepwise_z3_check: bool = False,
-        stepwise_layout: str = "auto",
-        stepwise_review_required: list[str] | None = None,
         stepwise_lightweight: bool = False,
         task_note_verified_reads: bool = False,
         max_tool_result_chars: int | None = None,
@@ -293,7 +279,6 @@ class AgentLoop:
         memory_prompt_auto_refresh: bool = False,
         history_context_tokens: int | None = None,
         preserve_user_scope_messages: bool = False,
-        stepwise_request_driven_assist: bool = False,
         dream_model: str | None = None,
         model_provider_factory: Callable[[str, str | None], LLMProvider] | None = None,
     ):
@@ -338,29 +323,10 @@ class AgentLoop:
         self.compact_context = compact_context
         self.context_block_limit = context_block_limit
         self.reasoning_effort = reasoning_effort
-        # Stepwise reasoning ("Genie method") is on only when applied explicitly.
-        self.stepwise_enabled = stepwise_enabled
-        self.stepwise_request_driven_assist = stepwise_request_driven_assist
-        self.stepwise_applied_at = stepwise_applied_at
-        self.stepwise_z3_check = stepwise_z3_check
-        self.stepwise_layout = stepwise_layout
-        self.stepwise_review_required = list(stepwise_review_required or [])
         self.stepwise_lightweight = stepwise_lightweight
         self.task_note_verified_reads = task_note_verified_reads
         if stepwise_lightweight:
             logger.info("Lightweight task evidence enabled for workspace {}", workspace)
-        if stepwise_enabled:
-            logger.info(
-                "Stepwise reasoning (Genie method) is applied to this agent "
-                "(applied {}, layout {}); check with `nanobot stepwise status`",
-                stepwise_applied_at or "unknown",
-                stepwise_layout,
-            )
-        elif reasoning_effort and reasoning_effort.lower() == "none":
-            logger.warning(
-                "reasoningEffort is 'none' but stepwise reasoning is not applied; it no longer "
-                "turns on by itself. Apply it with `nanobot stepwise apply --config <config>`"
-            )
         self.max_tool_result_chars = (
             max_tool_result_chars
             if max_tool_result_chars is not None
@@ -390,20 +356,7 @@ class AgentLoop:
         )
         self._start_time = time.time()
         self._last_usage: dict[str, int] = {}
-        self.workflow_enabled = bool(getattr(_tc.workflow, "enabled", False))
-        self.workflow_service = (
-            WorkflowService(
-                workspace=workspace,
-                provider_loader=lambda: self.provider,
-                bus=bus,
-                sync_wait_seconds=int(getattr(_tc.workflow, "sync_wait_seconds", 60)),
-            )
-            if self.workflow_enabled
-            else None
-        )
         self._extra_hooks: list[AgentHook] = [*(hooks or [])]
-        if self.workflow_enabled:
-            self._extra_hooks.append(WorkflowDeliveryHook())
 
         self.hot_path_skills = list(dict.fromkeys(hot_path_skills or []))
         self.proactive_skill_cards = (
@@ -585,12 +538,6 @@ class AgentLoop:
             memory_prompt_tokens=defaults.memory_prompt_tokens,
             memory_prompt_auto_refresh=defaults.memory_prompt_auto_refresh,
             reasoning_effort=getattr(resolved, "reasoning_effort", None) or defaults.reasoning_effort,
-            stepwise_enabled=defaults.stepwise.enabled,
-            stepwise_request_driven_assist=defaults.stepwise.request_driven_assist,
-            stepwise_applied_at=defaults.stepwise.applied_at,
-            stepwise_z3_check=defaults.stepwise.z3_check,
-            stepwise_layout=defaults.stepwise.layout,
-            stepwise_review_required=defaults.stepwise.review_required,
             stepwise_lightweight=defaults.stepwise.lightweight,
             task_note_verified_reads=defaults.stepwise.verified_read_summary,
             max_tool_result_chars=defaults.max_tool_result_chars,
@@ -725,8 +672,6 @@ class AgentLoop:
             workspace_sandbox=self.workspace_scopes.sandbox_status,
             runtime_events=self.runtime_events,
             student_mode=self.student_mode_config,
-            workflow_service=self.workflow_service if self.workflow_enabled else None,
-            workflow_registry=self.tools if self.workflow_enabled else None,
         )
         loader = ToolLoader()
         registered = loader.load(ctx, self.tools)
@@ -1291,7 +1236,6 @@ class AgentLoop:
                 and metadata.get("internal_continuation")
             )
         )
-        clear_workflow_turn_delivery()
         from nanobot.agent.context_trace import active_context_trace
         trace_token = active_context_trace.set(selected_context.trace if selected_context else None)
         if selected_context:
@@ -1378,8 +1322,6 @@ class AgentLoop:
         """Run the agent loop, dispatching messages as tasks to stay responsive to /stop."""
         self._running = True
         try:
-            if self.workflow_service is not None:
-                await self.workflow_service.start()
             await self._connect_mcp()
             logger.info("Agent loop started")
 
@@ -1488,8 +1430,6 @@ class AgentLoop:
                     # One message's inline handling must not end the loop (and the gateway with it).
                     logger.exception("Error routing inbound message, continuing...")
         finally:
-            if self.workflow_service is not None:
-                await self.workflow_service.stop()
             # MCP stdio transports use AnyIO cancel scopes; close them from the task that opened them.
             await self.close_mcp()
 
@@ -1661,8 +1601,6 @@ class AgentLoop:
         """Drain pending background archives, then close MCP connections."""
         if self.context.memory_prompt.refresher is not None:
             await self.context.memory_prompt.refresher.close()
-        if self.workflow_service is not None:
-            await self.workflow_service.stop()
         if self._background_tasks:
             await asyncio.gather(*self._background_tasks, return_exceptions=True)
             self._background_tasks.clear()
@@ -2248,7 +2186,7 @@ class AgentLoop:
             ctx.pending_summary,
             include_memory_recent_history=not ctx.ephemeral,
         )
-        if (self.compact_context and not ctx.ephemeral and not self._stepwise_enabled()
+        if (self.compact_context and not ctx.ephemeral
                 and ctx.msg.sender_id != "subagent"):
             from nanobot.agent.compact_context import CompactTools
             scope = self.workspace_scopes.for_message(ctx.msg, ctx.session.metadata)
@@ -2413,86 +2351,6 @@ class AgentLoop:
             return text.split(marker, 1)[0].strip()
         return text
 
-    @staticmethod
-    def _is_direct_request(content: str) -> bool:
-        text = content.strip().lower()
-        markers = ("날씨", "몇 시", "번역", "hello", "안녕")
-        return len(text) <= 40 and any(marker in text for marker in markers)
-
-    def _stepwise_enabled(self) -> bool:
-        # Explicit only (`nanobot stepwise apply`); reasoningEffort no longer implies it.
-        return bool(getattr(self, "stepwise_enabled", False))
-
-    def _stepwise_sessions(self) -> ReasoningSessions:
-        sessions = getattr(self, "_reasoning_sessions", None)
-        if sessions is None:
-            sessions = ReasoningSessions(workspace=self.workspace)
-            self._reasoning_sessions = sessions
-        return sessions
-
-    async def _run_stepwise(self, ctx: TurnContext) -> bool:
-        """Run the code-controlled stepwise procedure. False hands the turn to the normal loop."""
-
-        chosen = ctx.model or self.model
-        provider = ctx.provider or self.provider
-        if ctx.visible_run_started_at is None:
-            ctx.visible_run_started_at = time.time()
-        await self._runtime_events().run_status_changed(
-            ctx.msg,
-            ctx.session_key,
-            "running",
-            started_at=ctx.visible_run_started_at,
-        )
-        # Design 1: check reasoning-off support before running and say so when unsupported.
-        notice = reasoning_mode_notice(provider, chosen)
-        notified: set[str] | None = getattr(self, "_reasoning_notice_sessions", None)
-        if notified is None:
-            notified = set()
-            self._reasoning_notice_sessions = notified
-        prefix = ""
-        if notice and ctx.session_key not in notified:
-            notified.add(ctx.session_key)
-            if ctx.on_progress is not None:
-                await ctx.on_progress(notice, tool_hint=False)
-            else:
-                prefix = notice + "\n\n"
-        case = await run_reasoning_procedure(
-            provider,
-            model=chosen,
-            request=ctx.msg.content,
-            workspace=self.workspace,
-            on_progress=ctx.on_progress,
-            conversation=recent_conversation(ctx.initial_messages),
-            sessions=self._stepwise_sessions(),
-            session_key=ctx.session_key,
-            z3_check=getattr(self, "stepwise_z3_check", False),
-            layout=getattr(self, "stepwise_layout", "auto"),
-            review_required=tuple(getattr(self, "stepwise_review_required", ())),
-        )
-        if case.status == "direct":
-            if case.request != ctx.msg.content:
-                # The normal tool loop otherwise sees only 'continue', losing the concrete target.
-                ctx.initial_messages = list(ctx.initial_messages)
-                ctx.initial_messages.append({
-                    "role": "user",
-                    "content": f"[계속할 원래 요청]\n{case.request}\n\n[현재 요청]\n{ctx.msg.content}",
-                })
-            if case.path == "fallback" and ctx.on_progress is not None and case.stop_reason:
-                await ctx.on_progress(case.stop_reason, tool_hint=False)
-            return False
-        ctx.final_content = prefix + user_reply(case)
-        # Nothing was streamed on this path. With on_stream set the reply would be
-        # marked StreamedResponseEvent, which channels treat as already delivered,
-        # and the final answer would never be sent.
-        ctx.on_stream = None
-        ctx.tools_used = []
-        ctx.all_messages = list(ctx.initial_messages) + [
-            {"role": "assistant", "content": ctx.final_content}
-        ]
-        ctx.stop_reason = "completed" if case.status == "completed" else case.status
-        ctx.had_injections = False
-        return True
-
     async def _state_run(self, ctx: TurnContext) -> str:
         if ctx.selected_context and not ctx.selected_context.legacy_fallback:
             selected = ctx.selected_context
@@ -2517,38 +2375,6 @@ class AgentLoop:
                 ctx.all_messages = [*ctx.initial_messages,
                                     {"role": "assistant", "content": ctx.final_content}]
                 return "ok"
-        assist_enabled = (
-            not ctx.selected_context and self._stepwise_enabled()
-            and getattr(self, "stepwise_request_driven_assist", False)
-        )
-        if assist_enabled:
-            from nanobot.reasoning.agent_tool import ReasoningAssistTool
-            from nanobot.reasoning.bridge import is_explicit_continuation
-
-            # Restore only an explicitly continued unfinished task; no routing call.
-            prior = self._stepwise_sessions().get(ctx.session_key)
-            if (prior is not None and prior[0].status in {"incomplete", "waiting_info"}
-                    and is_explicit_continuation(ctx.msg.content)):
-                ctx.initial_messages = list(ctx.initial_messages) + [{
-                    "role": "user",
-                    "content": f"[계속할 원래 요청]\n{prior[0].request}\n\n[현재 요청]\n{ctx.msg.content}",
-                }]
-            # Turn-local registry: do not widen disabled agents or caller tool allowlists.
-            if ctx.tools is None:
-                tools = ToolRegistry()
-                base_tools = getattr(self, "tools", None)
-                for name in base_tools.tool_names if base_tools is not None else ():
-                    tools.register(base_tools.get(name))
-                tools.register(ReasoningAssistTool(self, ctx, time.monotonic()))
-                ctx.tools = tools
-        if (
-            not assist_enabled
-            and not ctx.selected_context
-            and self._stepwise_enabled()
-            and not self._is_direct_request(ctx.msg.content)
-            and await self._run_stepwise(ctx)
-        ):
-            return "ok"
         if ctx.visible_run_started_at is None:
             ctx.visible_run_started_at = time.time()
         await self._runtime_events().run_status_changed(

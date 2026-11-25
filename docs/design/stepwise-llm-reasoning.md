@@ -1,3 +1,5 @@
+> **구현 삭제됨 (2026-11-25).** 이 문서가 설명하는 `nanobot/reasoning/` 패키지와 `nanobot stepwise` 명령은 코드에서 삭제되었습니다. 설정의 `stepwise.lightweight`(task note)만 남아 있고, 나머지 `stepwise.*` 키는 무시됩니다. 아래 내용은 설계와 실험의 기록입니다.
+
 # 코드 주축 단계별 LLM 추론 시스템 통합 설계서 v3.4
 
 동적 절차 생성·즉시 실행·실행 중 변경 통합

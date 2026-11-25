@@ -225,7 +225,7 @@ _HOSTED_TOOLS_ENABLED: ContextVar[bool] = ContextVar("nanobot_hosted_tools_enabl
 def hosted_tools_disabled():
     """Within this block, providers must not attach server-side (hosted) tools.
 
-    Used by calls whose tool scope is fixed by code, e.g. stepwise reasoning stages.
+    Used by calls whose tool scope is fixed by code, e.g. a fixed internal step.
     """
     token = _HOSTED_TOOLS_ENABLED.set(False)
     try:
