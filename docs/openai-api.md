@@ -14,10 +14,12 @@ For setup help, see [`quick-start.md`](./quick-start.md), [`providers.md`](./pro
 
 ## Authentication
 
-Local-only `127.0.0.1` usage does not require an API key. If you bind the API
-server to all interfaces with `api.host: "0.0.0.0"` or `"::"`, nanobot requires
-`api.apiKey`; otherwise startup fails to avoid exposing an unauthenticated agent
-endpoint on the network.
+Local-only usage (`localhost`, `127.0.0.1`, `::1`, any `127.0.0.0/8` address) does
+not require an API key. For any other `api.host`, nanobot requires `api.apiKey`;
+otherwise startup fails to avoid exposing an unauthenticated agent endpoint on the
+network. That includes `"0.0.0.0"`, `"::"`, `"0"`, an empty value, LAN addresses
+such as `192.168.0.10`, and host names. `nanobot serve --host ...` is checked the
+same way, so overriding the host on the command line cannot skip the check.
 
 ```json
 {

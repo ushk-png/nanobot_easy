@@ -166,7 +166,8 @@ permission, the notice and `codewhale status` say the work was not done even if 
 code is 0.
 
 `codewhale` is off by default (`tools.codewhale.enable=false`) and is registered per
-instance. It runs `codewhale exec --auto` detached; see
+instance. It runs `codewhale exec --auto` detached, one run per conversation and one per
+workspace, under the same `tools.exec` deny/sandbox/PATH/env settings as `exec`; see
 [`configuration.md#codewhale-tool`](./configuration.md#codewhale-tool). The model-facing
 guidance in `templates/agent/tool_contract.md` prefers it for code edits only when the tool
 is registered.
@@ -259,7 +260,7 @@ The default prompt is kept small (`agents.defaults.compactContext=true`,
 |---|---|---|
 | Deferred tools | `agent/compact_context.py` | Execution tutorials and tool schemas load on `activate_tools`; the names a turn activated seed the next turn so the system message does not change mid-turn |
 | Tool-group guidance | `agent/tool_guidance.py` | Only the guidance of the selected built-in tool groups is composed; an unclassified tool loads everything |
-| Bounded memory summary | `agent/memory_prompt.py`, `agent/memory_prompt_refresh.py` | A reviewed summary of `MEMORY.md` replaces the raw file; a missing, damaged or over-budget snapshot falls back to the raw file with a warning |
+| Bounded memory summary | `agent/memory_prompt.py`, `agent/memory_prompt_refresh.py` | A reviewed summary of `MEMORY.md` replaces the raw file only when it is actually smaller: a literal copy of the memory is served as the raw text without the "condensed" notice, and a snapshot that is not smaller than the raw file is ignored quietly. A missing, damaged or over-budget snapshot falls back to the raw file with a warning |
 | Usage measurement | `providers/usage_ledger.py` | One content-free line per provider attempt; `NANOBOT_DEBUG_CACHE_FINGERPRINT=1` adds structural hashes for cache-miss diagnosis |
 
 Details and tradeoffs: [`design/compact-context.md`](./design/compact-context.md),

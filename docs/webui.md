@@ -298,8 +298,10 @@ channel to all interfaces and set a token or token issue secret:
 }
 ```
 
-The gateway refuses to start with `host` set to `"0.0.0.0"` unless `token` or
-`tokenIssueSecret` is configured. After the gateway starts, open
+The gateway refuses to start with any `host` other than `localhost` or a loopback
+address (`127.0.0.0/8`, `::1`) unless `token` or `tokenIssueSecret` is configured.
+That covers `"0.0.0.0"`, `"::"`, `"0"`, an empty value, LAN addresses such as
+`192.168.0.10`, and host names. After the gateway starts, open
 `http://<your-ip>:8765` from the other device and enter the secret in the login
 form.
 

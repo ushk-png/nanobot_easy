@@ -160,13 +160,33 @@
 추가하지 않는다. `refresh_status`는 내용 없이 단계·실패 코드·토큰 추정·검토 결과와
 문제 개수만 보여준다. 실패한 기존 검토본 복사는 새 후보로 표시하지 않는다.
 
+자동 갱신이 미뤄지면 `refresh_status.reason`과 `Memory prompt refresh deferred` 경고에
+기억 내용 없는 사유 코드가 남는다. 예상하지 못한 예외는 예외 클래스 이름만 남는다.
+
+| 사유 코드 | 의미 |
+|---|---|
+| `path_outside_workspace` | 원문·스냅샷·잠금 경로가 작업공간 밖이거나 심볼릭 링크 |
+| `source_not_regular_file` | `MEMORY.md`가 일반 파일이 아님 |
+| `source_empty_or_too_large` | 원문이 비었거나 자동 갱신 상한을 넘음 |
+| `snapshot_not_regular_file` | 스냅샷 경로에 일반 파일이 아닌 것이 있음 |
+| `snapshot_too_large` | 기존 스냅샷이 크기 상한을 넘음 |
+| `candidate_too_large` | 새 후보 파일이 크기 상한을 넘음 |
+| `changed_during_refresh` | 갱신하는 동안 원문이나 스냅샷이 바뀌어 작업을 버림 |
+
+이 사유 값을 `ValueError`로 찾는 외부 스크립트가 있으면 위 코드로 바꿔야 한다.
+
+현재 스냅샷이 원문과 글자까지 같은 복사본이면 요약이 아니므로 "condensed" 안내 없이
+원문 그대로, 원문과 같은 토큰 수로 제공한다(`status.lossless_copy=true`). 요약이 원문보다
+작지 않으면 조용히 원문을 쓰며(`mode=raw`, `reason=snapshot_not_smaller`) 경고와 갱신 요청을
+만들지 않는다.
+
 자동 갱신에서 예산·품질 검사를 소진하거나 응답이 잘리면 같은 원문·예산·모델로 5분마다
 반복 생성하지 않는다. 원문·예산·모델이 바뀌면 다시 시도하며, 운영자가 명시적으로
 실행하는 새 스테이징과 프로세스 재시작도 재시도가 가능하다. 네트워크 오류·잠금·시간
 초과에는 기존 5분 대기를 유지한다. 그동안 채팅은 중단하지 않고 현재 원문을 사용한다.
 
 `BoundedMemoryPrompt.status`는 매 문맥 생성마다 현재 입력 추정치를 갱신하며
-`counts`에 `builds`, `snapshot_builds`, `fallback_builds`, `off_builds`,
+`counts`에 `builds`, `snapshot_builds`, `fallback_builds`, `raw_builds`, `off_builds`,
 `fallback_input_tokens_est`를 누적한다. 이는 **프로세스 내 문맥 생성 횟수**이며
 사용자 턴 수나 제공자 호출 수가 아니다. 25회마다 `Bounded memory usage` 합계 로그를
 남긴다. 두 요약 사이 카운터 차이로 문맥 생성 중 원문 대체 비율을 계산한다.

@@ -1314,7 +1314,10 @@ full file: a background job generates the summary and has a second model call
 review it for faithfulness before it is used, with no human approval step
 required. A damaged, missing, over-budget or inaccessible snapshot falls back
 to loading the raw `MEMORY.md` with a warning; it never blocks the turn or
-truncates memory. Set `memoryPromptTokens` to `0` to turn this off entirely.
+truncates memory. A summary that is a literal copy of `MEMORY.md` is served as
+the raw text, with no "condensed" notice and no extra tokens, and a summary that
+is not smaller than the raw file is not used (no warning and no refresh request,
+because the snapshot is current). Set `memoryPromptTokens` to `0` to turn this off entirely.
 See [`scripts/improvement_eval/BOUNDED_MEMORY.md`](../scripts/improvement_eval/BOUNDED_MEMORY.md)
 for the manual review path (`scripts/core_memory_ops.py`) and operational detail.
 
@@ -1667,7 +1670,7 @@ If you want to disable them, which removes both `web_search` and `web_fetch` fro
 }
 ```
 
-nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
+nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. It also blocks every address that is not globally routable: the unspecified address (`::`, `0.0.0.0`), multicast, reserved ranges, benchmarking (`198.18.0.0/15`), IETF protocol assignments (`192.0.0.0/24`), Teredo (`2001::/32`) and local-use NAT64 (`64:ff9b:1::/48`). An IPv4 address carried inside an IPv6 address (IPv4-mapped, IPv4-compatible, NAT64 `64:ff9b::/96` or 6to4 `2002::/16`) is checked as that IPv4 address, so `64:ff9b::a9fe:a9fe` is blocked like `169.254.169.254`. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
 
 ```json
 {
@@ -1677,7 +1680,7 @@ nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP conne
 }
 ```
 
-Keep whitelist entries as narrow as possible, such as a single host CIDR (`192.168.1.50/32`). The whitelist is global for the shared SSRF guard; it is not limited to one tool or one MCP server.
+Keep whitelist entries as narrow as possible, such as a single host CIDR (`192.168.1.50/32`). The whitelist is global for the shared SSRF guard; it is not limited to one tool or one MCP server. An entry also applies to an IPv4 address embedded in an IPv6 address, so whitelisting `100.64.0.0/10` allows `64:ff9b::6440:1` too. Any other private or special range that your service uses (for example `198.18.0.0/15`) has to be listed here the same way.
 
 HTTP/SSE MCP connections use the same process-wide proxy environment behavior as `web_fetch`: proxied targets use the configured proxy, and URLs excluded by `NO_PROXY` remain DNS-pinned direct connections.
 
@@ -2560,8 +2563,18 @@ needs a Codewhale binary and a model backend for it.
 How a run behaves:
 
 - `action=run` starts `codewhale exec` detached and returns a `job_id`; `action=status` shows
-  its state and log tail. A second `run` while one is still going is refused. A stopped run is
-  resumed with its `session_id`.
+  its state and log tail. A stopped run is resumed with its `session_id`.
+- One run at a time per conversation, and one run per workspace across conversations. A second
+  `run` from the same conversation is refused in any workspace, and the error names the running
+  job. A `run` from another conversation is refused only when the running job uses the same
+  workspace (its `-C` directory); that error does not reveal the other conversation's job id.
+  A job whose workspace cannot be read from its command line is never treated as the same workspace.
+- Codewhale runs through the same `exec` protections as the plain `exec` tool: the
+  `tools.exec` `denyPatterns`, `sandbox`, `pathPrepend`, `pathAppend` and `allowedEnvKeys`
+  settings apply to it. `tools.exec.allowPatterns` is not applied, because an allow-list never
+  names `codewhale ...` and would block every run. The command line contains your prompt, so a
+  deny pattern can also match words in the prompt. `tools.exec.sandbox` is separate from
+  `tools.codewhale.sandbox`, which is Codewhale's own `--sandbox` policy.
 - A `codewhale exec ...` typed into the plain `exec` tool is detached the same way.
 - When the run ends on its own, the agent that started it gets a completion notice and reports
   the outcome without being asked (see [Background jobs](./architecture.md#background-jobs-and-coding-runs)).

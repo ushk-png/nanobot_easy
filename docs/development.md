@@ -48,6 +48,33 @@ comparison, use the following protocol:
    aggregate success rates. Include failures and timeouts. Do not claim an
    improvement from prompt-loading tests or answer quality scores alone.
 
+## Running Tests Offline and Token Estimates
+
+Some tests count tokens with the real `cl100k_base` encoding, which `tiktoken`
+downloads on first use. Without network access and without a cached copy, those tests
+cannot run. Cache the encoding once on a machine that is online and point
+`TIKTOKEN_CACHE_DIR` at it:
+
+```bash
+TIKTOKEN_CACHE_DIR=/path/to/tiktoken-cache pytest
+```
+
+Tests that need the real encoding carry `@pytest.mark.requires_tiktoken_encoding`
+(registered in `tests/conftest.py`). The marker tries to load the encoding once and
+skips those tests when it cannot be loaded; with network access or a cache they run
+normally. `tests/eval/test_real_eval_harness.py` builds its case lists with the same
+encoding at import time, so offline without a cache the whole module is skipped instead
+of breaking test collection. Any other import error in that module still fails. That
+module is also skipped when `.local/config.testy.json` does not exist.
+
+At runtime, `estimate_prompt_tokens()` no longer returns `0` when the encoding cannot be
+loaded. It falls back to a character estimate: about 4 ASCII characters per token, about
+0.9 token per non-ASCII character (so Korean and Japanese are not undercounted), plus 4
+tokens of framing per message, and it logs one warning per process. In
+`estimate_prompt_tokens_chain()` that estimate is reported with the source
+`char_estimate` instead of `tiktoken`. It is an approximation: code and symbol-heavy
+text can still be undercounted, so keep the usual safety buffers.
+
 ## Adding an LLM Provider
 
 nanobot uses the provider registry in `nanobot/providers/registry.py` as the source of truth for LLM provider metadata. Most OpenAI-compatible providers need only two changes.

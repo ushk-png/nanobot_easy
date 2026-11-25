@@ -585,6 +585,8 @@ Use inline fallback objects only when a model is not worth naming as a preset:
 
 `fallbackModels` belongs under `agents.defaults`, not inside each preset. If fallback candidates use smaller context windows, nanobot builds context using the smallest window in the active chain so every candidate can receive the same prompt. See [`configuration.md#model-fallbacks`](./configuration.md#model-fallbacks) for failure conditions.
 
+A task's request and token budget (`TaskBudget`, used by flows that cap one task's model calls) counts only the sends that actually reach a provider. The fallback wrapper itself is not counted: a primary call that succeeds uses one send, and a failed primary followed by a successful fallback uses two. If the budget is already exhausted, no fallback is tried. A new provider that wraps or routes to other providers must set `counts_task_budget = False`, otherwise every call is counted twice.
+
 ## Quick Checks
 
 Run these before debugging a chat app:
