@@ -428,12 +428,14 @@ class ApiConfig(Base):
 
     @model_validator(mode="after")
     def wildcard_host_requires_auth(self) -> "ApiConfig":
-        if self.host not in ("0.0.0.0", "::"):
+        from nanobot.security.network import host_is_loopback_only
+
+        if host_is_loopback_only(self.host):
             return self
         if self.api_key.strip():
             return self
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but api_key is not set "
+            f"host is {self.host!r} (not loopback-only) but api_key is not set "
             "- set api.api_key to prevent unauthenticated access"
         )
 

@@ -1140,9 +1140,11 @@ def serve(
     port = port if port is not None else api_cfg.port
     timeout = timeout if timeout is not None else api_cfg.timeout
     api_key = api_cfg.api_key.strip() if api_cfg.api_key else ""
-    if host in {"0.0.0.0", "::"} and not api_key:
+    from nanobot.security.network import host_is_loopback_only
+
+    if not host_is_loopback_only(host) and not api_key:
         console.print(
-            "[red]Error: host is 0.0.0.0 (all interfaces) but api_key is not set. "
+            f"[red]Error: host is {host!r} (not loopback-only) but api_key is not set. "
             "Set api.api_key in config to prevent unauthenticated access.[/red]"
         )
         raise typer.Exit(1)
@@ -1494,9 +1496,8 @@ def _run_gateway(
                 )
                 # Ground truth: the real file delta, not the LLM's self-report.
                 diff_body = store.dream_content_diff()
-                productive = bool(diff_body) or (
-                    not store.git.is_initialized()
-                    and MemoryStore.dream_run_completed(resp)
+                productive = store.dream_cursor_should_advance(
+                    diff_body, MemoryStore.dream_run_completed(resp), last_cursor,
                 )
                 if productive:
                     store.set_last_dream_cursor(last_cursor)

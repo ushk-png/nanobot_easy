@@ -2937,3 +2937,114 @@ def test_channels_login_requires_channel_name() -> None:
     result = runner.invoke(app, ["channels", "login"])
 
     assert result.exit_code == 2
+
+
+def test_serve_rejects_lan_host_without_api_key(monkeypatch, tmp_path: Path) -> None:
+    config_file = _write_instance_config(tmp_path)
+    config = Config()
+    seen: dict[str, object] = {}
+
+    _patch_serve_runtime(monkeypatch, config, seen)
+
+    result = runner.invoke(app, ["serve", "--config", str(config_file), "--host", "192.168.0.10"])
+
+    assert result.exit_code == 1
+    assert "api_key is not set" in result.stdout
+    assert "api_app" not in seen
+
+
+def _capture_gateway_cron(monkeypatch, tmp_path: Path, memory, stop_reason: str = "completed"):
+    """Start the gateway far enough to capture its cron callback, with a real MemoryStore."""
+    config_file = tmp_path / "instance" / "config.json"
+    config_file.parent.mkdir(parents=True)
+    config_file.write_text("{}")
+    config = Config()
+    config.agents.defaults.workspace = str(tmp_path / "config-workspace")
+    provider = _fake_provider()
+    bus = MagicMock()
+    bus.publish_outbound = AsyncMock()
+    seen: dict[str, object] = {}
+
+    monkeypatch.setattr("nanobot.config.loader.set_config_path", lambda _path: None)
+    monkeypatch.setattr("nanobot.config.loader.load_config", lambda _path=None: config)
+    monkeypatch.setattr("nanobot.cli.commands.sync_workspace_templates", lambda _path: None)
+    monkeypatch.setattr("nanobot.providers.factory.make_provider", lambda _config: provider)
+    monkeypatch.setattr(
+        "nanobot.providers.factory.build_provider_snapshot",
+        lambda _config: _test_provider_snapshot(provider, _config),
+    )
+    monkeypatch.setattr(
+        "nanobot.providers.factory.load_provider_snapshot",
+        lambda _config_path=None: _test_provider_snapshot(provider, config),
+    )
+    monkeypatch.setattr("nanobot.bus.queue.MessageBus", lambda: bus)
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+
+    class _FakeSessionManager:
+        def __init__(self, _workspace: Path) -> None:
+            self.sessions_dir = sessions_dir
+
+    monkeypatch.setattr("nanobot.session.manager.SessionManager", _FakeSessionManager)
+
+    class _FakeCron:
+        def __init__(self, _store_path: Path) -> None:
+            self.on_job = None
+            seen["cron"] = self
+
+    class _FakeAgentLoop:
+        @classmethod
+        def from_config(cls, config, bus=None, **extra):
+            return cls(**extra)
+
+        def __init__(self, *args, **kwargs) -> None:
+            self.model = "test-model"
+            self.provider = kwargs.get("provider", object())
+            self.tools = {}
+            self.context = SimpleNamespace(memory=memory)
+            self.sessions = SimpleNamespace(sessions_dir=sessions_dir)
+
+        async def process_direct(self, *_args, **_kwargs):
+            return OutboundMessage(
+                channel="cli", chat_id="direct", content="done",
+                metadata={"_stop_reason": stop_reason},
+            )
+
+        async def close_mcp(self) -> None:
+            return None
+
+        async def run(self) -> None:
+            return None
+
+        def stop(self) -> None:
+            return None
+
+    class _StopAfterCronSetup:
+        def __init__(self, *_args, **_kwargs) -> None:
+            raise _StopGatewayError("stop")
+
+    monkeypatch.setattr("nanobot.cron.service.CronService", _FakeCron)
+    monkeypatch.setattr("nanobot.cli.commands.AgentLoop", _FakeAgentLoop)
+    monkeypatch.setattr("nanobot.channels.manager.ChannelManager", _StopAfterCronSetup)
+    result = runner.invoke(app, ["gateway", "--config", str(config_file)])
+    assert isinstance(result.exception, _StopGatewayError)
+    return seen["cron"]
+
+
+@pytest.mark.parametrize(("stop_reason", "expected_after_two"), [("completed", 3), ("timeout", 0)])
+def test_gateway_dream_cron_git_noop_advances_on_second_run(
+    monkeypatch, tmp_path: Path, stop_reason: str, expected_after_two: int,
+) -> None:
+    from nanobot.agent.memory import MemoryStore
+
+    memory = MemoryStore(tmp_path / "ws")
+    assert memory.git.init()
+    for i in range(3):
+        memory.append_history(f"synthetic entry {i}")
+    cron = _capture_gateway_cron(monkeypatch, tmp_path, memory, stop_reason)
+    job = CronJob(id="dream", name="dream", payload=CronPayload(message=""))
+
+    asyncio.run(cron.on_job(job))
+    assert memory.get_last_dream_cursor() == 0
+    asyncio.run(cron.on_job(job))
+    assert memory.get_last_dream_cursor() == expected_after_two

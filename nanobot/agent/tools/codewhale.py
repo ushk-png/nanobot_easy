@@ -12,6 +12,7 @@ from typing import Any
 from pydantic import Field
 
 from nanobot.agent.tools.base import Tool, ToolResult, tool_parameters
+from nanobot.agent.tools.context import current_request_session_key
 from nanobot.agent.tools.exec_job import (
     DEFAULT_EXEC_JOB_MANAGER,
     ExecJobManager,
@@ -117,6 +118,13 @@ def build_codewhale_command(
     return " ".join(parts)
 
 
+def _same_path_key(path: str) -> str | None:
+    try:
+        return str(Path(path).expanduser().resolve(strict=False))
+    except (OSError, RuntimeError, ValueError):
+        return None
+
+
 def _annotate(result: ToolResult, note: str) -> ToolResult:
     updated = ToolResult(f"{result}\n{note}", is_error=result.is_error)
     for name in ("execution_target", "job_evidence"):
@@ -172,6 +180,7 @@ class CodewhaleTool(Tool):
     @classmethod
     def create(cls, ctx: Any) -> Tool:
         cfg = ctx.config.codewhale
+        exec_cfg = getattr(ctx.config, "exec", None)
         return cls(
             workspace=Path(ctx.workspace),
             binary=cfg.binary,
@@ -182,6 +191,11 @@ class CodewhaleTool(Tool):
             webui_allow_local_service_access=bool(
                 getattr(ctx.config, "webui_allow_local_service_access", True)
             ),
+            exec_deny_patterns=list(getattr(exec_cfg, "deny_patterns", None) or []),
+            exec_sandbox=getattr(exec_cfg, "sandbox", "") or "",
+            exec_path_prepend=getattr(exec_cfg, "path_prepend", "") or "",
+            exec_path_append=getattr(exec_cfg, "path_append", "") or "",
+            exec_allowed_env_keys=list(getattr(exec_cfg, "allowed_env_keys", None) or []),
         )
 
     def __init__(
@@ -195,8 +209,20 @@ class CodewhaleTool(Tool):
         job_manager: ExecJobManager | None = None,
         auto_approve: bool = True,
         sandbox: str = "",
+        exec_deny_patterns: list[str] | None = None,
+        exec_sandbox: str = "",
+        exec_path_prepend: str = "",
+        exec_path_append: str = "",
+        exec_allowed_env_keys: list[str] | None = None,
     ) -> None:
         self.auto_approve = auto_approve
+        # Operator exec protections (config.exec). exec_sandbox is the exec tool's sandbox,
+        # unrelated to Codewhale's own --sandbox policy in `sandbox`.
+        self.exec_deny_patterns = list(exec_deny_patterns or [])
+        self.exec_sandbox = exec_sandbox
+        self.exec_path_prepend = exec_path_prepend
+        self.exec_path_append = exec_path_append
+        self.exec_allowed_env_keys = list(exec_allowed_env_keys or [])
         # An agent confined to its workspace must not hand Codewhale a shell without a sandbox.
         self.sandbox = sandbox or ("workspace-write" if restrict_to_workspace and auto_approve else "")
         self.workspace = Path(workspace)
@@ -229,16 +255,48 @@ class CodewhaleTool(Tool):
             return None
         return shutil.which("codewhale")
 
-    def _running_job_id(self) -> str | None:
-        for job in self._manager.list():
+    def _running_codewhale_jobs(self) -> list[tuple[Any, str | None]]:
+        """Running codewhale jobs of every owner, with their `-C` workspace (None when unparsable)."""
+        found = []
+        for job in self._manager.list_all():
             if job.returncode is not None:
                 continue
             try:
                 tokens = shlex.split(job.command)
             except ValueError:
+                tokens = None
+            if tokens is None:
                 tokens = job.command.split()
+                if tokens and Path(tokens[0]).name == "codewhale":
+                    found.append((job, None))  # unparsable: never treated as the same workspace
+                continue
             if tokens and Path(tokens[0]).name == "codewhale":
-                return job.job_id
+                workspace = None
+                if "-C" in tokens[1:]:
+                    index = tokens.index("-C", 1)
+                    if index + 1 < len(tokens):
+                        workspace = tokens[index + 1]
+                found.append((job, workspace))
+        return found
+
+    def _running_job_id(self) -> str | None:
+        """Id of any running codewhale job, whoever owns it."""
+        jobs = self._running_codewhale_jobs()
+        return jobs[0][0].job_id if jobs else None
+
+    def _blocking_job(self, target: str) -> tuple[Any, bool] | None:
+        """A running codewhale job that forbids a new run: (job, owned by this session).
+
+        One run at a time per session (any workspace), and one run per workspace across sessions.
+        """
+        owner = current_request_session_key()
+        target_path = _same_path_key(target)
+        for job, workspace in self._running_codewhale_jobs():
+            if job.owner_session_key == owner:
+                return job, True
+        for job, workspace in self._running_codewhale_jobs():
+            if workspace is not None and target_path is not None and _same_path_key(workspace) == target_path:
+                return job, False
         return None
 
     async def _jobs(self) -> ExecJobTool:
@@ -280,17 +338,21 @@ class CodewhaleTool(Tool):
             return ToolResult.error("Error: run requires a prompt.")
         if session_id and not _SESSION_ID_RE.fullmatch(session_id):
             return ToolResult.error("Error: session_id has unsupported characters.")
-        running = self._running_job_id()
-        if running:
+        target = str(Path(workspace).expanduser()) if workspace else str(self.workspace)
+        blocking = self._blocking_job(target)
+        if blocking is not None:
+            job, own = blocking
+            if not own:
+                # Another session's job: do not reveal its id or log (exec_job owner isolation).
+                return ToolResult.error("Error: 다른 대화에서 같은 작업공간을 수정하는 코드웨일 작업이 실행 중입니다.")
             return ToolResult.error(
-                f"Error: codewhale job {running} is still running. "
+                f"Error: codewhale job {job.job_id} is still running. "
                 "Poll it with action=status. Do not start another run."
             )
         binary = self._resolve_binary()
         if not binary:
             configured = self.binary or "codewhale on PATH"
             return ToolResult.error(f"Error: Codewhale binary is not executable: {configured}")
-        target = str(Path(workspace).expanduser()) if workspace else str(self.workspace)
         try:
             command = build_codewhale_command(
                 binary, target, prompt.strip(), session_id, auto=self.auto_approve, sandbox=self.sandbox,
@@ -299,6 +361,8 @@ class CodewhaleTool(Tool):
             return ToolResult.error(f"Error: {exc}")
         from nanobot.agent.tools.shell import ExecTool
 
+        # allow_patterns are deliberately not passed: an exec allow-list never names `codewhale ...`,
+        # so it would block every run instead of narrowing it.
         runner = ExecTool(
             working_dir=str(self.workspace),
             timeout=60,
@@ -306,6 +370,11 @@ class CodewhaleTool(Tool):
             restrict_to_workspace=self.restrict_to_workspace,
             webui_allow_local_service_access=self.webui_allow_local_service_access,
             job_manager=self._manager,
+            deny_patterns=self.exec_deny_patterns,
+            sandbox=self.exec_sandbox,
+            path_prepend=self.exec_path_prepend,
+            path_append=self.exec_path_append,
+            allowed_env_keys=self.exec_allowed_env_keys,
         )
         prepared = runner._prepare_command(command, target, background=True)
         if isinstance(prepared, str):

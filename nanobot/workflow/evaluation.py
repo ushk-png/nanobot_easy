@@ -5,7 +5,6 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from nanobot.workflow.executor import WorkflowExecutionResult
-from nanobot.workflow.schema import WorkflowEnvelope
 
 
 @dataclass(slots=True)

@@ -16,8 +16,8 @@ from nanobot.agent.tools.registry import ToolRegistry, is_tool_error_result
 from nanobot.workflow.conditions import ConditionError, evaluate_condition, resolve_path
 from nanobot.workflow.llm_adapter import WorkflowLLMAdapter, WorkflowLLMError
 from nanobot.workflow.schema import WorkflowDefinition, WorkflowEnvelope, WorkflowStep
-from nanobot.workflow.validators import run_validators
 from nanobot.workflow.validator import validate_definition
+from nanobot.workflow.validators import run_validators
 
 _TERMINAL_STATES = {"COMPLETED", "WAITING_USER", "FAILED", "NEEDS_ATTENTION", "CANCELLED"}
 

@@ -14,6 +14,7 @@ from typing import Any
 
 from nanobot.agent.tools.registry import ToolRegistry
 from nanobot.bus.events import OutboundMessage
+from nanobot.workflow.access import WorkflowAccessDenied, ensure_task_access
 from nanobot.workflow.composition import compose_workflow_definition
 from nanobot.workflow.context_builder import build_workflow_context_snapshot
 from nanobot.workflow.delivery import set_workflow_turn_delivery
@@ -22,7 +23,6 @@ from nanobot.workflow.executor import WorkflowExecutor
 from nanobot.workflow.llm_adapter import WorkflowLLMAdapter
 from nanobot.workflow.schema import WorkflowDefinition, WorkflowEnvelope, WorkflowPrincipal
 from nanobot.workflow.store import WorkflowStore
-from nanobot.workflow.access import WorkflowAccessDenied, ensure_task_access
 
 _TERMINAL_STATES = {"COMPLETED", "FAILED", "NEEDS_ATTENTION", "CANCELLED", "WAITING_USER"}
 _LEASE_SECONDS = 300

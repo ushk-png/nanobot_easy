@@ -4,7 +4,6 @@ from __future__ import annotations
 import hashlib
 from contextvars import ContextVar
 from dataclasses import dataclass
-from typing import Any
 
 from nanobot.agent.hook import AgentHook, AgentHookContext
 

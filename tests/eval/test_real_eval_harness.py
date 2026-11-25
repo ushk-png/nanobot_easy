@@ -17,21 +17,37 @@ from types import SimpleNamespace
 import pytest
 
 from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
-from scripts.real_eval import __main__ as cli
-from scripts.real_eval.cases_dev import CASES as DEV
-from scripts.real_eval.cases_final import CASES as FINAL
-from scripts.real_eval.harness import (
-    DEFAULT_CONFIG,
-    Case,
-    Env,
-    classify,
-    collect_manifest,
-    run_case,
-    summarize,
-    tree_hashes,
-    write_materials,
-)
-from scripts.real_eval.judging import Run, Verdict
+
+try:
+    from scripts.real_eval import __main__ as cli
+    from scripts.real_eval.cases_dev import CASES as DEV
+    from scripts.real_eval.cases_final import CASES as FINAL
+    from scripts.real_eval.harness import (
+        DEFAULT_CONFIG,
+        Case,
+        Env,
+        classify,
+        collect_manifest,
+        run_case,
+        summarize,
+        tree_hashes,
+        write_materials,
+    )
+    from scripts.real_eval.judging import Run, Verdict
+except Exception:
+    # The dev/final case lists build their seed histories with the cl100k_base encoding at
+    # import time. Offline without a cached encoding, skip this module instead of breaking
+    # collection; any other import error still fails loudly.
+    import tiktoken
+
+    try:
+        tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        pytest.skip(
+            "needs the cl100k_base tiktoken encoding (offline, no cached copy)",
+            allow_module_level=True,
+        )
+    raise
 
 pytestmark = pytest.mark.skipif(not DEFAULT_CONFIG.is_file(), reason="needs the local testy config")
 

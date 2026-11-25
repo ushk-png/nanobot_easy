@@ -6,11 +6,10 @@ and annotating prompts with the concrete action/tool set visible to this turn.
 """
 from __future__ import annotations
 
-from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any
 
-from nanobot.workflow.schema import WorkflowDefinition, WorkflowStep
+from nanobot.workflow.schema import WorkflowDefinition
 from nanobot.workflow.validator import validate_definition
 
 

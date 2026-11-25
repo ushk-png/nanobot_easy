@@ -51,6 +51,19 @@ class _FakeStore:
     def compact_history(self) -> None:
         self.compact_history_called = True
 
+    # The real advance rule, with its streak state kept in memory instead of a file.
+    dream_cursor_should_advance = MemoryStore.dream_cursor_should_advance
+
+    @property
+    def _git(self):
+        return self.git
+
+    def _read_dream_state(self) -> dict:
+        return dict(getattr(self, "_dream_state", {}))
+
+    def _write_dream_state(self, state: dict) -> None:
+        self._dream_state = dict(state)
+
 
 class _FakeGit:
     def __init__(
@@ -398,3 +411,61 @@ async def test_dream_restore_success_mentions_files_and_followup() -> None:
     assert "- New safety commit: `eeee9999`" in out.content
     assert "- Restored files: `SOUL.md`, `memory/MEMORY.md`" in out.content
     assert "Use `/dream-log eeee9999` to inspect the restore diff." in out.content
+
+
+# ---- item 6: /dream in a git workspace must not repeat the same batch forever --------------------
+
+
+def _real_git_dream_ctx(tmp_path, stop_reason: str = "completed"):
+    store = MemoryStore(tmp_path / "ws")
+    assert store.git.init()
+    for i in range(3):
+        store.append_history(f"synthetic entry {i}")
+
+    async def process_direct(*args, **kwargs):
+        return OutboundMessage(
+            channel="cli", chat_id="direct", content="done",
+            metadata={"_stop_reason": stop_reason},
+        )
+
+    sessions_dir = tmp_path / "sessions"
+    sessions_dir.mkdir()
+    bus = _FakeBus()
+    loop = SimpleNamespace(
+        bus=bus,
+        context=SimpleNamespace(memory=store, timezone="UTC"),
+        sessions=SimpleNamespace(sessions_dir=sessions_dir),
+        process_direct=process_direct,
+    )
+    msg = InboundMessage(channel="cli", sender_id="u1", chat_id="direct", content="/dream")
+    ctx = CommandContext(msg=msg, session=None, key=msg.session_key, raw="/dream", args="", loop=loop)
+    return ctx, store, bus
+
+
+async def _run_dream_and_wait(ctx, bus) -> None:
+    before = len(bus.outbound)
+    await cmd_dream(ctx)  # /dream runs as a background task and replies when done
+    for _ in range(500):
+        if len(bus.outbound) > before:
+            return
+        await asyncio.sleep(0.01)
+    raise AssertionError("/dream did not reply")
+
+
+@pytest.mark.asyncio
+async def test_dream_git_noop_advances_on_second_run(tmp_path) -> None:
+    ctx, store, bus = _real_git_dream_ctx(tmp_path)
+    await _run_dream_and_wait(ctx, bus)
+    assert store.get_last_dream_cursor() == 0
+    assert "no memory changes" in bus.outbound[-1].content
+    await _run_dream_and_wait(ctx, bus)
+    assert store.get_last_dream_cursor() == 3
+
+
+@pytest.mark.asyncio
+async def test_dream_git_incomplete_never_advances(tmp_path) -> None:
+    ctx, store, bus = _real_git_dream_ctx(tmp_path, stop_reason="timeout")
+    for _ in range(3):
+        await _run_dream_and_wait(ctx, bus)
+        assert "did not complete" in bus.outbound[-1].content
+    assert store.get_last_dream_cursor() == 0

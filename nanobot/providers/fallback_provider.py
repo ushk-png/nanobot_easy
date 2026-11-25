@@ -79,6 +79,8 @@ class FallbackProvider(LLMProvider):
 
     # Leaf calls own their attempt records; the routing wrapper is not an API attempt.
     journals_provider_attempts = True
+    # Leaf sends draw from the TaskBudget; counting the wrapper too would halve every cap.
+    counts_task_budget = False
 
     def __init__(
         self,

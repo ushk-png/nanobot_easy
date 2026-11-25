@@ -212,6 +212,7 @@ class TestConsolidatorTokenBudget:
         assert len(captured["history"]) == 160
         assert captured["history"][0]["content"].endswith("msg-0")
 
+    @pytest.mark.requires_tiktoken_encoding
     async def test_replay_window_overflow_is_archived_even_under_token_budget(
         self,
         consolidator,
@@ -927,6 +928,7 @@ class TestArchiveTruncation:
         entry = store.read_unprocessed_history(since_cursor=0)[0]
         assert len(entry["content"]) <= _ARCHIVE_SUMMARY_MAX_CHARS + 50
 
+    @pytest.mark.requires_tiktoken_encoding
     async def test_archive_truncates_via_tiktoken_with_positive_budget(self, consolidator, mock_provider, store):
         """Positive token budget should use tiktoken for precise truncation."""
         consolidator.context_window_tokens = 10_000

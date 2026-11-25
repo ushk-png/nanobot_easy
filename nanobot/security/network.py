@@ -25,8 +25,36 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("fe80::/10"),         # link-local v6
 ]
 
+# Special-purpose ranges blocked even though ipaddress may call them global (item 3).
+_EXTRA_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("198.18.0.0/15"),     # benchmarking
+    ipaddress.ip_network("192.0.0.0/24"),      # IETF protocol assignments
+    ipaddress.ip_network("64:ff9b:1::/48"),    # local-use NAT64
+    ipaddress.ip_network("2001::/32"),         # Teredo
+]
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 _allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+
+
+def host_is_loopback_only(host: str) -> bool:
+    """True only for a bind host that cannot be reached from another machine.
+
+    ``localhost`` (any case) or a literal loopback address (brackets stripped, IPv4-mapped
+    unwrapped). Everything else is False: empty, ``"0"``, unspecified, private or other names.
+    No DNS lookup is made.
+    """
+    value = (host or "").strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if value.lower() == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return _normalize_addr(addr).is_loopback
 
 
 def configure_ssrf_whitelist(cidrs: list[str]) -> None:
@@ -54,11 +82,46 @@ def _normalize_addr(
     return addr
 
 
+def _embedded_ipv4(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """IPv4 carried inside an IPv6 address (compat ::a.b.c.d, NAT64 64:ff9b::/96, 6to4 2002::/16).
+
+    Used only for the safety decision; resolved IPs that get pinned keep their original form.
+    """
+    if not isinstance(addr, ipaddress.IPv6Address):
+        return None
+    if addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    if addr in _NAT64_PREFIX:
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    if addr.sixtofour is not None:
+        return addr.sixtofour
+    if int(addr) >> 32 == 0 and int(addr) > 1:   # IPv4-compatible ::a.b.c.d (not :: or ::1)
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return None
+
+
+def _is_blocked_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (
+        not addr.is_global
+        or addr.is_multicast
+        or addr.is_unspecified
+        or addr.is_reserved
+        or addr.is_loopback
+        or addr.is_link_local
+        or any(addr in net for net in _BLOCKED_NETWORKS)
+        or any(addr in net for net in _EXTRA_BLOCKED_NETWORKS)
+    )
+
+
 def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     normalized = _normalize_addr(addr)
-    if _allowed_networks and any(normalized in net for net in _allowed_networks):
+    # An embedded IPv4 decides on its own: the IPv6 wrapper is only a translation prefix.
+    target = _embedded_ipv4(addr) or normalized
+    if _allowed_networks and any(
+        candidate in net for candidate in (normalized, target) for net in _allowed_networks
+    ):
         return False
-    return any(normalized in net for net in _BLOCKED_NETWORKS)
+    return _is_blocked_address(target)
 
 
 def resolve_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool, str, tuple[str, ...]]:

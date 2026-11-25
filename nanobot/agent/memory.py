@@ -53,6 +53,10 @@ class MemoryStore:
     # durable files are tiny in practice (~5 KB total), but a runaway file must
     # not unbounded the prompt.
     _DREAM_FILE_EMBED_CAP = 8000
+    # In a git workspace a completed Dream run that edits nothing does not advance the
+    # cursor (the audit trail is the real diff). After this many such runs in a row on the
+    # same batch, the cursor advances anyway so newer history is not starved forever.
+    _DREAM_NO_CHANGE_ADVANCE_AFTER = 2
     _INTERNAL_HISTORY_SESSION_PREFIXES = ("cron:", "dream:")
     _INTERNAL_HISTORY_SESSION_KEYS = {"heartbeat"}
     _LEGACY_ENTRY_START_RE = re.compile(r"^\[(\d{4}-\d{2}-\d{2}[^\]]*)\]\s*")
@@ -72,6 +76,9 @@ class MemoryStore:
         self.user_file = workspace / "USER.md"
         self._cursor_file = self.memory_dir / ".cursor"
         self._dream_cursor_file = self.memory_dir / ".dream_cursor"
+        # Small sidecar for the "completed but nothing changed" streak (see
+        # dream_cursor_should_advance). Not git-tracked: it is bookkeeping, not memory.
+        self._dream_state_file = self.memory_dir / ".dream_state.json"
         self._corruption_logged = False  # rate-limit invalid cursor warning
         self._malformed_entry_logged = False  # rate-limit bad history shape warning
         self._oversize_logged = False  # rate-limit oversized-entry warning
@@ -510,6 +517,52 @@ class MemoryStore:
 
     def set_last_dream_cursor(self, cursor: int) -> None:
         self._dream_cursor_file.write_text(str(cursor), encoding="utf-8")
+
+    def _read_dream_state(self) -> dict[str, Any]:
+        try:
+            data = json.loads(self._dream_state_file.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _write_dream_state(self, state: dict[str, Any]) -> None:
+        if not state:
+            self._dream_state_file.unlink(missing_ok=True)
+            return
+        self._dream_state_file.write_text(json.dumps(state), encoding="utf-8")
+
+    def dream_cursor_should_advance(self, diff_body: str, completed: bool, last_cursor: int) -> bool:
+        """Decide whether a finished Dream run may move the cursor to *last_cursor*.
+
+        - A real memory-file delta always advances (the git diff is the ground truth).
+        - Without git there is no diff signal, so a completed run advances.
+        - With git, a completed run that changed nothing advances only after
+          ``_DREAM_NO_CHANGE_ADVANCE_AFTER`` consecutive such runs on the same batch
+          (same *last_cursor*); otherwise the same batch would be re-sent forever.
+        - An incomplete run (timeout, error) never advances and does not count.
+        """
+        if diff_body:
+            self._write_dream_state({})
+            return True
+        if not self._git.is_initialized():
+            return completed
+        if not completed:
+            return False
+        state = self._read_dream_state()
+        streak = 0
+        if state.get("no_change_last_cursor") == last_cursor:
+            with suppress(TypeError, ValueError):
+                streak = int(state.get("no_change_count", 0))
+        streak += 1
+        limit = MemoryStore._DREAM_NO_CHANGE_ADVANCE_AFTER
+        if streak >= limit:
+            self._write_dream_state({})
+            logger.info(
+                "Dream: no changes after {} attempts; cursor advanced to {}", streak, last_cursor,
+            )
+            return True
+        self._write_dream_state({"no_change_last_cursor": last_cursor, "no_change_count": streak})
+        return False
 
     def get_latest_cursor(self) -> int:
         return max(self._next_cursor() - 1, 0)

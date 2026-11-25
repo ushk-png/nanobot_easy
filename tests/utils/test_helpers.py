@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import tiktoken
 
 from nanobot.utils import helpers
@@ -20,6 +21,7 @@ def test_truncate_text_to_tokens_keeps_text_within_budget():
     assert result == text
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_truncate_text_to_tokens_truncates_over_budget():
     enc = tiktoken.get_encoding("cl100k_base")
     text = "word " * 1_000

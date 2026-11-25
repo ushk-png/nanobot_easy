@@ -148,12 +148,14 @@ class WebSocketConfig(Base):
 
     @model_validator(mode="after")
     def wildcard_host_requires_auth(self) -> Self:
-        if self.host not in ("0.0.0.0", "::"):
+        from nanobot.security.network import host_is_loopback_only
+
+        if host_is_loopback_only(self.host):
             return self
         if self.token.strip() or self.token_issue_secret.strip():
             return self
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but neither token nor "
+            f"host is {self.host!r} (not loopback-only) but neither token nor "
             "token_issue_secret is set — set one to prevent unauthenticated access"
         )
 

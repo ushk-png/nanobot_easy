@@ -5,7 +5,12 @@ import json
 from pathlib import Path
 from typing import Any
 
-from nanobot.agent.tools.context import ToolContext, bind_request_context, reset_request_context, RequestContext
+from nanobot.agent.tools.context import (
+    RequestContext,
+    ToolContext,
+    bind_request_context,
+    reset_request_context,
+)
 from nanobot.bus.events import OutboundMessage
 from nanobot.workflow.access import build_principal
 
