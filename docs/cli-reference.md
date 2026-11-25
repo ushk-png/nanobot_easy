@@ -281,6 +281,14 @@ nanobot channels status
 
 See [`chat-apps.md`](./chat-apps.md) for channel-specific setup.
 
+## Memory Maintenance
+
+| Command | Description |
+|---|---|
+| `nanobot memory backfill` | Dry run: report conversation turns that are in the session files but missing from the memory event store (for example after a crash or `/new`) |
+| `nanobot memory backfill --apply` | Back up the memory database, then insert only the missing turns; running it again adds nothing |
+| `nanobot memory backfill --workspace <path>` | Target a workspace directory (or pass `--config <file>` to use that config's workspace). One of the two is required |
+
 ## Optional Features
 
 Use these commands when you want nanobot to add or remove a built-in capability

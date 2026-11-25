@@ -155,7 +155,9 @@ class MemorySearcher:
                 event = ConversationEventStore._row_to_event(row)
                 scores[event.event_id] = max(scores.get(event.event_id, 0.0), score)
                 events[event.event_id] = event
-            if include_recent or not scores:
+            # Unrelated recent events are only a fallback for a blank query (browsing). For a real
+            # query with no matches they would be reported as "candidates_returned" evidence.
+            if include_recent or (not scores and not query.strip()):
                 for score, row in self._recent_hits(conn, scope, after, before, event_types, excluded, min(10, candidate_limit)):
                     event = ConversationEventStore._row_to_event(row)
                     scores[event.event_id] = max(scores.get(event.event_id, 0.0), score)

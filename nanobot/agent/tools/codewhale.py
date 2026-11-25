@@ -394,6 +394,7 @@ class CodewhaleTool(Tool):
             path_prepend=self.exec_path_prepend,
             path_append=self.exec_path_append,
             allowed_env_keys=self.exec_allowed_env_keys,
+            protect_credentials=False,  # the command line is the prompt, not a file read
         )
         prepared = runner._prepare_command(command, target, background=True)
         if isinstance(prepared, str):

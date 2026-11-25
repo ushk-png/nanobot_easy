@@ -37,6 +37,8 @@ When someone sends a DM to the bot and isn't on the allowlist — whether it's a
 
 To see who's waiting, use `/pairing`. To remove someone later, use `/pairing revoke <user_id>` — you can find user IDs in the `/pairing list` output.
 
+Each instance keeps its own pairing list: with `--config config.<name>.json` the approved users are stored in `pairing.<name>.json`, so approving someone on one instance does not grant access on another. The default `config.json` keeps using `pairing.json`; a new named instance starts from a copy of that file.
+
 See [Configuration: Pairing](./configuration.md#pairing) for the full setup guide.
 
 ## Model Presets

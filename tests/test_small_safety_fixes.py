@@ -47,3 +47,13 @@ def test_automation_interval_has_a_floor() -> None:
     assert "at least 60 seconds" in _parse_automation_schedule({"kind": "every", "every_ms": 59_999})
     schedule = _parse_automation_schedule({"kind": "every", "every_ms": 60_000})
     assert schedule.kind == "every" and schedule.every_ms == 60_000
+
+
+def test_how_to_questions_in_korean_are_not_treated_as_time_sensitive() -> None:
+    """Review C4-05: the single syllable 법 matched 방법, 문법 and 사용법."""
+    from nanobot.evidence.packet import is_time_sensitive_query
+
+    for query in ("파이썬 설치 방법", "한국어 문법 설명", "김치찌개 만드는 법", "파이썬 함수 사용법"):
+        assert is_time_sensitive_query(query) is False, query
+    for query in ("개정된 법률 알려줘", "최신 법령", "오늘 일정", "새 버전 릴리즈", "price today"):
+        assert is_time_sensitive_query(query) is True, query

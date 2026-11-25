@@ -121,18 +121,40 @@ _SSE_DONE = b"data: [DONE]\n\n"
 _MAX_SESSION_LOCKS = 2000
 
 
+class _SessionLock(asyncio.Lock):
+    """A per-session lock that remembers when it was last handed to a request."""
+
+    last_used: float = 0.0
+
+
+# A lock is handed out well before it is acquired (the streaming path awaits resp.prepare() in
+# between). Evicting it in that gap lets a second request create another lock for the same
+# session and run concurrently, so only locks idle for a while are evictable.
+_SESSION_LOCK_IDLE_S = 600.0
+
+
 def _get_session_lock(session_locks: dict[str, asyncio.Lock], session_key: str) -> asyncio.Lock:
+    now = time.monotonic()
     lock = session_locks.get(session_key)
     if lock is not None:
+        with contextlib.suppress(AttributeError):
+            lock.last_used = now
         return lock
     if len(session_locks) >= _MAX_SESSION_LOCKS:
-        # Only drop locks nothing is waiting on/holding right now; a soft cap is fine --
-        # it's fine to briefly exceed it when every current entry happens to be busy.
-        for key in [k for k, existing in session_locks.items() if not existing.locked()]:
+        # Only drop locks nothing holds or recently asked for; a soft cap is fine -- it is
+        # fine to briefly exceed it when every current entry happens to be busy or fresh.
+        stale = [
+            key for key, existing in session_locks.items()
+            if not existing.locked() and now - getattr(existing, "last_used", 0.0) > _SESSION_LOCK_IDLE_S
+        ]
+        for key in stale:
             del session_locks[key]
             if len(session_locks) < _MAX_SESSION_LOCKS:
                 break
-    return session_locks.setdefault(session_key, asyncio.Lock())
+    new_lock = _SessionLock()
+    new_lock.last_used = now
+    return session_locks.setdefault(session_key, new_lock)
+
 
 # ---------------------------------------------------------------------------
 # Upload helpers
@@ -268,8 +290,8 @@ async def handle_chat_completions(request: web.Request) -> web.Response:
     session_lock = _get_session_lock(session_locks, session_key)
 
     logger.info(
-        "API request session_key={} media={} text={} stream={}",
-        session_key, len(media_paths), text[:80], stream,
+        "API request session_key={} media={} text_chars={} stream={}",
+        session_key, len(media_paths), len(text), stream,
     )
     # -- streaming path --
     if stream:

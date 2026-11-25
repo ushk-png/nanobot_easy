@@ -1364,7 +1364,7 @@ class TelegramChannel(BaseChannel):
             if media_type in ("voice", "audio"):
                 transcription = await self.transcribe_audio(file_path)
                 if transcription:
-                    self.logger.info("Transcribed {}: {}...", media_type, transcription[:50])
+                    self.logger.info("Transcribed {} ({} chars)", media_type, len(transcription))
                     return [path_str], [f"[transcription: {transcription}]"]
                 return [path_str], [f"[{media_type}: {path_str}]"]
             return [path_str], [f"[{media_type}: {path_str}]"]

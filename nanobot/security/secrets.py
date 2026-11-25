@@ -124,3 +124,55 @@ class RedactingStream:
 
 
 register_secrets(dict(os.environ))
+
+
+# Programs that print, copy, send or execute a file they are given. A command that names a
+# credential file and also runs one of these is blocked; naming the file for a command that does
+# not read it (``nanobot restart --config .local/config.testy.json``) stays possible.
+_READERS = frozenset({
+    "cat", "tac", "less", "more", "head", "tail", "nl", "od", "xxd", "hexdump", "strings", "base64",
+    "grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "gawk", "cut", "sort", "uniq", "tee", "cp",
+    "mv", "rsync", "scp", "sftp", "curl", "wget", "nc", "ncat", "socat", "tar", "zip", "gzip", "bzip2",
+    "xz", "python", "python3", "node", "perl", "ruby", "php", "lua", "source", "vi", "vim", "nano",
+    "emacs", "open", "code", "jq", "yq", "env", "printenv", "diff", "cmp", "find", "xargs", "git",
+})
+_HOME_CREDENTIAL_NAMES = {".ssh", ".aws", ".azure", ".kube", ".gnupg", ".netrc", ".git-credentials"}
+_TOKEN_SPLIT = re.compile(r"[\s|&;<>(){}`'\"=,]+")
+
+
+def _is_agent_credential(path: Path) -> bool:
+    parts = tuple(part.lower() for part in path.parts)
+    name = path.name.lower()
+    if any(part in _HOME_CREDENTIAL_NAMES for part in parts):
+        return True
+    return _is_nanobot_credential_path(path, parts, name)
+
+
+def command_credential_target(command: str, cwd: str | Path | None = None) -> str | None:
+    """The credential file a shell command would read, or None.
+
+    Best effort, not a sandbox: it recognizes the common ways to print, copy or send this
+    instance's own credentials (its ``env``, ``config*.json`` and ``auth/``, ``~/.ssh`` ...), by
+    looking for such a path in the command together with a program that reads files. A command
+    built to hide the path (string concatenation, base64) gets through; the real boundary is
+    ``restrictToWorkspace`` or a sandbox.
+    """
+    words = [word for word in _TOKEN_SPLIT.split(command) if word]
+    if not any(Path(word).name in _READERS or word in _READERS for word in words):
+        return None
+    base = Path(cwd) if cwd else Path.cwd()
+    home = str(Path.home())
+    for word in words:
+        if not any(mark in word for mark in ("/", ".", "~", "$")) or len(word) < 2:
+            continue
+        expanded = word.lstrip("@").replace("${HOME}", home).replace("$HOME", home)  # curl -d @file
+        try:
+            candidate = Path(expanded).expanduser()
+            if not candidate.is_absolute():
+                candidate = base / candidate
+            for item in (candidate, candidate.resolve(strict=False)):
+                if _is_agent_credential(item):
+                    return word
+        except (OSError, ValueError, RuntimeError):
+            continue
+    return None

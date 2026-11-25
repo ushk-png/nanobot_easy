@@ -311,3 +311,36 @@ class TestPendingCodeFlood:
         pending = json.loads(store._store_path().read_text())["pending"]
         assert len(pending) == store._MAX_PENDING
         assert codes[0] not in pending and codes[-1] in pending
+
+
+class TestEachInstanceHasItsOwnStore:
+    """Review A02: six bots in one folder shared one pairing.json."""
+
+    @pytest.fixture(autouse=True)
+    def _real_paths(self, tmp_path, monkeypatch):
+        from nanobot.config.loader import get_config_path, set_config_path
+
+        monkeypatch.undo()  # drop the module-level _store_path patch used by the other tests
+        original = get_config_path()
+        yield tmp_path
+        set_config_path(original)
+
+    def test_an_approval_in_one_instance_does_not_reach_another(self, _real_paths) -> None:
+        from nanobot.config.loader import set_config_path
+
+        folder = _real_paths / ".local"
+        folder.mkdir()
+        set_config_path(folder / "config.json")
+        code = store.generate_code("telegram", "friend")
+        store.approve_code(code)
+        assert store.is_approved("telegram", "friend")
+
+        set_config_path(folder / "config.testy.json")  # first use: starts as a copy of the shared file
+        assert store.is_approved("telegram", "friend")  # nothing already approved is lost
+        code = store.generate_code("telegram", "newcomer")
+        store.approve_code(code)
+        assert store.is_approved("telegram", "newcomer")
+
+        set_config_path(folder / "config.json")
+        assert not store.is_approved("telegram", "newcomer")  # the new approval stayed in testy
+        assert (folder / "pairing.json").is_file() and (folder / "pairing.testy.json").is_file()

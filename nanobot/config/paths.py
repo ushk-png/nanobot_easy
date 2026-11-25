@@ -48,19 +48,17 @@ def get_webui_dir() -> Path:
     return get_runtime_subdir("webui")
 
 
-def get_instance_webui_file(filename: str, webui_dir: Path | None = None) -> Path:
-    """Path of a WebUI state file that belongs to this instance only.
+def instance_scoped_path(shared: Path) -> Path:
+    """Per-instance variant of a state file that would otherwise be shared by a config folder.
 
     Instances whose config files share one folder (``config.json``, ``config.testy.json`` ...)
-    also share ``webui/``. Settings kept in one file there, such as the default access mode or
-    the pinned/archived chats, then leaked from one bot's WebUI into another's. ``config.json``
-    keeps the original name; ``config.<tag>.json`` uses ``<name>.<tag><ext>``, started as a copy
-    of the shared file so nothing a user already set disappears.
+    share every file under it. ``config.json`` keeps the original name; ``config.<tag>.json``
+    uses ``<name>.<tag><ext>``, created as a copy of the shared file so nothing a user already
+    set (a pinned chat, an approved sender) disappears.
     """
     import re
     import shutil
 
-    shared = (webui_dir if webui_dir is not None else get_webui_dir()) / filename
     stem = get_config_path().stem
     tag = re.sub(r"[^A-Za-z0-9_-]+", "-", stem[len("config."):]).strip("-") if stem.startswith("config.") else ""
     if not tag:
@@ -72,6 +70,11 @@ def get_instance_webui_file(filename: str, webui_dir: Path | None = None) -> Pat
         except OSError:
             return shared
     return own
+
+
+def get_instance_webui_file(filename: str, webui_dir: Path | None = None) -> Path:
+    """Path of a WebUI state file that belongs to this instance only (see ``instance_scoped_path``)."""
+    return instance_scoped_path((webui_dir if webui_dir is not None else get_webui_dir()) / filename)
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:

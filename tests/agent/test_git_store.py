@@ -212,6 +212,22 @@ class TestRevert:
         assert new_sha is not None
         assert (ws / "SOUL.md").read_text(encoding="utf-8") == ""
 
+    def test_restores_and_removes_files_in_tracked_dirs(self, tmp_path):
+        store = GitStore(tmp_path, tracked_files=TRACKED, tracked_dirs=["memory/topics"])
+        store.init()
+        topics = tmp_path / "memory" / "topics"
+        topics.mkdir(parents=True, exist_ok=True)
+        (topics / "old.md").write_text("old", encoding="utf-8")
+        store.auto_commit("seed")
+        (topics / "old.md").write_text("changed", encoding="utf-8")
+        (topics / "new.md").write_text("new", encoding="utf-8")
+        sha = store.auto_commit("dream")
+        assert sha is not None
+
+        assert store.revert(sha) is not None
+        assert (topics / "old.md").read_text(encoding="utf-8") == "old"
+        assert not (topics / "new.md").exists()
+
     def test_root_commit_returns_none(self, git_ready):
         """Cannot revert the root commit (no parent to restore to)."""
         commits = git_ready.log()

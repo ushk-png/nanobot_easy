@@ -145,7 +145,7 @@ class NanobotDingTalkHandler(CallbackHandler):
                 or message.data.get("openConversationId")
             )
 
-            self.channel.logger.info("Received message from {} ({}): {}", sender_name, sender_id, content)
+            self.channel.logger.info("Received message from {} ({}), {} chars", sender_name, sender_id, len(content or ""))
 
             # Forward to Nanobot via _on_message (non-blocking).
             # Store reference to prevent GC before task completes.
@@ -746,7 +746,7 @@ class DingTalkChannel(BaseChannel):
         permission checks before publishing to the bus.
         """
         try:
-            self.logger.info("inbound: {} from {}", content, sender_name)
+            self.logger.info("inbound: {} chars from {}", len(content or ""), sender_name)
             is_group = conversation_type == "2" and conversation_id
             chat_id = f"group:{conversation_id}" if is_group else sender_id
             session_key = None

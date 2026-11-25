@@ -28,6 +28,7 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.channels.registry import DEFAULT_ENABLED_CHANNELS
 from nanobot.config.schema import Config
+from nanobot.utils.background import spawn_background
 from nanobot.utils.restart import consume_restart_notice_from_env, format_restart_completed_message
 
 if TYPE_CHECKING:
@@ -308,7 +309,7 @@ class ChannelManager:
         target = self.channels.get(notice.channel)
         if not target:
             return
-        asyncio.create_task(self._send_with_retry(
+        spawn_background(self._send_with_retry(
             target,
             OutboundMessage(
                 channel=notice.channel,

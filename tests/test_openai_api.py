@@ -667,3 +667,24 @@ async def test_api_key_mode_does_not_apply_the_origin_rule(aiohttp_client, mock_
         headers={**AUTH_HEADERS, "Origin": "https://tool.example"},
     )
     assert resp.status == 200
+
+
+@pytest.mark.asyncio
+async def test_a_session_lock_handed_out_a_moment_ago_is_not_evicted(monkeypatch) -> None:
+    """Review item 8: the streaming path awaits between getting the lock and taking it; evicting
+    it then lets a second request run in the same session at the same time."""
+
+    from nanobot.api import server as api_server
+
+    monkeypatch.setattr(api_server, "_MAX_SESSION_LOCKS", 5)
+    locks: dict[str, asyncio.Lock] = {}
+    mine = api_server._get_session_lock(locks, "api:mine")
+    for index in range(10):  # other requests push the dict past its cap
+        api_server._get_session_lock(locks, f"api:other-{index}")
+    assert api_server._get_session_lock(locks, "api:mine") is mine  # same lock, so still exclusive
+
+    # Locks nobody has asked for in a long while are still dropped.
+    for lock in locks.values():
+        lock.last_used = 0.0
+    api_server._get_session_lock(locks, "api:new")
+    assert len(locks) <= 6

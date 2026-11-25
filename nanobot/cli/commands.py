@@ -2306,6 +2306,44 @@ plugins_app = typer.Typer(help="Manage optional nanobot features")
 app.add_typer(plugins_app, name="plugins")
 
 
+memory_app = typer.Typer(help="Maintain the conversation memory database")
+app.add_typer(memory_app, name="memory")
+
+
+@memory_app.command("backfill")
+def memory_backfill(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file (to find its workspace)"),
+    apply: bool = typer.Option(False, "--apply", help="Write the missing events (default: only report)"),
+):
+    """Add conversation turns that never reached conversation_memory.db.
+
+    Needed once for an instance that ran before the event-id fix: turns after a /new or an
+    automatic compaction were dropped. Reports first; with --apply it backs the database up
+    and inserts only what is missing.
+    """
+    from nanobot.memory.backfill import backfill_missing_events
+
+    if workspace:
+        target = Path(workspace).expanduser()
+    elif config:
+        from nanobot.config.loader import load_config
+
+        target = load_config(Path(config).expanduser()).workspace_path
+    else:
+        console.print("[red]Give --workspace or --config.[/red]")
+        raise typer.Exit(1)
+    report = backfill_missing_events(target, apply=apply)
+    console.print(f"workspace: {target}")
+    console.print(f"sessions: {report.sessions}, messages checked: {report.messages_seen}, missing: {report.missing}")
+    for key, count in sorted(report.per_session.items(), key=lambda item: -item[1])[:10]:
+        console.print(f"  {count:5d}  {key}")
+    if apply:
+        console.print(f"[green]inserted {report.inserted}[/green]" + (f" (backup: {report.backup})" if report.backup else ""))
+    elif report.missing:
+        console.print("[yellow]Dry run: nothing written. Add --apply to insert the missing events.[/yellow]")
+
+
 @plugins_app.command("list")
 def plugins_list(
     config_path: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),

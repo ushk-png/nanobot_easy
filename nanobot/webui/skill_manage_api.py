@@ -102,8 +102,31 @@ def installed_tools_payload(workspace_path: Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _risk_rank(value: Any) -> int:
+    """Rank of a risk label. A label that is not low/medium/high ("critical", "severe", "높음")
+    is not safe to read as "low": it ranks as high, so a block or confirmation is never skipped
+    because a reviewer used another word."""
+    text = str(value or "").strip().lower()
+    if not text:
+        return 0
+    return _RISK_ORDER.get(text, _RISK_ORDER["high"])
+
+
 def _risk_at_least(value: str, threshold: str) -> bool:
-    return _RISK_ORDER.get(str(value).lower(), 0) >= _RISK_ORDER.get(str(threshold).lower(), 0)
+    return _risk_rank(value) >= _risk_rank(threshold)
+
+
+def _declared_risk(markdown: str) -> str:
+    """The risk the draft itself declares in its frontmatter (``metadata.nanobot.risk_level``)."""
+    try:
+        import yaml
+
+        head = markdown.split("---", 2)
+        meta = yaml.safe_load(head[1]) if len(head) >= 3 else {}
+        value = ((meta or {}).get("metadata") or {}).get("nanobot", {}).get("risk_level")
+    except Exception:
+        return ""
+    return str(value or "")
 
 
 def _assessment_payload(assessment: SkillUpdateAssessment) -> dict[str, Any]:
@@ -140,11 +163,17 @@ def _draft_governance(draft: SkillDraftResult, policy: Any | None) -> dict[str, 
     blocking: list[dict[str, Any]] = []
     requires_confirmation: list[dict[str, Any]] = []
 
-    security_level = str(review.get("security_risk_level") or "").lower()
-    for flag in red_flags:
-        if str(flag.get("kind") or "").lower() == "security":
-            security_level = str(flag.get("severity") or flag.get("level") or security_level).lower()
-            break
+    # The most severe of: the reviewer's overall level, every security flag, and the risk the
+    # draft declares. The first flag used to win, so a "low" flag could cancel a "high" level, and
+    # a model review could drop a declared "high" risk.
+    candidates = [str(review.get("security_risk_level") or ""), _declared_risk(draft.markdown)]
+    candidates += [
+        str(flag.get("severity") or flag.get("level") or "")
+        for flag in red_flags
+        if str(flag.get("kind") or "").lower() == "security"
+    ]
+    candidates = [item.strip().lower() for item in candidates if item and item.strip()]
+    security_level = max(candidates, key=_risk_rank) if candidates else ""
     if security_level:
         flag = {
             "kind": "security",

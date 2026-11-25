@@ -75,6 +75,8 @@ class TestRestartCommand:
 
         with patch.dict(os.environ, {}, clear=False), \
              patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
+             patch("nanobot.command.builtin.spawn_background",
+                   new=lambda coro, name="": fake_asyncio.create_task(coro)), \
              patch("nanobot.command.builtin.os.execv") as mock_execv:
             out = await cmd_restart(ctx)
             assert "Restarting" in out.content
@@ -105,6 +107,8 @@ class TestRestartCommand:
         )
 
         with patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
+             patch("nanobot.command.builtin.spawn_background",
+                   new=lambda coro, name="": fake_asyncio.create_task(coro)), \
              patch("nanobot.command.builtin.sys.platform", "win32"), \
              patch("nanobot.command.builtin.subprocess.CREATE_NEW_PROCESS_GROUP", 512, create=True), \
              patch("nanobot.command.builtin.subprocess.Popen") as mock_popen, \
@@ -140,6 +144,8 @@ class TestRestartCommand:
         )
 
         with patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
+             patch("nanobot.command.builtin.spawn_background",
+                   new=lambda coro, name="": fake_asyncio.create_task(coro)), \
              patch("nanobot.command.builtin.subprocess.Popen") as mock_popen, \
              patch("nanobot.command.builtin.os._exit") as mock_exit, \
              patch("nanobot.command.builtin.os.execv") as mock_execv:
@@ -174,6 +180,8 @@ class TestRestartCommand:
 
         with patch.object(loop, "_dispatch", new_callable=AsyncMock) as mock_dispatch, \
              patch("nanobot.command.builtin.asyncio", new=fake_asyncio), \
+             patch("nanobot.command.builtin.spawn_background",
+                   new=lambda coro, name="": fake_asyncio.create_task(coro)), \
              patch("nanobot.command.builtin.os.execv"):
             await bus.publish_inbound(msg)
 

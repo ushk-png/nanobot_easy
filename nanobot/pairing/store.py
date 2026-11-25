@@ -18,7 +18,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.config.paths import get_data_dir
+from nanobot.config.paths import get_data_dir, instance_scoped_path
 from nanobot.utils.helpers import _write_text_atomic
 
 # threading.Lock is used so store functions remain callable from both sync CLI
@@ -32,7 +32,9 @@ _MAX_PENDING = 100  # most pending codes kept; the oldest is dropped first
 
 
 def _store_path() -> Path:
-    return get_data_dir() / "pairing.json"
+    # One store per instance: approving a sender in one bot must not approve it in the others
+    # that share this config folder. Existing approvals are copied into each new store.
+    return instance_scoped_path(get_data_dir() / "pairing.json")
 
 
 def _load(*, for_update: bool = False) -> dict[str, Any]:
