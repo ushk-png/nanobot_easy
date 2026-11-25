@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from typing import Any
 
@@ -127,7 +128,10 @@ class CliAppsTool(Tool):
         workspace = access.project_path or self.workspace
         manager = CliAppManager(workspace=workspace, runtime=self.runtime)
         try:
-            return manager.run(
+            # The run is a blocking subprocess (up to 600 s) plus registry lookups: keep it off the
+            # event loop, which serves every channel of this gateway.
+            return await asyncio.to_thread(
+                manager.run,
                 name,
                 args=args or [],
                 json_output=bool(json),

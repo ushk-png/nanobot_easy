@@ -100,6 +100,7 @@ def test_flag_defaults_off_and_accepts_camel_case():
 # ---------------------------------------------------------------- required behaviours
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_past_no_change_constraint_is_kept_after_token_cap(tmp_path):
     fake = Fake(LONG_REPLIES)
     loop = make_loop(tmp_path, fake, flag=True)
@@ -123,6 +124,7 @@ async def test_past_no_change_constraint_is_kept_after_token_cap(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_later_explicit_revocation_is_shown_after_the_constraint(tmp_path):
     fake = Fake(["알겠습니다.", "변경 승인을 확인했습니다.", BIG_REPLY, "분석을 마쳤습니다."])
     loop = make_loop(tmp_path, fake, flag=True)
@@ -138,6 +140,7 @@ async def test_later_explicit_revocation_is_shown_after_the_constraint(tmp_path)
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_file_and_task_specific_scope_is_kept_verbatim_and_not_enforced_as_a_rule(tmp_path):
     (tmp_path / "sample.json").write_text('{"value":1}\n')
     (tmp_path / "production.json").write_text('{"value":1}\n')
@@ -167,6 +170,7 @@ async def test_file_and_task_specific_scope_is_kept_verbatim_and_not_enforced_as
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_new_task_does_not_receive_completed_plain_requests(tmp_path):
     plain = "테스트 폴더에 anchor.md와 80줄짜리 reference.log를 만들어줘."
     # A limit that only shapes its own request (F-C2-04: Q1/Q4 style) is not kept either.
@@ -293,6 +297,7 @@ async def test_short_conversation_and_simple_question_prompts_are_identical(tmp_
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_long_session_cost_is_one_bounded_block(tmp_path):
     sizes = {}
     for flag in (False, True):

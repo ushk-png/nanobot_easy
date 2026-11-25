@@ -93,3 +93,25 @@ async def test_handle_message_group_ignores_unknown() -> None:
 
     assert channel._sent == []
 
+
+
+@pytest.mark.asyncio
+async def test_a_stranger_who_keeps_writing_gets_one_pairing_reply_per_minute(monkeypatch) -> None:
+    """Review A01: the bot answered every single message of an unknown sender."""
+    from nanobot.channels import base as base_module
+
+    monkeypatch.setattr(base_module, "generate_code", lambda channel, sender: "ABCD-EFGH")
+    clock = {"now": 100.0}
+    monkeypatch.setattr(base_module.time, "monotonic", lambda: clock["now"])
+    channel = _DummyChannel({"allow_from": []}, MessageBus())
+
+    for _ in range(5):
+        await channel._handle_message(sender_id="stranger", chat_id="c", content="hi", is_dm=True)
+    assert len(channel._sent) == 1
+
+    await channel._handle_message(sender_id="someone-else", chat_id="c2", content="hi", is_dm=True)
+    assert len(channel._sent) == 2  # another sender is answered right away
+
+    clock["now"] += 61
+    await channel._handle_message(sender_id="stranger", chat_id="c", content="hi again", is_dm=True)
+    assert len(channel._sent) == 3

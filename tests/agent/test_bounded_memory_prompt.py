@@ -138,3 +138,65 @@ def test_source_update_invalidates_cached_projection_and_can_be_refreshed(tmp_pa
     summary = SUMMARY + '\nUpdated restriction: no writes.'
     snapshot.write_text(json.dumps(make_snapshot(revised, summary, source, 200)))
     assert 'Updated restriction: no writes.' in loader.build(revised)
+
+
+# ---- item 1: a literal-copy snapshot must not grow the prompt or claim condensation -----------
+
+from nanobot.agent.memory_prompt import legacy_memory_tokens  # noqa: E402
+
+
+def _small_workspace(root, summary_for):
+    directory = root / 'memory'
+    directory.mkdir()
+    source = directory / 'MEMORY.md'
+    text = ''.join(f'- synthetic fact {i}: prefers option {i % 7}\n' for i in range(40))
+    source.write_text(text, encoding='utf-8')
+    (directory / SNAPSHOT_NAME).write_text(
+        json.dumps(make_snapshot(text, summary_for(text), source, 5000)), encoding='utf-8')
+    return source, text
+
+
+class _CountingRefresher:
+    def __init__(self):
+        self.calls = 0
+
+    def request(self, text):
+        self.calls += 1
+
+
+def _served_tokens(out):
+    return estimate_message_tokens({'role': 'system', 'content': '# Memory\n\n## Long-term Memory\n' + out})
+
+
+@pytest.mark.parametrize('copy', [lambda t: t, lambda t: t.strip(), lambda t: t + '\n\n'])
+def test_literal_copy_snapshot_serves_raw_without_notice(tmp_path, copy):
+    source, text = _small_workspace(tmp_path, copy)
+    prompt = BoundedMemoryPrompt(source, 5000)
+    out = prompt.build(text)
+    assert out is not None
+    assert 'condensed' not in out and 'omission is not absence' not in out
+    assert _served_tokens(out) <= legacy_memory_tokens(text)
+    assert prompt.status['mode'] == 'snapshot' and prompt.status.get('lossless_copy') is True
+
+
+def test_real_summary_still_gets_the_notice(tmp_path):
+    source, snapshot = workspace(tmp_path)
+    out = BoundedMemoryPrompt(source, 200).build(source.read_text())
+    assert out is not None and SUMMARY in out and 'omission is not absence' in out
+
+
+def test_summary_not_smaller_than_raw_uses_raw_quietly_without_refresh(tmp_path):
+    from loguru import logger
+    source, text = _small_workspace(tmp_path, lambda t: t + 'Extra restated words that make it larger.\n')
+    prompt = BoundedMemoryPrompt(source, 5000)
+    prompt.refresher = _CountingRefresher()
+    warnings = []
+    sink = logger.add(lambda m: warnings.append(m), level='WARNING')
+    try:
+        results = [prompt.build(text) for _ in range(3)]
+    finally:
+        logger.remove(sink)
+    assert results == [None, None, None]          # caller keeps raw memory
+    assert prompt.refresher.calls == 0
+    assert warnings == []
+    assert prompt.status['mode'] != 'fallback'

@@ -249,6 +249,10 @@ class ExecJobManager:
         return [job for jid, job in sorted(self._jobs.items(), key=lambda item: item[1].started_at)
                 if self._visible(jid, owner_session_key) is not None]
 
+    def list_all(self) -> list[ExecJob]:
+        """Every tracked job regardless of owner. Internal guards only; never expose to another session."""
+        return [job for _, job in sorted(self._jobs.items(), key=lambda item: item[1].started_at)]
+
 
 DEFAULT_EXEC_JOB_MANAGER = ExecJobManager()
 

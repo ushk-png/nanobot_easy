@@ -77,7 +77,7 @@ def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items, skipped_uids = channel._fetch_new_messages()
@@ -117,7 +117,7 @@ def test_fetch_new_messages_returns_accepted_and_skipped_uids(monkeypatch) -> No
         def logout(self):
             return "BYE", [b""]
 
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: FakeIMAP())
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: FakeIMAP())
 
     channel = EmailChannel(_make_config(post_action="delete"), MessageBus())
     items, skipped_uids = channel._fetch_new_messages()
@@ -149,7 +149,7 @@ def test_fetch_new_messages_rejected_returns_skipped_uid(monkeypatch) -> None:
         def logout(self):
             return "BYE", [b""]
 
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: FakeIMAP())
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: FakeIMAP())
 
     channel_skip = EmailChannel(
         _make_config(from_address="bot@example.com", post_action="delete", post_action_ignore_skipped=True),
@@ -214,7 +214,7 @@ def test_apply_post_actions_batch_delete_uses_one_connection(monkeypatch) -> Non
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(post_action="delete"), MessageBus())
     channel._apply_post_actions_batch(["123", "124"])
@@ -271,7 +271,7 @@ def test_apply_post_actions_batch_move_copies_then_deletes(monkeypatch) -> None:
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(
         _make_config(post_action="move", post_action_move_mailbox="Processed"),
@@ -312,7 +312,7 @@ def test_apply_post_actions_batch_move_prefers_uid_move_when_supported(monkeypat
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(
         _make_config(post_action="move", post_action_move_mailbox="Processed"),
@@ -366,7 +366,7 @@ def test_apply_post_actions_batch_fallback_caches_uid_store_failure(monkeypatch)
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(post_action="delete"), MessageBus())
     channel._apply_post_actions_batch(["123", "124"])
@@ -420,7 +420,7 @@ def test_apply_post_actions_batch_delete_with_post_action_expunge_true_no_uidplu
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(post_action="delete", post_action_expunge=True), MessageBus())
     channel._apply_post_actions_batch(["123", "124"])
@@ -569,7 +569,7 @@ def test_fetch_new_messages_skips_self_sent_email_and_marks_seen(monkeypatch) ->
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(from_address="bot@example.com"), MessageBus())
     items, skipped_uids = channel._fetch_new_messages()
@@ -638,7 +638,7 @@ def test_fetch_new_messages_skips_self_sent_across_identity_sources(
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(**config_override), MessageBus())
     items, _ = channel._fetch_new_messages()
@@ -681,7 +681,7 @@ def test_fetch_new_messages_retries_once_when_imap_connection_goes_stale(monkeyp
 
     fake_instances: list[FlakyIMAP] = []
 
-    def _factory(_host: str, _port: int):
+    def _factory(_host: str, _port: int, **_kw):
         instance = FlakyIMAP()
         fake_instances.append(instance)
         return instance
@@ -732,7 +732,7 @@ def test_fetch_new_messages_keeps_messages_collected_before_stale_retry(monkeypa
         def logout(self):
             return "BYE", [b""]
 
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: FlakyIMAP())
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: FlakyIMAP())
 
     channel = EmailChannel(_make_config(), MessageBus())
     items, _ = channel._fetch_new_messages()
@@ -753,7 +753,7 @@ def test_fetch_new_messages_skips_missing_mailbox(monkeypatch) -> None:
 
     monkeypatch.setattr(
         "nanobot.channels.email.imaplib.IMAP4_SSL",
-        lambda _h, _p: MissingMailboxIMAP(),
+        lambda _h, _p, **_kw: MissingMailboxIMAP(),
     )
 
     channel = EmailChannel(_make_config(), MessageBus())
@@ -1059,7 +1059,7 @@ def test_fetch_messages_between_dates_uses_imap_since_before_without_mark_seen(m
             return "BYE", [b""]
 
     fake = FakeIMAP()
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     channel = EmailChannel(_make_config(), MessageBus())
     items = channel.fetch_messages_between_dates(
@@ -1112,7 +1112,7 @@ def test_spoofed_email_rejected_when_verify_enabled(monkeypatch) -> None:
     """An email without Authentication-Results should be rejected when verify_dkim=True."""
     raw = _make_raw_email(subject="Spoofed", body="Malicious payload")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
@@ -1129,7 +1129,7 @@ def test_email_with_valid_auth_results_accepted(monkeypatch) -> None:
         auth_results="mx.example.com; spf=pass smtp.mailfrom=alice@example.com; dkim=pass header.d=example.com",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
@@ -1148,7 +1148,7 @@ def test_email_with_partial_auth_rejected(monkeypatch) -> None:
         auth_results="mx.example.com; spf=pass smtp.mailfrom=alice@example.com; dkim=fail",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=True, verify_spf=True)
     channel = EmailChannel(cfg, MessageBus())
@@ -1161,7 +1161,7 @@ def test_backward_compat_verify_disabled(monkeypatch) -> None:
     """When verify_dkim=False and verify_spf=False, emails without auth headers are accepted."""
     raw = _make_raw_email(subject="NoAuth", body="No auth headers present")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -1174,7 +1174,7 @@ def test_email_content_tagged_with_email_context(monkeypatch) -> None:
     """Email content should be prefixed with [EMAIL-CONTEXT] for LLM isolation."""
     raw = _make_raw_email(subject="Tagged", body="Check the tag")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -1272,7 +1272,7 @@ def _make_raw_email_with_attachment(
 def test_fetch_new_messages_ignores_unauthorized_sender_before_attachments(monkeypatch) -> None:
     raw = _make_raw_email_with_attachment(from_addr="blocked@example.com")
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     called = {"attachments": False}
 
@@ -1301,7 +1301,7 @@ def test_extract_attachments_saves_pdf(tmp_path, monkeypatch) -> None:
 
     raw = _make_raw_email_with_attachment()
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(allowed_attachment_types=["application/pdf"], verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -1320,7 +1320,7 @@ def test_extract_attachments_disabled_by_default(monkeypatch) -> None:
     """With no allowed_attachment_types (default), no attachments are extracted."""
     raw = _make_raw_email_with_attachment()
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(verify_dkim=False, verify_spf=False)
     assert cfg.allowed_attachment_types == []
@@ -1342,7 +1342,7 @@ def test_extract_attachments_mime_type_filter(tmp_path, monkeypatch) -> None:
         attachment_mime="image/png",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["application/pdf"],
@@ -1366,7 +1366,7 @@ def test_extract_attachments_empty_allowed_types_rejects_all(tmp_path, monkeypat
         attachment_mime="image/png",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(
         allowed_attachment_types=[],
@@ -1390,7 +1390,7 @@ def test_extract_attachments_wildcard_pattern(tmp_path, monkeypatch) -> None:
         attachment_mime="image/jpeg",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["image/*"],
@@ -1412,7 +1412,7 @@ def test_extract_attachments_size_limit(tmp_path, monkeypatch) -> None:
         attachment_content=b"x" * 1000,
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["*"],
@@ -1448,7 +1448,7 @@ def test_extract_attachments_max_count(tmp_path, monkeypatch) -> None:
     raw = msg.as_bytes()
 
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(
         allowed_attachment_types=["*"],
@@ -1471,7 +1471,7 @@ def test_extract_attachments_sanitizes_filename(tmp_path, monkeypatch) -> None:
         attachment_name="../../../etc/passwd",
     )
     fake = _make_fake_imap(raw)
-    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p: fake)
+    monkeypatch.setattr("nanobot.channels.email.imaplib.IMAP4_SSL", lambda _h, _p, **_kw: fake)
 
     cfg = _make_config(allowed_attachment_types=["*"], verify_dkim=False, verify_spf=False)
     channel = EmailChannel(cfg, MessageBus())
@@ -1867,3 +1867,92 @@ async def test_send_with_media_and_reply_subject_and_in_reply_to(tmp_path, monke
             attachment_parts.append(part)
     assert len(attachment_parts) == 1
     assert attachment_parts[0].get_filename() == "summary.pdf"
+
+
+# Review N31/N32: sender authentication must be about the visible From, and TLS must verify.
+
+def _parse_headers(*headers: str):
+    from email import policy
+    from email.parser import BytesParser
+
+    raw = "".join(f"Authentication-Results: {value}\r\n" for value in headers)
+    raw += "From: Owner <owner@example.com>\r\nSubject: x\r\n\r\nbody\r\n"
+    return BytesParser(policy=policy.default).parsebytes(raw.encode())
+
+
+def test_unaligned_spf_and_dkim_pass_does_not_authenticate_the_from_address() -> None:
+    parsed = _parse_headers(
+        "mx.example.com; spf=pass smtp.mailfrom=attacker.test; "
+        "dkim=pass header.d=attacker.test; dmarc=fail header.from=example.com"
+    )
+    assert EmailChannel._check_authentication_results(parsed, "owner@example.com") == (False, False)
+
+
+def test_aligned_pass_and_dmarc_pass_authenticate_the_from_address() -> None:
+    aligned = _parse_headers(
+        "mx.example.com; spf=pass smtp.mailfrom=bounce@mail.example.com; dkim=pass header.d=example.com"
+    )
+    assert EmailChannel._check_authentication_results(aligned, "owner@example.com") == (True, True)
+    dmarc = _parse_headers(
+        "mx.example.com; spf=pass smtp.mailfrom=esp.test; dkim=pass header.d=esp.test; "
+        "dmarc=pass header.from=example.com"
+    )
+    assert EmailChannel._check_authentication_results(dmarc, "owner@example.com") == (True, True)
+
+
+def test_only_the_topmost_authentication_results_header_counts() -> None:
+    """A header written by the sender sits below the receiving server's own verdict."""
+    parsed = _parse_headers(
+        "mx.example.com; spf=fail; dkim=none",
+        "anything; spf=pass; dkim=pass",
+    )
+    assert EmailChannel._check_authentication_results(parsed) == (False, False)
+    assert EmailChannel._check_authentication_results(parsed, "owner@example.com") == (False, False)
+
+
+def test_implicit_tls_connections_verify_certificates(monkeypatch) -> None:
+    import ssl
+
+    from nanobot.channels import email as email_module
+
+    seen: dict[str, object] = {}
+
+    class FakeIMAP:
+        def __init__(self, host, port, **kwargs) -> None:
+            seen["imap"] = kwargs.get("ssl_context")
+
+        def login(self, *args):
+            return "OK", [b""]
+
+        def select(self, *args):
+            return "OK", [b"0"]
+
+        def logout(self):
+            return "BYE", [b""]
+
+    monkeypatch.setattr(email_module.imaplib, "IMAP4_SSL", FakeIMAP)
+    channel = EmailChannel(_make_config(imap_use_ssl=True), MessageBus())
+    channel._open_imap_client("INBOX")
+    assert seen["imap"].verify_mode == ssl.CERT_REQUIRED
+    assert seen["imap"].check_hostname is True
+
+    class FakeSMTP:
+        def __init__(self, host, port, timeout=None, context=None) -> None:
+            seen["smtp"] = context
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def login(self, *args):
+            return None
+
+        def send_message(self, *args):
+            return None
+
+    monkeypatch.setattr(email_module.smtplib, "SMTP_SSL", FakeSMTP)
+    channel2 = EmailChannel(_make_config(smtp_use_ssl=True, smtp_use_tls=False), MessageBus())
+    channel2._smtp_send(EmailMessage())
+    assert seen["smtp"].verify_mode == ssl.CERT_REQUIRED

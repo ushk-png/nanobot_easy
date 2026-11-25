@@ -610,3 +610,81 @@ async def test_process_direct_accepts_media(tmp_path) -> None:
     assert captured_msg is not None
     assert captured_msg.media == ["/tmp/image.png", "/tmp/report.pdf"]
     assert captured_msg.content == "analyze this"
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_keyless_api_refuses_cross_site_browser_posts(aiohttp_client, mock_agent) -> None:
+    """A web page posting text/plain to the local port must not run an agent turn (review N21)."""
+    app = create_app(mock_agent, model_name="test-model")
+    client = await aiohttp_client(app)
+    body = json.dumps({"messages": [{"role": "user", "content": "hi"}]})
+
+    evil = await client.post(
+        "/v1/chat/completions", data=body,
+        headers={"Origin": "https://evil.example", "Content-Type": "text/plain"},
+    )
+    assert evil.status == 403
+    mock_agent.process_direct.assert_not_called()
+
+    plain = await client.post("/v1/chat/completions", data=body, headers={"Content-Type": "application/json"})
+    assert plain.status == 200
+    host = f"{client.server.host}:{client.server.port}"
+    same = await client.post(
+        "/v1/chat/completions", data=body,
+        headers={"Origin": f"http://{host}", "Content-Type": "application/json"},
+    )
+    assert same.status == 200
+    assert (await client.get("/health", headers={"Origin": "https://evil.example"})).status == 200
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_keyless_api_refuses_rebound_host_names(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="test-model", bind_host="127.0.0.1", bind_port=8900)
+    client = await aiohttp_client(app)
+    body = json.dumps({"messages": [{"role": "user", "content": "hi"}]})
+    rebound = await client.post(
+        "/v1/chat/completions", data=body,
+        headers={"Host": "evil.example:8900", "Content-Type": "application/json"},
+    )
+    assert rebound.status == 403
+    mock_agent.process_direct.assert_not_called()
+    ok = await client.post(
+        "/v1/chat/completions", data=body,
+        headers={"Host": "127.0.0.1:8900", "Content-Type": "application/json"},
+    )
+    assert ok.status == 200
+
+
+@pytest.mark.skipif(not HAS_AIOHTTP, reason="aiohttp not installed")
+@pytest.mark.asyncio
+async def test_api_key_mode_does_not_apply_the_origin_rule(aiohttp_client, mock_agent) -> None:
+    app = create_app(mock_agent, model_name="test-model", api_key=API_KEY)
+    client = await aiohttp_client(app)
+    resp = await client.post(
+        "/v1/chat/completions", json={"messages": [{"role": "user", "content": "hi"}]},
+        headers={**AUTH_HEADERS, "Origin": "https://tool.example"},
+    )
+    assert resp.status == 200
+
+
+@pytest.mark.asyncio
+async def test_a_session_lock_handed_out_a_moment_ago_is_not_evicted(monkeypatch) -> None:
+    """Review item 8: the streaming path awaits between getting the lock and taking it; evicting
+    it then lets a second request run in the same session at the same time."""
+
+    from nanobot.api import server as api_server
+
+    monkeypatch.setattr(api_server, "_MAX_SESSION_LOCKS", 5)
+    locks: dict[str, asyncio.Lock] = {}
+    mine = api_server._get_session_lock(locks, "api:mine")
+    for index in range(10):  # other requests push the dict past its cap
+        api_server._get_session_lock(locks, f"api:other-{index}")
+    assert api_server._get_session_lock(locks, "api:mine") is mine  # same lock, so still exclusive
+
+    # Locks nobody has asked for in a long while are still dropped.
+    for lock in locks.values():
+        lock.last_used = 0.0
+    api_server._get_session_lock(locks, "api:new")
+    assert len(locks) <= 6

@@ -27,7 +27,7 @@ TOOL_GROUPS = {
     "cron": "schedule",
     **dict.fromkeys(("spawn", "delegate"), "delegate"),
     # Built-ins whose rules live only in the always-kept common text.
-    **dict.fromkeys(("generate_image", "long_task", "complete_goal", "workflow", "my",
+    **dict.fromkeys(("generate_image", "long_task", "complete_goal", "my",
                      "student_learning", "genie_study_review"), "common"),
 }
 

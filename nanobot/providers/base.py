@@ -225,7 +225,7 @@ _HOSTED_TOOLS_ENABLED: ContextVar[bool] = ContextVar("nanobot_hosted_tools_enabl
 def hosted_tools_disabled():
     """Within this block, providers must not attach server-side (hosted) tools.
 
-    Used by calls whose tool scope is fixed by code, e.g. stepwise reasoning stages.
+    Used by calls whose tool scope is fixed by code, e.g. a fixed internal step.
     """
     token = _HOSTED_TOOLS_ENABLED.set(False)
     try:
@@ -289,9 +289,14 @@ class LLMProvider(ABC):
     """Base class for LLM providers."""
 
     supports_progress_deltas = False
+    # Routing wrappers set False: the whole-request TaskBudget counts only the provider that sends.
+    counts_task_budget = True
 
     _CHAT_RETRY_DELAYS = (1, 2, 4)
     _PERSISTENT_MAX_DELAY = 60
+    # A provider can ask for an hour (Retry-After: 3600). Standard mode retries at most 3 times,
+    # so an unbounded wait would hold the turn and the session lock for hours.
+    _STANDARD_MAX_RETRY_AFTER = 120
     _PERSISTENT_IDENTICAL_ERROR_LIMIT = 10
     _RETRY_HEARTBEAT_CHUNK = 30
     _TRANSIENT_ERROR_MARKERS = (
@@ -307,6 +312,12 @@ class LLMProvider(ABC):
         "connection",
         "server error",
         "temporarily unavailable",
+        # Responses-API stream failures arrive as "Response failed: <code>" with underscores,
+        # which the space-separated markers above never matched, so one cut stream ended the turn.
+        "missing_terminal_event",
+        "server_error",
+        "rate_limit_exceeded",
+        "service_unavailable",
         "速率限制",
         "访问量过大",
     )
@@ -772,7 +783,8 @@ class LLMProvider(ABC):
         trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
         from nanobot.agent.task_budget import active_budget
         budget = active_budget()
-        if budget is not None and (refused := budget.acquire()) is not None:
+        counts_budget = budget is not None and getattr(self, "counts_task_budget", True)
+        if counts_budget and (refused := budget.acquire()) is not None:
             # t54: checked and decremented right before the actual send; nothing is sent.
             return LLMResponse(content="Error calling LLM: request budget exhausted (" + refused + ")",
                                finish_reason="error", error_kind="budget_exhausted", error_should_retry=False)
@@ -818,7 +830,7 @@ class LLMProvider(ABC):
             observe("provider_call_returned")
             observer.reset(observation_token)
             call_clock.reset(clock_token)
-        if budget is not None:
+        if counts_budget:
             # t55: every SENT call is accounted; a call cut at the deadline has unknown usage (not 0).
             budget.record_usage(getattr(response, "usage", None))
         _log_provider_attempt(self, kwargs, stream=False, elapsed_s=time.monotonic() - started,
@@ -868,7 +880,8 @@ class LLMProvider(ABC):
         trace = None if getattr(self, "journals_provider_attempts", False) else active_context_trace.get()
         from nanobot.agent.task_budget import active_budget
         budget = active_budget()
-        if budget is not None and (refused := budget.acquire()) is not None:
+        counts_budget = budget is not None and getattr(self, "counts_task_budget", True)
+        if counts_budget and (refused := budget.acquire()) is not None:
             # t54: checked and decremented right before the actual send; nothing is sent.
             return LLMResponse(content="Error calling LLM: request budget exhausted (" + refused + ")",
                                finish_reason="error", error_kind="budget_exhausted", error_should_retry=False)
@@ -914,7 +927,7 @@ class LLMProvider(ABC):
             observe("provider_call_returned")
             observer.reset(observation_token)
             call_clock.reset(clock_token)
-        if budget is not None:
+        if counts_budget:
             # t55: every SENT call is accounted; a call cut at the deadline has unknown usage (not 0).
             budget.record_usage(getattr(response, "usage", None))
         _log_provider_attempt(self, kwargs, stream=True, elapsed_s=time.monotonic() - started,
@@ -1265,6 +1278,8 @@ class LLMProvider(ABC):
             delay = self._extract_retry_after_from_response(response) or base_delay
             if persistent:
                 delay = min(delay, self._PERSISTENT_MAX_DELAY)
+            else:
+                delay = min(delay, self._STANDARD_MAX_RETRY_AFTER)
             if max_retry_delay_s is not None:
                 delay = min(delay, max_retry_delay_s)
 

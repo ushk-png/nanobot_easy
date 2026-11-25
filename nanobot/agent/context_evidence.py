@@ -2,8 +2,8 @@
 from __future__ import annotations
 
 import hashlib
-import re
 import json
+import re
 import shlex
 from contextvars import ContextVar
 from pathlib import Path
@@ -245,6 +245,7 @@ def completion_kind(check: str, selected: Any) -> str:
     The word rule only remains for untyped designs without a spec (stored proposals, old models).
     """
     import re
+
     from nanobot.agent.context_selection import trusted_obligations
     event = getattr(selected, "current_event", None)
     ob = trusted_obligations(selected.design, (event.content or "") if event else "")

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import pytest
 import tiktoken
 
 from nanobot.utils import helpers
@@ -20,6 +21,7 @@ def test_truncate_text_to_tokens_keeps_text_within_budget():
     assert result == text
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_truncate_text_to_tokens_truncates_over_budget():
     enc = tiktoken.get_encoding("cl100k_base")
     text = "word " * 1_000
@@ -75,3 +77,26 @@ def test_write_text_atomic_keeps_file_when_directory_fsync_is_unsupported(
 
     assert target.read_text(encoding="utf-8") == '{"pending": {}}'
     assert len(fsync_calls) == 1
+
+
+def test_a_reused_tool_call_id_gets_its_own_file_with_the_new_output(tmp_path) -> None:
+    """Review C4-03: the reference pointed at the OLD output when an id was reused."""
+    from pathlib import Path
+
+    from nanobot.utils.helpers import maybe_persist_tool_result
+
+    first = maybe_persist_tool_result(tmp_path, "s", "call_0", "FIRST-RUN " * 400, max_chars=100)
+    again = maybe_persist_tool_result(tmp_path, "s", "call_0", "FIRST-RUN " * 400, max_chars=100)
+    second = maybe_persist_tool_result(tmp_path, "s", "call_0", "SECOND-RUN " * 400, max_chars=100)
+    assert first == again  # the same output keeps the same reference
+
+    def saved(reference: str) -> str:
+        import re
+
+        match = re.search(r"(/[^\s\]]*call_0[^\s\]]*\.txt)", str(reference))
+        assert match, reference
+        return Path(match.group(1)).read_text()
+
+    assert saved(first).startswith("FIRST-RUN")
+    assert saved(second).startswith("SECOND-RUN")  # not the old file
+    assert saved(first) != saved(second)

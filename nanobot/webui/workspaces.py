@@ -10,7 +10,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.config.paths import get_webui_dir
+from nanobot.config.paths import get_instance_webui_file, get_webui_dir
 from nanobot.security.workspace_access import (
     WORKSPACE_SCOPE_METADATA_KEY,
     WorkspaceScope,
@@ -28,7 +28,7 @@ _WEBUI_SCOPE_CHANNEL = "websocket"
 
 
 def webui_workspace_state_path() -> Path:
-    return get_webui_dir() / "workspace-state.json"
+    return get_instance_webui_file("workspace-state.json", get_webui_dir())
 
 
 def default_webui_workspace_state() -> dict[str, Any]:

@@ -27,6 +27,7 @@ from nanobot.command.builtin import builtin_command_palette
 from nanobot.cron.session_turns import is_bound_cron_job
 from nanobot.cron.types import CronJob, CronSchedule
 from nanobot.triggers.local_types import LocalTrigger
+from nanobot.utils.background import spawn_background
 from nanobot.utils.subagent_channel_display import scrub_subagent_messages_for_channel
 from nanobot.webui.file_preview import WebUIFilePreviewError, file_preview_payload
 from nanobot.webui.gateway_tokens import GatewayTokenStore, token_response_payload
@@ -704,7 +705,7 @@ class GatewayHTTPHandler:
         elif action == "run":
             if not job.enabled:
                 return _http_error(409, "automation is disabled")
-            task = asyncio.create_task(self.cron_service.run_job(job_id, force=False))
+            task = spawn_background(self.cron_service.run_job(job_id, force=False), name="automation-run")
             task.add_done_callback(self._log_automation_run_result)
         elif action == "update":
             values = _automation_values_from_request(request)
@@ -1045,7 +1046,7 @@ class GatewayHTTPHandler:
         except ValueError as e:
             return _http_error(400, str(e))
         draft_id = str(payload["draft"]["draft_id"])
-        asyncio.create_task(self._complete_skill_draft(draft_id, values))
+        spawn_background(self._complete_skill_draft(draft_id, values), name="skill-draft")
         return _http_json_response(payload, status=202)
 
     def _handle_skill_manage_draft_import(self, request: WsRequest) -> Response:
@@ -1378,6 +1379,9 @@ def _parse_automation_schedule(values: dict[str, Any]) -> CronSchedule | str:
         every_ms = _positive_int(values.get("every_ms"))
         if every_ms is None:
             return "every schedule requires positive every_ms"
+        if every_ms < _MIN_EVERY_MS:
+            # Every run is a model turn: a typo such as 1 ms would burn requests and money.
+            return f"every schedule must be at least {_MIN_EVERY_MS // 1000} seconds"
         return CronSchedule(kind="every", every_ms=every_ms)
     if kind == "cron":
         raw_expr = values.get("expr")
@@ -1435,6 +1439,8 @@ def _validate_automation_schedule(schedule: CronSchedule) -> str | None:
         return "cron schedule is invalid"
     return None
 
+
+_MIN_EVERY_MS = 60_000  # smallest automation interval accepted from the WebUI
 
 def _positive_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):

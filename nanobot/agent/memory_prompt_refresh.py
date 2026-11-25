@@ -114,28 +114,28 @@ class MemoryPromptRefresher:
     def _check_paths(self) -> None:
         for path in (self.source, self.snapshot, self.lock_path):
             if path.is_symlink() or not path.resolve().is_relative_to(self.workspace):
-                raise ValueError("Memory projection paths must stay inside the workspace")
+                raise MemoryRefreshError("path_outside_workspace")
         if not self.source.is_file():
-            raise ValueError("Memory source is not a regular file")
+            raise MemoryRefreshError("source_not_regular_file")
 
     def _read_source(self) -> str:
         self._check_paths()
         with self.source.open(encoding="utf-8") as stream:
             text = stream.read(_MAX_SOURCE_BYTES + 1)
         if not text.strip() or len(text.encode("utf-8")) > _MAX_SOURCE_BYTES:
-            raise ValueError("Memory source is empty or too large for automatic refresh")
+            raise MemoryRefreshError("source_empty_or_too_large")
         return text
 
     def _read_snapshot(self) -> bytes | None:
         try:
             if not self.snapshot.is_file():
                 if self.snapshot.exists():
-                    raise ValueError("Snapshot is not a regular file")
+                    raise MemoryRefreshError("snapshot_not_regular_file")
                 return None
             with self.snapshot.open("rb") as stream:
                 raw = stream.read(_MAX_SNAPSHOT_BYTES + 1)
             if len(raw) > _MAX_SNAPSHOT_BYTES:
-                raise ValueError("Snapshot is too large")
+                raise MemoryRefreshError("snapshot_too_large")
             return raw
         except FileNotFoundError:
             return None
@@ -274,7 +274,7 @@ class MemoryPromptRefresher:
                         "reviewed_summary_sha256": hashlib.sha256(candidate["summary"].encode("utf-8")).hexdigest()}
                     raw = encode_snapshot(candidate)
                     if len(raw) > _MAX_SNAPSHOT_BYTES:
-                        raise ValueError("Candidate file is too large")
+                        raise MemoryRefreshError("candidate_too_large")
                     self._publish(text, before, raw)
                     self._validation_failure = None
                     self.status.update(status="published", phase=phase,
@@ -306,7 +306,7 @@ class MemoryPromptRefresher:
                 os.fsync(stream.fileno())
             # A manual replacement wins; a source edit invalidates this whole job.
             if self._read_source() != text or self._read_snapshot() != before:
-                raise ValueError("Memory or snapshot changed while refreshing")
+                raise MemoryRefreshError("changed_during_refresh")
             os.replace(temporary, self.snapshot)
             if os.name != "nt":
                 directory = os.open(self.source.parent, os.O_RDONLY)

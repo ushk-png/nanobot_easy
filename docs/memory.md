@@ -56,6 +56,15 @@ Dream reads:
 
 Then it edits the long-term files surgically in a single pass — not by rewriting everything, but by making the smallest honest change that keeps memory coherent.
 
+Dream moves its cursor (`memory/.dream_cursor`) forward only after it has handled a batch of history:
+
+- When Dream changed a memory file, the cursor moves at once. The real file change is the proof, not the model's own report.
+- In a workspace without git, a cleanly finished run moves the cursor.
+- In a git workspace, a run that finishes cleanly but changes nothing does not move the cursor the first time. If the same batch finishes with no change a second time in a row, the cursor moves anyway and the log says `Dream: no changes after 2 attempts; cursor advanced to N`. Without this, a batch the model keeps judging as "nothing to keep" would be re-sent forever and newer history would never be reached. No Dream change is recorded for such a batch.
+- A run that times out or fails never moves the cursor and does not count toward the two.
+
+The "no change" streak is kept in `memory/.dream_state.json`. It is bookkeeping only: it is not tracked by git, and deleting it just restarts the count.
+
 This is why nanobot's memory is not just archival. It is interpretive.
 
 ## The Files
@@ -72,6 +81,7 @@ workspace/
     ├── history.jsonl    # Append-only history summaries
     ├── .cursor          # Consolidator write cursor
     ├── .dream_cursor    # Dream consumption cursor
+    ├── .dream_state.json # Optional "no change" streak for Dream (not tracked by git)
     └── .git/            # Version history for long-term memory files
 ```
 

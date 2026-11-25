@@ -57,6 +57,7 @@ async def test_constraint_is_replayed_while_history_is_short(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_token_cap_drops_the_constraint(tmp_path):
     fake = Fake(["알겠습니다.", "분석 자료 " * 9000, "분석을 마쳤습니다."])
     await converse(make_loop(tmp_path, fake),

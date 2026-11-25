@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -16,6 +17,8 @@ from nanobot.pairing import (
     generate_code,
     is_approved,
 )
+
+_PAIRING_REPLY_INTERVAL_S = 60.0
 
 
 class BaseChannel(ABC):
@@ -228,6 +231,16 @@ class BaseChannel(ABC):
         """Handle an incoming message: check permissions, issue pairing codes in DMs, or forward to bus."""
         if not self.is_allowed(sender_id):
             if is_dm:
+                # One reply per stranger per minute: answering every message of someone who
+                # keeps writing would make the bot the sender of unlimited outbound traffic.
+                replies = self.__dict__.setdefault("_pairing_reply_at", {})
+                now = time.monotonic()
+                if now - replies.get(str(sender_id), -_PAIRING_REPLY_INTERVAL_S) < _PAIRING_REPLY_INTERVAL_S:
+                    return
+                replies[str(sender_id)] = now
+                if len(replies) > 1000:
+                    for key in sorted(replies, key=replies.get)[:500]:
+                        del replies[key]
                 code = generate_code(self.name, str(sender_id))
                 await self.send(
                     OutboundMessage(

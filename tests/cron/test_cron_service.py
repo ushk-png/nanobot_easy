@@ -1010,3 +1010,158 @@ async def test_modifying_jobs_while_one_runs_does_not_cancel_or_rerun_it(tmp_pat
     assert started == ["first"]
     run_job = service.get_job(first.id)
     assert run_job is None or run_job.state.last_status == "ok"
+
+
+@pytest.mark.asyncio
+async def test_transient_read_error_keeps_the_store_and_the_jobs(tmp_path, monkeypatch) -> None:
+    """Review B01: one failed read used to move jobs.json aside and drop the live jobs."""
+    import errno
+    from pathlib import Path
+
+    store = tmp_path / "cron" / "jobs.json"
+    service = CronService(store)
+    await service.start()
+    service.add_job(
+        "j1", CronSchedule(kind="every", every_ms=3_600_000), "hello", **_bound_chat("x")
+    )
+    real_read, failures = Path.read_text, {"left": 1}
+
+    def flaky(self, *args, **kwargs):
+        if self == store and failures["left"]:
+            failures["left"] -= 1
+            raise OSError(errno.EMFILE, "Too many open files")
+        return real_read(self, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", flaky)
+    assert len(service.list_jobs()) == 1  # snapshot kept during the error
+    monkeypatch.setattr(Path, "read_text", real_read)
+    assert len(service.list_jobs()) == 1  # and still there afterwards
+    service.add_job(
+        "j2", CronSchedule(kind="every", every_ms=3_600_000), "x", **_bound_chat("x")
+    )
+    names = sorted(job["name"] for job in json.loads(store.read_text())["jobs"])
+    assert names == ["j1", "j2"]
+    assert not list(store.parent.glob("jobs.json.corrupt-*"))
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_timer_keeps_running_after_a_failed_store_save(tmp_path, monkeypatch) -> None:
+    """Review B02: a save error in one tick used to end the timer task for good."""
+    ran: list[str] = []
+
+    async def on_job(job) -> None:
+        ran.append(job.name)
+
+    service = CronService(tmp_path / "cron" / "jobs.json", on_job=on_job, max_sleep_ms=100)
+    await service.start()
+    service.add_job("tick", CronSchedule(kind="every", every_ms=100), "m", **_bound_chat("x"))
+    await _wait_until(lambda: len(ran) >= 1, timeout=3)
+
+    real_write, failures = CronService._atomic_write, {"left": 1}
+
+    def flaky(path, content):
+        if failures["left"]:
+            failures["left"] -= 1
+            raise OSError(28, "No space left on device")
+        return real_write(path, content)
+
+    monkeypatch.setattr(CronService, "_atomic_write", staticmethod(flaky))
+    await _wait_until(lambda: failures["left"] == 0, timeout=3)
+    seen = len(ran)
+    await _wait_until(lambda: len(ran) >= seen + 2, timeout=3)
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_restart_keeps_the_next_run_of_interval_jobs(tmp_path) -> None:
+    """Review B03: every restart moved an `every` job to now + interval, so a job with an
+    interval longer than the restart gap never ran."""
+    store = tmp_path / "cron" / "jobs.json"
+    first = CronService(store)
+    await first.start()
+    first.add_job("weekly", CronSchedule(kind="every", every_ms=7 * 24 * 3600 * 1000), "m", **_bound_chat())
+    soon = int(time.time() * 1000) + 600_000  # due in ten minutes
+    stored = json.loads(store.read_text())
+    stored["jobs"][0]["state"]["nextRunAtMs"] = soon
+    store.write_text(json.dumps(stored))
+    first.stop()
+
+    second = CronService(store)
+    await second.start()
+    assert second.list_jobs(include_disabled=True)[0].state.next_run_at_ms == soon
+    second.stop()
+
+
+@pytest.mark.asyncio
+async def test_job_missed_while_down_is_due_after_restart(tmp_path) -> None:
+    store = tmp_path / "cron" / "jobs.json"
+    first = CronService(store)
+    await first.start()
+    first.add_job("daily", CronSchedule(kind="every", every_ms=86_400_000), "m", **_bound_chat())
+    stored = json.loads(store.read_text())
+    stored["jobs"][0]["state"]["nextRunAtMs"] = int(time.time() * 1000) - 3_600_000
+    store.write_text(json.dumps(stored))
+    first.stop()
+
+    second = CronService(store)
+    await second.start()
+    due = second.list_jobs(include_disabled=True)[0].state.next_run_at_ms
+    assert due <= int(time.time() * 1000) + 1000
+    second.stop()
+
+
+@pytest.mark.asyncio
+async def test_system_job_registration_keeps_history_when_the_schedule_is_unchanged(tmp_path) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+    await service.start()
+
+    def definition() -> CronJob:
+        return CronJob(
+            id="dream", name="dream", schedule=CronSchedule(kind="every", every_ms=7_200_000),
+            payload=CronPayload(kind="system_event"),
+        )
+
+    service.register_system_job(definition())
+    registered = service._store.jobs[0]
+    registered.state.last_run_at_ms = 123
+    registered.state.next_run_at_ms = int(time.time() * 1000) + 3_000_000
+    kept_next = registered.state.next_run_at_ms
+    service._save_store()
+    service.register_system_job(definition())
+    again = service._store.jobs[0]
+    assert (again.state.last_run_at_ms, again.state.next_run_at_ms) == (123, kept_next)
+
+    changed = definition()
+    changed.schedule = CronSchedule(kind="every", every_ms=3_600_000)
+    service.register_system_job(changed)
+    assert service._store.jobs[0].state.last_run_at_ms is None
+    service.stop()
+
+
+@pytest.mark.asyncio
+async def test_action_log_is_kept_when_saving_the_merged_store_fails(tmp_path, monkeypatch) -> None:
+    """Review N22: the log was cleared before the save, so a failed save lost the changes."""
+    store = tmp_path / "cron" / "jobs.json"
+    offline = CronService(store)  # not running: add_job appends to action.jsonl
+    offline.add_job("queued", CronSchedule(kind="every", every_ms=3_600_000), "m", **_bound_chat())
+    action_log = store.parent / "action.jsonl"
+    assert action_log.read_text().strip()
+
+    service = CronService(store)
+    real_save = CronService._save_store
+
+    def failing(self):
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(CronService, "_save_store", failing)
+    with pytest.raises(OSError):
+        await service.start()
+    assert action_log.read_text().strip(), "the queued change must still be on disk"
+
+    monkeypatch.setattr(CronService, "_save_store", real_save)
+    retry = CronService(store)
+    await retry.start()
+    assert [job.name for job in retry.list_jobs(include_disabled=True)] == ["queued"]
+    assert action_log.read_text() == ""
+    retry.stop()

@@ -822,9 +822,9 @@ def test_retain_recent_legal_suffix_last_consolidated_correct_in_else_branch():
 
     result = session.retain_recent_legal_suffix(4)
 
-    # Retained messages start from latest user (u9) + max_messages forward
-    # so retained = [u9, a0..a9][:4] → but these are from original indices 9..12
-    # Of those, indices 9,10,11 are < 12 (before_lc), so new_lc = 3
-    assert session.last_consolidated == 3
-    # already_cons should count dropped messages with original index < 12
-    assert result.already_consolidated_count == 9
+    # Retained = the latest user (u9, original index 9) plus the newest messages
+    # (a7, a8, a9 at indices 17..19). Only u9 lies before before_lc=12, so new_lc = 1.
+    assert [m["content"] for m in session.messages] == ["u9", "a7", "a8", "a9"]
+    assert session.last_consolidated == 1
+    # Dropped messages with original index < 12: all of them except u9.
+    assert result.already_consolidated_count == 11

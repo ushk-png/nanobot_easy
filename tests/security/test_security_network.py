@@ -343,3 +343,68 @@ def test_whitelist_allows_ipv6_mapped_cgnat():
             assert ok, f"Whitelisted IPv6-mapped CGNAT should be allowed, got: {err}"
     finally:
         configure_ssrf_whitelist([])
+
+
+# ---------------------------------------------------------------------------
+# item 3: unspecified, embedded-IPv4 (compat / NAT64 / 6to4), special-purpose ranges
+# ---------------------------------------------------------------------------
+
+from nanobot.security.network import _is_private  # noqa: E402
+
+_NEWLY_BLOCKED = [
+    "::", "::127.0.0.1", "64:ff9b::7f00:1", "64:ff9b::a9fe:a9fe", "2002:7f00:1::", "2002:a9fe:a9fe::",
+    "198.18.0.1", "224.0.0.1", "ff02::1", "240.0.0.1", "255.255.255.255", "192.0.0.1",
+]
+_STILL_BLOCKED = [
+    "::ffff:127.0.0.1", "169.254.169.254", "100.64.0.1", "10.0.0.1", "192.168.1.1", "fd00::1", "fe80::1",
+]
+_PUBLIC = ["8.8.8.8", "1.1.1.1", "2606:4700:4700::1111", "64:ff9b::808:808"]
+
+
+@pytest.mark.parametrize("ip", _NEWLY_BLOCKED + _STILL_BLOCKED)
+def test_is_private_blocks_internal_and_special_addresses(ip):
+    configure_ssrf_whitelist([])
+    assert _is_private(ipaddress.ip_address(ip)), ip
+
+
+@pytest.mark.parametrize("ip", _PUBLIC)
+def test_is_private_allows_public_addresses(ip):
+    configure_ssrf_whitelist([])
+    assert not _is_private(ipaddress.ip_address(ip)), ip
+
+
+@pytest.mark.parametrize("url", [
+    "http://[::]:18797/", "http://[64:ff9b::7f00:1]/", "http://198.18.0.1/",
+])
+def test_resolve_url_target_rejects_literal_special_addresses(url):
+    ok, _, _ = resolve_url_target(url)
+    assert not ok, url
+
+
+def test_whitelisted_specific_address_passes():
+    configure_ssrf_whitelist(["198.18.0.1/32"])
+    try:
+        assert not _is_private(ipaddress.ip_address("198.18.0.1"))
+        assert _is_private(ipaddress.ip_address("198.18.0.2"))
+    finally:
+        configure_ssrf_whitelist([])
+
+
+@pytest.mark.parametrize("host,ips,allowed", [
+    ("localhost", ["127.0.0.1"], True),
+    ("localhost", ["::1"], True),
+    ("127.0.0.1", ["127.0.0.1"], True),
+    ("evil.test", ["::"], False),
+    ("localhost", ["::"], False),
+    ("localhost", ["0.0.0.0"], False),
+])
+def test_allow_loopback_accepts_only_real_loopback(host, ips, allowed):
+    def _resolver(hostname, port, family=0, type_=0):
+        out = []
+        for ip in ips:
+            fam = socket.AF_INET6 if ":" in ip else socket.AF_INET
+            out.append((fam, socket.SOCK_STREAM, 0, "", (ip, 0)))
+        return out
+    with patch("nanobot.security.network.socket.getaddrinfo", _resolver):
+        ok, _ = validate_url_target(f"http://{host}:8765/", allow_loopback=True)
+    assert ok is allowed

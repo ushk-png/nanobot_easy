@@ -14,6 +14,7 @@ from typing import Any, Literal
 from nanobot import __version__
 from nanobot.bus.events import OutboundMessage
 from nanobot.command.router import CommandContext, CommandRouter
+from nanobot.utils.background import spawn_background
 from nanobot.utils.helpers import build_status_content
 from nanobot.utils.restart import set_restart_notice_to_env
 
@@ -222,7 +223,7 @@ async def cmd_restart(ctx: CommandContext) -> OutboundMessage:
             subprocess.Popen(argv, **kwargs)
         os._exit(0)
 
-    asyncio.create_task(_do_restart())
+    spawn_background(_do_restart(), name="restart")
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content="Restarting...",
         metadata=dict(msg.metadata or {})
@@ -419,9 +420,8 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
             elapsed = time.monotonic() - t0
             # Ground truth: the real file delta, not the LLM's self-report.
             diff_body = store.dream_content_diff()
-            productive = bool(diff_body) or (
-                not store.git.is_initialized()
-                and MemoryStore.dream_run_completed(resp)
+            productive = store.dream_cursor_should_advance(
+                diff_body, MemoryStore.dream_run_completed(resp), last_cursor,
             )
             if productive:
                 store.set_last_dream_cursor(last_cursor)
@@ -455,7 +455,7 @@ async def cmd_dream(ctx: CommandContext) -> OutboundMessage:
             channel=msg.channel, chat_id=msg.chat_id, content=content,
         ))
 
-    asyncio.create_task(_run_dream())
+    spawn_background(_run_dream(), name="dream")
     return OutboundMessage(
         channel=msg.channel, chat_id=msg.chat_id, content="Dreaming...",
     )

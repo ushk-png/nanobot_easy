@@ -66,6 +66,8 @@ class ExecToolConfig(Base):
     allowed_env_keys: list[str] = Field(default_factory=list)
     allow_patterns: list[str] = Field(default_factory=list)
     deny_patterns: list[str] = Field(default_factory=list)
+    # Refuse commands that read this instance's own credential files (env, config*.json, auth/).
+    protect_credentials: bool = True
 
 
 @dataclass(slots=True)
@@ -180,6 +182,7 @@ class ExecTool(Tool):
             allow_patterns=cfg.allow_patterns,
             deny_patterns=cfg.deny_patterns,
             background_timeout=cfg.background_timeout,
+            protect_credentials=cfg.protect_credentials,
         )
 
     def __init__(
@@ -198,11 +201,13 @@ class ExecTool(Tool):
         session_manager: Any | None = None,
         job_manager: Any | None = None,
         background_timeout: int = 1800,
+        protect_credentials: bool = True,
     ):
         self.timeout = timeout
         self.background_timeout = background_timeout
         self.working_dir = working_dir
         self.sandbox = sandbox
+        self.protect_credentials = protect_credentials
         self.deny_patterns = (deny_patterns or []) + [
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",              # del /f, del /q
@@ -319,7 +324,7 @@ class ExecTool(Tool):
             is_codewhale_agent_command,
         )
 
-        detach_codewhale = is_codewhale_agent_command(command)
+        detach_codewhale = is_codewhale_agent_command(command, standalone=True)
         if detach_codewhale:
             # The model-supplied timeout is capped at 600s and then kills the
             # process. A coding run must outlive that cap.
@@ -976,6 +981,17 @@ class ExecTool(Tool):
                         + _WORKSPACE_BOUNDARY_NOTE
                     )
 
+        # Last, so the workspace-boundary and allow/deny messages keep priority. An allow-list entry
+        # does not exempt a command from this check.
+        if self.protect_credentials:
+            from nanobot.security.secrets import command_credential_target
+
+            target = command_credential_target(cmd, cwd)
+            if target:
+                return ToolResult.error(
+                    "Error: Command blocked by safety guard (it would read a credential file: "
+                    f"{target}). Use the settings pages or ask the owner to change credentials."
+                )
         return None
 
     @staticmethod

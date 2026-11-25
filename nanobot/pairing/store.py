@@ -8,6 +8,7 @@ private-assistant scale: small JSON file, simple locking, no external DB.
 from __future__ import annotations
 
 import json
+import os
 import secrets
 import string
 import threading
@@ -17,7 +18,7 @@ from typing import Any
 
 from loguru import logger
 
-from nanobot.config.paths import get_data_dir
+from nanobot.config.paths import get_data_dir, instance_scoped_path
 from nanobot.utils.helpers import _write_text_atomic
 
 # threading.Lock is used so store functions remain callable from both sync CLI
@@ -27,27 +28,61 @@ _LOCK = threading.Lock()
 _ALPHABET = string.ascii_uppercase + string.digits
 _CODE_LENGTH = 8  # e.g. ABCD-EFGH
 _TTL_DEFAULT_S = 600  # 10 minutes
+_MAX_PENDING = 100  # most pending codes kept; the oldest is dropped first
 
 
 def _store_path() -> Path:
-    return get_data_dir() / "pairing.json"
+    # One store per instance: approving a sender in one bot must not approve it in the others
+    # that share this config folder. Existing approvals are copied into each new store.
+    return instance_scoped_path(get_data_dir() / "pairing.json")
 
 
-def _load() -> dict[str, Any]:
+def _load(*, for_update: bool = False) -> dict[str, Any]:
+    """Read the store.
+
+    A missing file is an empty store. A file that is not valid JSON is moved aside (not
+    deleted) and the store starts empty. A transient read error (EMFILE, EIO, ...) says
+    nothing about the contents: a reader sees an empty store for that call, and a caller that
+    will write (``for_update``) gets the error, so the next ``_save`` can never replace the
+    approved senders with an empty list.
+    """
     path = _store_path()
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except FileNotFoundError:
         return {"approved": {}, "pending": {}}
-    except (json.JSONDecodeError, OSError):
-        logger.warning("Corrupted pairing store, resetting")
+    except json.JSONDecodeError:
+        _quarantine(path)
+        return {"approved": {}, "pending": {}}
+    except OSError as exc:
+        if for_update:
+            raise
+        logger.warning("Pairing store unreadable ({}); treating as empty for this call", exc)
+        return {"approved": {}, "pending": {}}
+    if not isinstance(data, dict):
+        _quarantine(path)
         return {"approved": {}, "pending": {}}
 
     # Convert approved lists to str sets for O(1) lookup.
-    for channel, users in data.get("approved", {}).items():
-        data["approved"][channel] = {str(u) for u in users}
+    approved = data.get("approved")
+    if not isinstance(approved, dict):
+        approved = data["approved"] = {}
+    for channel, users in approved.items():
+        approved[channel] = {str(u) for u in users}
+    if not isinstance(data.get("pending"), dict):
+        data["pending"] = {}
     return data
+
+
+def _quarantine(path: Path) -> None:
+    """Keep a corrupt store for inspection instead of overwriting it on the next save."""
+    target = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+    try:
+        os.replace(path, target)
+        logger.warning("Corrupted pairing store moved to {}; starting empty", target.name)
+    except OSError as exc:
+        logger.warning("Corrupted pairing store could not be moved aside ({})", exc)
 
 
 def _save(data: dict[str, Any]) -> None:
@@ -80,8 +115,17 @@ def generate_code(
     Returns the code (e.g. ``"ABCD-EFGH"``).
     """
     with _LOCK:
-        data = _load()
+        data = _load(for_update=True)
         _gc_pending(data)
+        pending = data.setdefault("pending", {})
+        for existing, info in pending.items():
+            # The same stranger writing again gets the code they already have: a new code and a
+            # full rewrite of the file per message let one sender grow it without limit.
+            if info.get("channel") == channel and info.get("sender_id") == str(sender_id):
+                return existing
+        while len(pending) >= _MAX_PENDING:
+            oldest = min(pending, key=lambda key: pending[key].get("created_at", 0))
+            del pending[oldest]
         raw = "".join(secrets.choice(_ALPHABET) for _ in range(_CODE_LENGTH))
         code = f"{raw[:4]}-{raw[4:]}"
 
@@ -103,7 +147,7 @@ def approve_code(code: str) -> tuple[str, str] | None:
     does not exist or has expired.
     """
     with _LOCK:
-        data = _load()
+        data = _load(for_update=True)
         _gc_pending(data)
         pending: dict[str, Any] = data.get("pending", {})
         info = pending.pop(code, None)
@@ -123,7 +167,7 @@ def deny_code(code: str) -> bool:
     Returns ``True`` if the code existed and was removed.
     """
     with _LOCK:
-        data = _load()
+        data = _load(for_update=True)
         _gc_pending(data)
         pending: dict[str, Any] = data.get("pending", {})
         if code in pending:
@@ -159,7 +203,7 @@ def revoke(channel: str, sender_id: str) -> bool:
     Returns ``True`` if the sender was present and removed.
     """
     with _LOCK:
-        data = _load()
+        data = _load(for_update=True)
         approved: dict[str, set[str]] = data.get("approved", {})
         users = approved.get(channel, set())
         sid = str(sender_id)

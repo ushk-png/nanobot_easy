@@ -519,6 +519,32 @@ class GitStore:
                         dest.write_text(content, encoding="utf-8")
                         restored.append(filepath)
 
+                # Files under tracked directories (memory/topics) are part of the memory state
+                # too: bring back what the parent had, and remove what only appeared since.
+                prefixes = tuple(d + "/" for d in self._tracked_dirs)
+
+                def _dir_files(tree_obj) -> dict[str, bytes]:
+                    found: dict[str, bytes] = {}
+                    for entry in repo.object_store.iter_tree_contents(tree_obj.id):
+                        path = entry.path.decode("utf-8", errors="replace")
+                        if path.startswith(prefixes):
+                            found[path] = repo[entry.sha].data
+                    return found
+
+                if prefixes:
+                    before = _dir_files(tree)
+                    head_tree = repo[repo[repo.head()].tree]
+                    later = {**_dir_files(repo[commit_obj.tree]), **_dir_files(head_tree)}
+                    for path, data in before.items():
+                        dest = self._workspace / path
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        dest.write_bytes(data)
+                        restored.append(path)
+                    for path in later:
+                        if path not in before:
+                            (self._workspace / path).unlink(missing_ok=True)
+                            restored.append(path)
+
             if not restored:
                 return None
 

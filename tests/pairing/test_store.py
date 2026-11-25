@@ -216,3 +216,131 @@ class TestStoreDurability:
         # Should recover gracefully and act as empty store
         assert store.list_pending() == []
         assert store.is_approved("telegram", "123") is False
+
+
+class TestReadFailuresNeverWipeApprovals:
+    """Review N17: one transient read error used to replace the store with an empty one."""
+
+    def _seed(self) -> None:
+        import json
+
+        store._store_path().write_text(
+            json.dumps({"approved": {"telegram": ["111", "222"]}, "pending": {}}), encoding="utf-8"
+        )
+
+    def test_transient_read_error_does_not_reset_approved_senders(self, monkeypatch) -> None:
+        import builtins
+        import errno
+        import json
+
+        self._seed()
+        real_open = builtins.open
+        failures = {"left": 1}
+
+        def flaky(path, *args, **kwargs):
+            if str(path).endswith("pairing.json") and failures["left"]:
+                failures["left"] -= 1
+                raise OSError(errno.EMFILE, "Too many open files")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", flaky)
+        with pytest.raises(OSError):
+            store.generate_code("telegram", "999")  # a stranger's DM during the failure
+        monkeypatch.setattr(builtins, "open", real_open)
+
+        assert store.is_approved("telegram", "111")
+        assert json.loads(store._store_path().read_text())["approved"] == {
+            "telegram": ["111", "222"]
+        }
+
+    def test_reader_sees_empty_store_for_one_call_without_writing(self, monkeypatch) -> None:
+        import builtins
+        import errno
+
+        self._seed()
+        before = store._store_path().read_text()
+        real_open = builtins.open
+
+        def always_fail(path, *args, **kwargs):
+            if str(path).endswith("pairing.json"):
+                raise OSError(errno.EIO, "I/O error")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", always_fail)
+        assert store.is_approved("telegram", "111") is False
+        monkeypatch.setattr(builtins, "open", real_open)
+        assert store._store_path().read_text() == before
+
+    def test_invalid_json_is_moved_aside_not_overwritten(self) -> None:
+        path = store._store_path()
+        path.write_text("{not json", encoding="utf-8")
+        assert store.is_approved("telegram", "111") is False
+        store.generate_code("telegram", "5")
+        saved = list(path.parent.glob("pairing.json.corrupt-*"))
+        assert len(saved) == 1 and saved[0].read_text() == "{not json"
+
+    def test_non_object_json_is_treated_as_corrupt(self) -> None:
+        path = store._store_path()
+        path.write_text("[1, 2]", encoding="utf-8")
+        assert store.get_approved("telegram") == []
+        assert list(path.parent.glob("pairing.json.corrupt-*"))
+
+
+class TestPendingCodeFlood:
+    """Review A01: every stranger DM created a new code and rewrote the file."""
+
+    def test_the_same_sender_keeps_one_pending_code(self) -> None:
+        import json
+
+        first = store.generate_code("telegram", "stranger")
+        again = [store.generate_code("telegram", "stranger") for _ in range(20)]
+        assert set(again) == {first}
+        assert len(json.loads(store._store_path().read_text())["pending"]) == 1
+        assert store.generate_code("telegram", "other") != first  # another sender, another code
+        assert store.generate_code("discord", "stranger") != first  # same id on another channel
+
+    def test_pending_codes_are_capped_and_the_oldest_goes_first(self, monkeypatch) -> None:
+        import json
+
+        clock = {"now": 1_000.0}
+        monkeypatch.setattr(store.time, "time", lambda: clock["now"])
+        codes = []
+        for index in range(store._MAX_PENDING + 5):
+            clock["now"] += 1
+            codes.append(store.generate_code("telegram", f"user{index}"))
+        pending = json.loads(store._store_path().read_text())["pending"]
+        assert len(pending) == store._MAX_PENDING
+        assert codes[0] not in pending and codes[-1] in pending
+
+
+class TestEachInstanceHasItsOwnStore:
+    """Review A02: six bots in one folder shared one pairing.json."""
+
+    @pytest.fixture(autouse=True)
+    def _real_paths(self, tmp_path, monkeypatch):
+        from nanobot.config.loader import get_config_path, set_config_path
+
+        monkeypatch.undo()  # drop the module-level _store_path patch used by the other tests
+        original = get_config_path()
+        yield tmp_path
+        set_config_path(original)
+
+    def test_an_approval_in_one_instance_does_not_reach_another(self, _real_paths) -> None:
+        from nanobot.config.loader import set_config_path
+
+        folder = _real_paths / ".local"
+        folder.mkdir()
+        set_config_path(folder / "config.json")
+        code = store.generate_code("telegram", "friend")
+        store.approve_code(code)
+        assert store.is_approved("telegram", "friend")
+
+        set_config_path(folder / "config.testy.json")  # first use: starts as a copy of the shared file
+        assert store.is_approved("telegram", "friend")  # nothing already approved is lost
+        code = store.generate_code("telegram", "newcomer")
+        store.approve_code(code)
+        assert store.is_approved("telegram", "newcomer")
+
+        set_config_path(folder / "config.json")
+        assert not store.is_approved("telegram", "newcomer")  # the new approval stayed in testy
+        assert (folder / "pairing.json").is_file() and (folder / "pairing.testy.json").is_file()

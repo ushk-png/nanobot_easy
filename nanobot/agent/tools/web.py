@@ -1067,6 +1067,35 @@ class WebSearchTool(Tool):
             return ToolResult.error(f"Error: {e}")
 
 
+class _ResponseTooLargeError(Exception):
+    """The response body is larger than the allowed limit."""
+
+
+async def _aread_capped(response: httpx.Response, limit: int) -> bytes:
+    """Read a streamed response body, stopping as soon as it exceeds ``limit`` bytes.
+
+    ``Response.aread()`` has no limit and a chunked response carries no Content-Length, so
+    one large URL could fill memory. The bytes are stored the way ``aread()`` stores them, so
+    ``response.text`` / ``response.content`` keep working afterwards.
+    """
+    if not hasattr(response, "aiter_bytes"):  # a stand-in response without streaming support
+        return await response.aread()
+    if hasattr(response, "_content"):
+        body = response.content
+        if len(body) > limit:
+            raise _ResponseTooLargeError(f"Response too large (limit {limit:,} bytes)")
+        return body
+    chunks: list[bytes] = []
+    total = 0
+    async for chunk in response.aiter_bytes():
+        total += len(chunk)
+        if total > limit:
+            raise _ResponseTooLargeError(f"Response too large (limit {limit:,} bytes)")
+        chunks.append(chunk)
+    response._content = b"".join(chunks)
+    return response._content
+
+
 @tool_parameters(
     tool_parameters_schema(
         url=StringSchema("URL to fetch"),
@@ -1158,7 +1187,10 @@ class WebFetchTool(Tool):
                     ctype = r.headers.get("content-type", "")
                     if ctype.startswith("image/"):
                         r.raise_for_status()
-                        raw = await r.aread()
+                        try:
+                            raw = await _aread_capped(r, self._MAX_IMAGE_BYTES)
+                        except _ResponseTooLargeError as too_large:
+                            return json.dumps({"error": str(too_large), "url": url}, ensure_ascii=False)
                         return build_image_content_blocks(raw, ctype, url, f"(Image fetched from: {url})")
                     prefetched = (r, stream)
             except Exception as e:
@@ -1173,6 +1205,8 @@ class WebFetchTool(Tool):
             if result is None:
                 result = await self._fetch_readability(url, extract_mode, max_chars, prefetched=prefetched)
             return result
+
+    _MAX_IMAGE_BYTES = 10 * 1024 * 1024
 
     def _content_length_error(self, r: httpx.Response, url: str) -> str | None:
         declared = r.headers.get("content-length")
@@ -1272,7 +1306,11 @@ class WebFetchTool(Tool):
                     if size_error:
                         return size_error
                     r.raise_for_status()
-                    await r.aread()
+                    try:
+                        # Content-Length is absent on chunked responses, so cap what is read.
+                        await _aread_capped(r, self._MAX_FETCH_BYTES)
+                    except _ResponseTooLargeError as too_large:
+                        return json.dumps({"error": str(too_large), "url": url}, ensure_ascii=False)
                     return self._extract_from_response(r, url, extract_mode, max_chars)
                 except httpx.TransportError as e:
                     # The connection sat idle while Jina was tried first and the server

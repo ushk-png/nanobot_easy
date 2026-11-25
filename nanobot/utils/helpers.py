@@ -1,6 +1,7 @@
 """Utility functions for nanobot."""
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -20,6 +21,8 @@ _TOOLS_TOKEN_CACHE_MAX_ENTRIES = 64
 _TOOLS_TOKEN_CACHE: dict[int, tuple[tuple[int, ...], dict[bool, int]]] = {}
 _MIN_INPUT_TOKEN_SAFETY_BUFFER = 1024
 _MAX_INPUT_TOKEN_SAFETY_BUFFER = 20_000
+# Set once the prompt estimate has fallen back to the char-based count (no encoding).
+_TOKEN_FALLBACK_WARNED = False
 
 
 @lru_cache(maxsize=1)
@@ -507,12 +510,20 @@ def maybe_persist_tool_result(
         _cleanup_tool_result_buckets(root, bucket)
     except Exception:
         logger.exception("Failed to clean stale tool result buckets in {}", root)
+    stored = json.dumps(content, ensure_ascii=False, indent=2) if suffix == "json" and isinstance(content, list) else text_payload
     path = bucket / f"{safe_filename(tool_call_id)}.{suffix}"
+    if path.exists():
+        try:
+            same = path.read_text(encoding="utf-8") == stored
+        except OSError:
+            same = False
+        if not same:
+            # A provider reused this tool_call_id for different output: the reference must
+            # point at THIS output, not at the older file that happens to have the same name.
+            digest = hashlib.sha1(stored.encode("utf-8")).hexdigest()[:8]
+            path = bucket / f"{safe_filename(tool_call_id)}-{digest}.{suffix}"
     if not path.exists():
-        if suffix == "json" and isinstance(content, list):
-            _write_text_atomic(path, json.dumps(content, ensure_ascii=False, indent=2))
-        else:
-            _write_text_atomic(path, text_payload)
+        _write_text_atomic(path, stored)
 
     preview = text_payload[:_TOOL_RESULT_PREVIEW_CHARS]
     return _render_tool_result_reference(
@@ -587,43 +598,98 @@ def estimate_prompt_tokens(
 
     Counts all fields that providers send to the LLM: content, tool_calls,
     reasoning_content, tool_call_id, name, plus per-message framing overhead.
+    Falls back to a char-based estimate (~4 chars/token) when the encoding
+    cannot be loaded (offline without a cached encoding), never to 0.
     """
+    return _estimate_prompt_tokens_with_source(messages, tools)[0]
+
+
+def _prompt_text_parts(messages: list[dict[str, Any]]) -> list[str]:
+    parts: list[str] = []
+    for msg in messages:
+        content = msg.get("content")
+        if isinstance(content, str):
+            parts.append(content)
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and part.get("type") == "text":
+                    txt = part.get("text", "")
+                    if txt:
+                        parts.append(txt)
+
+        tc = msg.get("tool_calls")
+        if tc:
+            parts.append(json.dumps(tc, ensure_ascii=False))
+
+        rc = msg.get("reasoning_content")
+        if isinstance(rc, str) and rc:
+            parts.append(rc)
+
+        for key in ("name", "tool_call_id"):
+            value = msg.get(key)
+            if isinstance(value, str) and value:
+                parts.append(value)
+    return parts
+
+
+def _estimate_prompt_tokens_with_source(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None = None,
+) -> tuple[int, str]:
     try:
         enc = _get_token_encoding()
-        parts: list[str] = []
-        for msg in messages:
-            content = msg.get("content")
-            if isinstance(content, str):
-                parts.append(content)
-            elif isinstance(content, list):
-                for part in content:
-                    if isinstance(part, dict) and part.get("type") == "text":
-                        txt = part.get("text", "")
-                        if txt:
-                            parts.append(txt)
-
-            tc = msg.get("tool_calls")
-            if tc:
-                parts.append(json.dumps(tc, ensure_ascii=False))
-
-            rc = msg.get("reasoning_content")
-            if isinstance(rc, str) and rc:
-                parts.append(rc)
-
-            for key in ("name", "tool_call_id"):
-                value = msg.get(key)
-                if isinstance(value, str) and value:
-                    parts.append(value)
-
+    except Exception as exc:
+        return _char_estimate_prompt_tokens(messages, tools, exc)
+    try:
+        parts = _prompt_text_parts(messages)
         tool_tokens = (
             _estimate_tools_tokens(enc, tools, leading_separator=bool(parts)) if tools else 0
         )
 
         per_message_overhead = len(messages) * 4
         message_tokens = len(enc.encode("\n".join(parts))) if parts else 0
-        return message_tokens + tool_tokens + per_message_overhead
+        return message_tokens + tool_tokens + per_message_overhead, "tiktoken"
     except Exception:
-        return 0
+        return 0, "none"
+
+
+def _char_token_estimate(text: str) -> int:
+    """Token estimate from characters when no encoding is available.
+
+    ASCII text is ~4 chars/token. Hangul, kana, CJK and other non-ASCII characters are
+    roughly one token each, so ``len // 4`` would undercount Korean/Japanese by about 3x
+    (measured against cl100k_base: 0.97-1.05x with 0.9 tokens per non-ASCII character).
+    """
+    non_ascii = sum(1 for ch in text if ord(ch) > 127)
+    return (len(text) - non_ascii) // 4 + int(non_ascii * 0.9)
+
+
+def _char_estimate_prompt_tokens(
+    messages: list[dict[str, Any]],
+    tools: list[dict[str, Any]] | None,
+    exc: Exception,
+) -> tuple[int, str]:
+    """Char-based prompt estimate used when the encoding cannot be loaded.
+
+    Same rule as ``estimate_message_tokens``' fallback (``_char_token_estimate``) plus
+    4 tokens of framing per message. Warns once per process.
+    """
+    global _TOKEN_FALLBACK_WARNED
+    try:
+        parts = _prompt_text_parts(messages)
+        text = "\n".join(parts) if parts else ""
+        tool_text = json.dumps(tools, ensure_ascii=False) if tools else ""
+        tokens = _char_token_estimate(text) + _char_token_estimate(tool_text) + len(messages) * 4
+    except Exception:
+        return 0, "none"
+    if not _TOKEN_FALLBACK_WARNED:
+        _TOKEN_FALLBACK_WARNED = True
+        logger.warning(
+            "Prompt token estimate fell back to a char-based estimate (~4 chars/token): "
+            "tokenizer encoding unavailable ({})",
+            type(exc).__name__,
+        )
+    return tokens, "char_estimate"
 
 
 def estimate_message_tokens(message: dict[str, Any]) -> int:
@@ -661,7 +727,7 @@ def estimate_message_tokens(message: dict[str, Any]) -> int:
         enc = _get_token_encoding()
         return max(4, len(enc.encode(payload)) + 4)
     except Exception:
-        return max(4, len(payload) // 4 + 4)
+        return max(4, _char_token_estimate(payload) + 4)
 
 
 def estimate_prompt_tokens_chain(
@@ -677,9 +743,9 @@ def estimate_prompt_tokens_chain(
             tokens, source = provider_counter(messages, tools, model)
             if isinstance(tokens, (int, float)) and tokens > 0:
                 return int(tokens), str(source or "provider_counter")
-    estimated = estimate_prompt_tokens(messages, tools)
+    estimated, source = _estimate_prompt_tokens_with_source(messages, tools)
     if estimated > 0:
-        return int(estimated), "tiktoken"
+        return int(estimated), source
     return 0, "none"
 
 

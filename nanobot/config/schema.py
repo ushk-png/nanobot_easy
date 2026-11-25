@@ -18,7 +18,6 @@ if TYPE_CHECKING:
     from nanobot.agent.tools.self import MyToolConfig
     from nanobot.agent.tools.shell import ExecToolConfig
     from nanobot.agent.tools.web import WebToolsConfig
-    from nanobot.workflow.config import WorkflowToolConfig
 
 
 class ChannelsConfig(Base):
@@ -133,19 +132,13 @@ class SubagentProfile(Base):
 
 
 class StepwiseConfig(Base):
-    """Stepwise reasoning ("Genie method", design docs/design/stepwise-llm-reasoning.md).
+    """Settings of the lightweight task-evidence path (``agent/task_note.py``).
 
-    Off unless applied explicitly with ``nanobot stepwise apply``, which records when.
+    The staged "Genie method" reasoning engine that used to live here was removed; old config
+    files may still carry its keys (``enabled``, ``layout`` ...), which are ignored.
     """
 
-    enabled: bool = False
-    method: str = "genie"
-    request_driven_assist: bool = False  # Requires enabled; preserves automatic routing by default.
-    applied_at: str | None = None
-    layout: Literal["auto", "two_call", "compact", "fine"] = "auto"  # auto follows the model's reasoning
-    review_required: list[str] = Field(default_factory=list)  # procedure ids whose S6 model review always runs
-    z3_check: bool = False  # Z3 entailment in rule judgments; off until rules are formalized
-    lightweight: bool = False  # Explicit per-gateway opt-in; independent of stepwise.enabled.
+    lightweight: bool = False  # Explicit per-gateway opt-in for task notes.
     # Experimental, off until a same-condition model comparison justifies it: show the model
     # which earlier reads still match the current file content (lightweight task evidence).
     verified_read_summary: bool = False
@@ -245,7 +238,7 @@ class AgentDefaults(Base):
         serialization_alias="toolHintMaxLength",
     )  # Max characters for tool hint display (e.g. "$ cd …/project && npm test")
     reasoning_effort: str | None = None  # low / medium / high / adaptive / none — LLM thinking effort; None preserves the provider default
-    stepwise: StepwiseConfig = Field(default_factory=StepwiseConfig)  # set by `nanobot stepwise apply`
+    stepwise: StepwiseConfig = Field(default_factory=StepwiseConfig)
     timezone: str = "UTC"  # IANA timezone, e.g. "Asia/Shanghai", "America/New_York"
     bot_name: str = "nanobot"  # Display name shown in CLI prompts (e.g. "{name} is thinking...")
     bot_icon: str = "🐈"  # Short icon (emoji or text) shown next to the bot name in CLI; "" to omit
@@ -428,12 +421,14 @@ class ApiConfig(Base):
 
     @model_validator(mode="after")
     def wildcard_host_requires_auth(self) -> "ApiConfig":
-        if self.host not in ("0.0.0.0", "::"):
+        from nanobot.security.network import host_is_loopback_only
+
+        if host_is_loopback_only(self.host):
             return self
         if self.api_key.strip():
             return self
         raise ValueError(
-            "host is 0.0.0.0 (all interfaces) but api_key is not set "
+            f"host is {self.host!r} (not loopback-only) but api_key is not set "
             "- set api.api_key to prevent unauthenticated access"
         )
 
@@ -506,6 +501,7 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     oauth: MCPOAuthConfig = Field(default_factory=MCPOAuthConfig)
     tool_timeout: int = 30  # seconds before a tool call is cancelled
+    connect_timeout: int = Field(default=30, ge=0)  # seconds allowed for initialize + list_tools at connect; 0 = no limit
     retry_safe_tools: list[str] = Field(default_factory=list)  # Exact raw/wrapped names verified by the operator as read-only or idempotent; no wildcard matching
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
 
@@ -585,9 +581,6 @@ class ToolsConfig(Base):
     my: MyToolConfig = Field(default_factory=lambda: _lazy_default("nanobot.agent.tools.self", "MyToolConfig"))
     image_generation: ImageGenerationToolConfig = Field(
         default_factory=lambda: _lazy_default("nanobot.agent.tools.image_generation", "ImageGenerationToolConfig"),
-    )
-    workflow: WorkflowToolConfig = Field(
-        default_factory=lambda: _lazy_default("nanobot.workflow.config", "WorkflowToolConfig"),
     )
     safe_mode: bool = Field(
         default=False,
@@ -881,7 +874,6 @@ def _resolve_tool_config_refs() -> None:
         WebSearchConfig,
         WebToolsConfig,
     )
-    from nanobot.workflow.config import WorkflowToolConfig
 
     # Re-export into this module's namespace
     mod = sys.modules[__name__]
@@ -895,7 +887,6 @@ def _resolve_tool_config_refs() -> None:
     mod.WebEvidenceConfig = WebEvidenceConfig  # type: ignore[attr-defined]
     mod.MyToolConfig = MyToolConfig  # type: ignore[attr-defined]
     mod.ImageGenerationToolConfig = ImageGenerationToolConfig  # type: ignore[attr-defined]
-    mod.WorkflowToolConfig = WorkflowToolConfig  # type: ignore[attr-defined]
 
     ToolsConfig.model_rebuild()
     Config.model_rebuild()

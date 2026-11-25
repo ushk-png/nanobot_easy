@@ -531,3 +531,102 @@ async def test_transient_provider_failure_can_retry_the_same_source_after_cooldo
     await refresh._task
     assert loader.build(source.read_text()) and len(provider.calls) == 3
     await refresh.close()
+
+
+# ---- item 8: content-free reason codes instead of a bare "ValueError" ---------------------------
+
+import nanobot.agent.memory_prompt_refresh as _mpr  # noqa: E402
+
+_SECRET = 'ZEBRA_SECRET_7741'
+
+
+def _small(root):
+    directory = root / 'memory'
+    directory.mkdir()
+    source = directory / 'MEMORY.md'
+    source.write_text(f'Reply in Korean. {_SECRET} is a private note.\n')
+    return source, MemoryPromptRefresher(source, 240, lambda: (None, 'test'))
+
+
+async def _run(refresh):
+    text = refresh.source.read_text() if refresh.source.is_file() and not refresh.source.is_symlink() else ''
+    await refresh._refresh(hashlib.sha256(text.encode()).hexdigest())
+    return refresh.status.get('reason')
+
+
+async def test_reason_path_outside_workspace(tmp_path):
+    source, refresh = _small(tmp_path)
+    real = tmp_path / 'elsewhere.md'
+    real.write_text(source.read_text())
+    source.unlink()
+    source.symlink_to(real)
+    assert await _run(refresh) == 'path_outside_workspace'
+
+
+async def test_reason_source_not_regular_file(tmp_path):
+    source, refresh = _small(tmp_path)
+    source.unlink()
+    source.mkdir()
+    assert await _run(refresh) == 'source_not_regular_file'
+
+
+async def test_reason_source_empty_or_too_large(tmp_path):
+    source, refresh = _small(tmp_path)
+    source.write_text('   \n')
+    await refresh._refresh(hashlib.sha256(b'   \n').hexdigest())
+    assert refresh.status['reason'] == 'source_empty_or_too_large'
+
+
+async def test_reason_snapshot_not_regular_file(tmp_path):
+    source, refresh = _small(tmp_path)
+    source.with_name('prompt_snapshot.json').mkdir()
+    assert await _run(refresh) == 'snapshot_not_regular_file'
+
+
+async def test_reason_snapshot_too_large(tmp_path):
+    source, refresh = _small(tmp_path)
+    source.with_name('prompt_snapshot.json').write_bytes(b'x' * (_mpr._MAX_SNAPSHOT_BYTES + 10))
+    assert await _run(refresh) == 'snapshot_too_large'
+
+
+async def test_reason_candidate_too_large(tmp_path, monkeypatch):
+    source, refresh = _small(tmp_path)
+    monkeypatch.setattr(_mpr, '_MAX_SNAPSHOT_BYTES', 64)
+    assert await _run(refresh) == 'candidate_too_large'
+
+
+async def test_reason_changed_during_refresh_and_no_memory_text_in_logs(tmp_path):
+    from loguru import logger
+    source, refresh = _small(tmp_path)
+    original = refresh._read_source
+    calls = []
+
+    def read_then_change():
+        calls.append(1)
+        text = original()
+        if len(calls) > 1:  # the publication re-check sees an edit made during the refresh
+            source.write_text(text + f'Edited {_SECRET} again.\n')
+            return original()
+        return text
+
+    refresh._read_source = read_then_change
+    lines = []
+    sink = logger.add(lambda m: lines.append(str(m)), level='DEBUG')
+    try:
+        reason = await _run(refresh)
+    finally:
+        logger.remove(sink)
+    assert reason == 'changed_during_refresh'
+    assert refresh.status['phase'] == 'publication'
+    assert lines and not any(_SECRET in line for line in lines)
+    assert _SECRET not in json.dumps(refresh.status)
+
+
+async def test_unexpected_exception_still_logs_only_its_class_name(tmp_path, monkeypatch):
+    source, refresh = _small(tmp_path)
+
+    def boom(_):
+        raise KeyError(_SECRET)
+
+    monkeypatch.setattr(_mpr, 'encode_snapshot', boom)
+    assert await _run(refresh) == 'KeyError'

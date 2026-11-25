@@ -1234,3 +1234,62 @@ def test_skill_hot_path_and_lifecycle_reports(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "bad-router" in result.stdout
     assert store.get_skill("bad-router")["status"] == "deprecated"
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["deploy?", "how do I deploy?", "deploy, release", "it's deploy", "self-improving deploy", "deploy AND"],
+)
+def test_search_keeps_the_bm25_signal_for_queries_with_punctuation(tmp_path: Path, query: str) -> None:
+    """Review N19: punctuation made FTS5 raise, which was swallowed and dropped the score."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "deployer", description="Deploy the app to production and release it; it's self-improving AND careful")
+    _write_skill(skills, "reviewer", description="Review pull requests carefully")
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "deployer", "reviewer")
+
+    fts_hits = {}
+    with store._connect() as conn:
+        from nanobot.skill_store import _fts_match_query
+
+        rows = conn.execute(
+            "SELECT skill_id FROM skill_search_fts WHERE skill_search_fts MATCH ?",
+            (_fts_match_query(query.replace("how do I ", "")),),
+        ).fetchall()
+        fts_hits = {row[0] for row in rows}
+    assert fts_hits, f"FTS found nothing for {query!r}"
+    matches = store.search(query, top_k=2)
+    assert matches and matches[0].name == "deployer"
+
+
+def test_fts_match_query_quotes_terms_and_drops_punctuation_only_terms() -> None:
+    from nanobot.skill_store import _fts_match_query
+
+    assert _fts_match_query("deploy release") == '"deploy" "release"'
+    assert _fts_match_query("deploy? , ?") == '"deploy?"'
+    assert _fts_match_query('say "hi"') == '"say" """hi"""'
+    assert _fts_match_query("  ?  ") == '""'
+
+
+def test_automatic_index_refresh_skips_one_bad_skill_file(tmp_path: Path) -> None:
+    """Review C2-01: one broken SKILL.md blocked every later refresh (and the WebUI/skill tools)."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "good", description="A fine skill")
+    bad = skills / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\nname: bad\ndescription: Bad trigger: unquoted colon\n---\n\nbody\n")
+    _write_skill(skills, "copy", description="Same name elsewhere")
+    duplicate = skills / "copy2"
+    duplicate.mkdir(parents=True)
+    (duplicate / "SKILL.md").write_text((skills / "copy" / "SKILL.md").read_text())
+
+    store = SkillStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.reindex(builtin_dir=tmp_path / "empty_builtin")  # an explicit reindex still reports it
+
+    result = store.ensure_index(builtin_dir=tmp_path / "empty_builtin")
+    assert result is not None
+    names = {row["name"] for row in store.list_skills()}
+    assert {"good", "copy"} <= names
+    assert "bad" not in names

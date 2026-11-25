@@ -24,6 +24,11 @@ def _quote_fts(value: str) -> str:
     return f'"{escaped}"'
 
 
+def _escape_like(term: str) -> str:
+    """Make ``%`` and ``_`` in a search term literal (the query uses ESCAPE '\\')."""
+    return term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def _safe_fts_query(query: str) -> str:
     terms = [part for part in re.split(r"\s+", query.strip()) if part]
     if not terms:
@@ -150,7 +155,9 @@ class MemorySearcher:
                 event = ConversationEventStore._row_to_event(row)
                 scores[event.event_id] = max(scores.get(event.event_id, 0.0), score)
                 events[event.event_id] = event
-            if include_recent or not scores:
+            # Unrelated recent events are only a fallback for a blank query (browsing). For a real
+            # query with no matches they would be reported as "candidates_returned" evidence.
+            if include_recent or (not scores and not query.strip()):
                 for score, row in self._recent_hits(conn, scope, after, before, event_types, excluded, min(10, candidate_limit)):
                     event = ConversationEventStore._row_to_event(row)
                     scores[event.event_id] = max(scores.get(event.event_id, 0.0), score)
@@ -258,7 +265,7 @@ class MemorySearcher:
         if not terms:
             return []
         where, params = self._base_where(scope, after, before, event_types, excluded)
-        like_clauses = " OR ".join("e.content LIKE ?" for _ in terms)
+        like_clauses = " OR ".join("e.content LIKE ? ESCAPE '\\'" for _ in terms)
         rows = conn.execute(
             f"""
             SELECT e.*
@@ -266,7 +273,7 @@ class MemorySearcher:
             WHERE {where} AND e.content IS NOT NULL AND ({like_clauses})
             ORDER BY e.ts DESC LIMIT ?
             """,
-            [*params, *[f"%{term}%" for term in terms], limit],
+            [*params, *[f"%{_escape_like(term)}%" for term in terms], limit],
         ).fetchall()
         now = datetime.now(timezone.utc)
         out: list[tuple[float, sqlite3.Row]] = []

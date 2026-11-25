@@ -678,7 +678,8 @@ DM the bot directly or @mention it in a channel — it should respond!
 > - `groupPolicy`: `"mention"` (default — respond only when @mentioned), `"open"` (respond to all channel messages), or `"allowlist"` (restrict to specific channels via `groupAllowFrom`).
 > - `groupAllowFrom`: channel IDs the bot may respond in when `groupPolicy` is `"allowlist"`.
 > - `groupRequireMention`: when `true` and `groupPolicy` is `"allowlist"`, the bot only replies to channels in `groupAllowFrom` **and** only when @mentioned (instead of every message). No effect for `"mention"`/`"open"`. Use this to scope the bot to approved channels while keeping mention-only behavior.
-> - DM policy defaults to open. Set `"dm": {"enabled": false}` to disable DMs.
+> - `allowFrom` is enforced for channel messages, DMs and button clicks: only the listed Slack user IDs (or `["*"]`) and users approved by [pairing](./configuration.md#pairing) can use the bot. With no `allowFrom`, nobody can, except in a channel you approved with `groupPolicy: "allowlist"` and `groupAllowFrom`. Earlier versions ignored `allowFrom`.
+> - DM policy defaults to `"allowlist"` (`dm.allowFrom`, top-level `allowFrom` or pairing). Set `"dm": {"policy": "open"}` to let anyone in the workspace DM the bot, or `"dm": {"enabled": false}` to disable DMs.
 
 </details>
 
@@ -696,6 +697,8 @@ Give nanobot its own email account. It polls **IMAP** for incoming mail and repl
 
 > - `consentGranted` must be `true` to allow mailbox access. This is a safety gate — set `false` to fully disable.
 > - `allowFrom`: Add your email address. Use `["*"]` to accept emails from anyone.
+> - `verifySpf` / `verifyDkim` (default `true`): read the receiving server's verdict from the topmost `Authentication-Results` header only (headers below it are not trusted). A pass counts only when it is about the visible From domain (aligned `smtp.mailfrom` / `header.d`) or the header says `dmarc=pass`; a mail that passes SPF for another domain is rejected. Forwarded mail that breaks alignment is rejected too.
+> - IMAP and SMTP over SSL verify the server certificate and host name (like STARTTLS did already).
 > - `smtpUseTls` and `smtpUseSsl` default to `true` / `false` respectively, which is correct for Gmail (port 587 + STARTTLS). No need to set them explicitly.
 > - Set `"autoReplyEnabled": false` if you only want to read/analyze emails without sending automatic replies.
 > - `postAction`: Optional post-processing for processed emails: `"delete"` or `"move"` (default `null`).

@@ -310,7 +310,13 @@ class LocalTriggerStore:
         if not self.store_path.exists():
             return []
         try:
-            data = json.loads(self.store_path.read_text(encoding="utf-8"))
+            raw_text = self.store_path.read_text(encoding="utf-8")
+        except OSError as exc:
+            # A failed read (EMFILE, EIO ...) says nothing about the file. Moving a healthy store
+            # aside would make every trigger look deleted and drop queued deliveries as "not found".
+            raise TriggerStoreError(f"trigger store at {self.store_path} could not be read: {exc}") from exc
+        try:
+            data = json.loads(raw_text)
             return [
                 LocalTrigger.from_dict(raw)
                 for raw in data.get("triggers", [])

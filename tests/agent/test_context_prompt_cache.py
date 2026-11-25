@@ -8,6 +8,8 @@ from datetime import datetime as real_datetime
 from importlib.resources import files as pkg_files
 from pathlib import Path
 
+import pytest
+
 from nanobot.agent.context import ContextBuilder
 
 
@@ -245,6 +247,7 @@ def test_recent_history_capped_at_max(tmp_path) -> None:
     assert f"entry-{builder._MAX_RECENT_HISTORY + 19}" in content
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_recent_history_truncated_at_max_tokens(tmp_path) -> None:
     """Recent History section must be truncated to _MAX_HISTORY_TOKENS."""
     import tiktoken

@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import shutil
 import signal
 import socket
@@ -164,6 +165,8 @@ def ensure_config(config_path: Path, workspace_path: Path, *, print_fn: Callable
 
 
 def port_in_use(host: str, port: int, *, timeout: float = 0.5) -> bool:
+    if port <= 0:  # 0 = no port to check (e.g. a disabled channel)
+        return False
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     sock.settimeout(timeout)
     try:
@@ -178,6 +181,8 @@ def port_in_use(host: str, port: int, *, timeout: float = 0.5) -> bool:
 
 def pid_on_port(port: int) -> int | None:
     """Best-effort: find the PID of whatever is listening on a port."""
+    if port <= 0:
+        return None
     if sys.platform == "win32":
         return _pid_on_port_windows(port)
     return _pid_on_port_posix(port)
@@ -322,11 +327,14 @@ def read_gateway_ports(config_path: Path) -> tuple[str, int, str, int]:
     data = json.loads(config_path.read_text(encoding="utf-8"))
     gateway = data.get("gateway") or {}
     websocket = (data.get("channels") or {}).get("websocket") or {}
+    # A disabled WebSocket channel never listens, so its configured port is not this instance's:
+    # another instance may hold it, and `down`/`restart` must not treat that as ours (port 0 = none).
+    websocket_port = int(websocket.get("port") or 8765) if websocket.get("enabled", True) else 0
     return (
         gateway.get("host") or "127.0.0.1",
         int(gateway.get("port") or 18790),
         websocket.get("host") or "127.0.0.1",
-        int(websocket.get("port") or 8765),
+        websocket_port,
     )
 
 
@@ -627,7 +635,7 @@ def run_down(*, config_path: str, workspace_path: str, print_fn: Callable[[str],
         print_fn("nanobot-easy gateway is not running: no tracked process")
         if _stop_by_port_fallback(cfg_path, print_fn=print_fn):
             return 0
-        print_fn("nothing found on the configured ports either.")
+        print_fn("no process of this instance was found on the configured ports.")
         return 0
 
     if os.environ.get("NANOBOT_ALLOW_SELF_STOP", "0") != "1" and is_ancestor_pid(status.pid):
@@ -645,6 +653,48 @@ def run_down(*, config_path: str, workspace_path: str, print_fn: Callable[[str],
     return 1
 
 
+def process_command(pid: int) -> str | None:
+    """Full command line of a pid (POSIX only), or None when it cannot be read."""
+    if sys.platform == "win32":
+        return None
+    try:
+        out = subprocess.run(
+            ["ps", "-p", str(pid), "-o", "command="], capture_output=True, text=True, timeout=5
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    command = out.stdout.strip()
+    return command or None
+
+
+def _is_gateway_of_config(command: str | None, cfg_path: Path) -> bool:
+    """True when ``command`` is a nanobot gateway started with this config file."""
+    if not command or "nanobot" not in command:
+        return False
+    try:
+        tokens = shlex.split(command)
+    except ValueError:
+        return False
+    cfg = cfg_path.resolve(strict=False)
+    for index, token in enumerate(tokens):
+        value = None
+        if token in {"--config", "-c"} and index + 1 < len(tokens):
+            value = tokens[index + 1]
+        elif token.startswith("--config="):
+            value = token.split("=", 1)[1]
+        if value is None:
+            continue
+        candidate = Path(value).expanduser()
+        if candidate.resolve(strict=False) == cfg:
+            return True
+        if not candidate.is_absolute():
+            # Started from a relative path: it must be this config's tail (".local/config.x.json").
+            relative = candidate.as_posix().removeprefix("./")
+            if not relative.startswith("../") and cfg.as_posix().endswith("/" + relative):
+                return True
+    return False
+
+
 def _stop_by_port_fallback(cfg_path: Path, *, print_fn: Callable[[str], None] = print) -> bool:
     if not cfg_path.exists():
         return False
@@ -654,21 +704,34 @@ def _stop_by_port_fallback(cfg_path: Path, *, print_fn: Callable[[str], None] = 
         return False
     found = False
     for host, port in ((gw_host, gw_port), (ws_host, ws_port)):
-        if port_in_use(host, port):
+        if not port_in_use(host, port):
+            continue
+        blocking_pid = pid_on_port(port)
+        if not blocking_pid:
             found = True
-            blocking_pid = pid_on_port(port)
-            if blocking_pid:
-                name = process_name(blocking_pid) or "unknown"
-                print_fn(f"found an untracked process on {host}:{port}: pid={blocking_pid} ({name})")
-                print_fn(f"stopping it: pid={blocking_pid}")
-                kill_pid(blocking_pid)
-            else:
-                print_fn(f"something is listening on {host}:{port} but its pid could not be determined.")
-                print_fn(f"install lsof or fuser, or find it manually with: ss -ltnp | grep -E ':{port}\\b'")
+            print_fn(f"something is listening on {host}:{port} but its pid could not be determined.")
+            print_fn(f"install lsof or fuser, or find it manually with: ss -ltnp | grep -E ':{port}\\b'")
+            continue
+        name = process_name(blocking_pid) or "unknown"
+        print_fn(f"found an untracked process on {host}:{port}: pid={blocking_pid} ({name})")
+        if not _is_gateway_of_config(process_command(blocking_pid), cfg_path):
+            # Several instances share this folder and some configs list the same port. A port
+            # alone does not make the process ours; never kill what we cannot tie to this config.
+            print_fn(f"not stopping pid={blocking_pid}: it is not a gateway started with {cfg_path}")
+            continue
+        found = True
+        print_fn(f"stopping it: pid={blocking_pid}")
+        kill_pid(blocking_pid)
     return found
 
 
-def run_restart(*, config_path: str, workspace_path: str, print_fn: Callable[[str], None] = print) -> int:
+def run_restart(
+    *,
+    config_path: str,
+    workspace_path: str,
+    companions: bool = False,
+    print_fn: Callable[[str], None] = print,
+) -> int:
     cfg_path = Path(config_path).expanduser().resolve(strict=False)
     ws_path = Path(workspace_path).expanduser().resolve(strict=False)
 
@@ -693,7 +756,9 @@ def run_restart(*, config_path: str, workspace_path: str, print_fn: Callable[[st
     if down_code not in (0,):
         return down_code
     up_code = run_up(config_path=str(cfg_path), workspace_path=str(ws_path), print_fn=print_fn, gateway_port=port)
-    if up_code == 0:
+    if up_code == 0 and companions:
+        # Opt-in only: restarting one bot must not restart the others (rolling restarts are done
+        # one instance at a time, each after the previous one is checked).
         restart_companion_gateways(cfg_path, print_fn=print_fn)
     return up_code
 
@@ -726,6 +791,9 @@ def _restart_blocker(cfg_path: Path, status, port: int | None) -> str | None:
         if owner is not None and owner != status.pid and not is_ancestor_pid(status.pid, start_pid=owner):
             return f"{host}:{number} is held by pid={owner}, not by the gateway being restarted (pid={status.pid})"
     return None
+
+
+_COMPANION_RESTART_TIMEOUT_S = 180
 
 
 def companion_gateway_specs(config_path: Path) -> tuple[tuple[str, Path, Path, int], ...]:
@@ -761,24 +829,30 @@ def restart_companion_gateways(config_path: Path, *, print_fn: Callable[[str], N
     env["NANOBOT_ALLOW_SELF_STOP"] = "1"
     for name, companion_config, workspace, port in specs:
         print_fn(f"restarting companion gateway: {name} ({port})")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "nanobot",
-                "restart",
-                "--config",
-                str(companion_config),
-                "--workspace",
-                str(workspace),
-            ],
-            env=env,
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            start_new_session=True,
-        )
+        try:
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "nanobot",
+                    "restart",
+                    "--config",
+                    str(companion_config),
+                    "--workspace",
+                    str(workspace),
+                ],
+                env=env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                start_new_session=True,
+                timeout=_COMPANION_RESTART_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            print_fn(f"warning: companion gateway {name} did not finish restarting within "
+                     f"{_COMPANION_RESTART_TIMEOUT_S}s; continuing")
+            continue
         if result.returncode == 0:
             print_fn(f"companion gateway restarted: {name}")
         else:

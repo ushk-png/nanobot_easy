@@ -6,7 +6,9 @@ import asyncio
 import ipaddress
 import re
 import socket
-from contextlib import contextmanager, suppress
+import threading
+from contextlib import asynccontextmanager, contextmanager, suppress
+from typing import Any
 from urllib.parse import urlparse
 from urllib.request import getproxies, proxy_bypass
 
@@ -25,8 +27,36 @@ _BLOCKED_NETWORKS = [
     ipaddress.ip_network("fe80::/10"),         # link-local v6
 ]
 
+# Special-purpose ranges blocked even though ipaddress may call them global (item 3).
+_EXTRA_BLOCKED_NETWORKS = [
+    ipaddress.ip_network("198.18.0.0/15"),     # benchmarking
+    ipaddress.ip_network("192.0.0.0/24"),      # IETF protocol assignments
+    ipaddress.ip_network("64:ff9b:1::/48"),    # local-use NAT64
+    ipaddress.ip_network("2001::/32"),         # Teredo
+]
+_NAT64_PREFIX = ipaddress.ip_network("64:ff9b::/96")
+
 _URL_RE = re.compile(r"https?://[^\s\"'`;|<>]+", re.IGNORECASE)
 _allowed_networks: list[ipaddress.IPv4Network | ipaddress.IPv6Network] = []
+
+
+def host_is_loopback_only(host: str) -> bool:
+    """True only for a bind host that cannot be reached from another machine.
+
+    ``localhost`` (any case) or a literal loopback address (brackets stripped, IPv4-mapped
+    unwrapped). Everything else is False: empty, ``"0"``, unspecified, private or other names.
+    No DNS lookup is made.
+    """
+    value = (host or "").strip()
+    if value.startswith("[") and value.endswith("]"):
+        value = value[1:-1]
+    if value.lower() == "localhost":
+        return True
+    try:
+        addr = ipaddress.ip_address(value)
+    except ValueError:
+        return False
+    return _normalize_addr(addr).is_loopback
 
 
 def configure_ssrf_whitelist(cidrs: list[str]) -> None:
@@ -54,11 +84,46 @@ def _normalize_addr(
     return addr
 
 
+def _embedded_ipv4(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> ipaddress.IPv4Address | None:
+    """IPv4 carried inside an IPv6 address (compat ::a.b.c.d, NAT64 64:ff9b::/96, 6to4 2002::/16).
+
+    Used only for the safety decision; resolved IPs that get pinned keep their original form.
+    """
+    if not isinstance(addr, ipaddress.IPv6Address):
+        return None
+    if addr.ipv4_mapped is not None:
+        return addr.ipv4_mapped
+    if addr in _NAT64_PREFIX:
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    if addr.sixtofour is not None:
+        return addr.sixtofour
+    if int(addr) >> 32 == 0 and int(addr) > 1:   # IPv4-compatible ::a.b.c.d (not :: or ::1)
+        return ipaddress.IPv4Address(int(addr) & 0xFFFFFFFF)
+    return None
+
+
+def _is_blocked_address(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
+    return (
+        not addr.is_global
+        or addr.is_multicast
+        or addr.is_unspecified
+        or addr.is_reserved
+        or addr.is_loopback
+        or addr.is_link_local
+        or any(addr in net for net in _BLOCKED_NETWORKS)
+        or any(addr in net for net in _EXTRA_BLOCKED_NETWORKS)
+    )
+
+
 def _is_private(addr: ipaddress.IPv4Address | ipaddress.IPv6Address) -> bool:
     normalized = _normalize_addr(addr)
-    if _allowed_networks and any(normalized in net for net in _allowed_networks):
+    # An embedded IPv4 decides on its own: the IPv6 wrapper is only a translation prefix.
+    target = _embedded_ipv4(addr) or normalized
+    if _allowed_networks and any(
+        candidate in net for candidate in (normalized, target) for net in _allowed_networks
+    ):
         return False
-    return any(normalized in net for net in _BLOCKED_NETWORKS)
+    return _is_blocked_address(target)
 
 
 def resolve_url_target(url: str, *, allow_loopback: bool = False) -> tuple[bool, str, tuple[str, ...]]:
@@ -173,14 +238,38 @@ def _no_proxy_mount_pattern(hostname: str) -> str | None:
     return f"all://*{hostname}"
 
 
+_PIN_LOCK = threading.Lock()
+_pinned_hosts: dict[str, tuple[str, ...]] = {}
+_pin_refs = 0
+_real_getaddrinfo: Any = None
+
+
+def _pinned_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):  # noqa: A002
+    """getaddrinfo that answers for every host pinned right now and defers for the rest."""
+    resolved_ips = _pinned_hosts.get(str(host).rstrip(".").lower())
+    if resolved_ips is None:
+        return _real_getaddrinfo(host, port, family, type, proto, flags)
+    infos = []
+    for ip in resolved_ips:
+        addr = ipaddress.ip_address(ip)
+        addr_family = socket.AF_INET6 if addr.version == 6 else socket.AF_INET
+        if family not in (0, socket.AF_UNSPEC, addr_family):
+            continue
+        sockaddr = (ip, port or 0, 0, 0) if addr_family == socket.AF_INET6 else (ip, port or 0)
+        infos.append((addr_family, type or socket.SOCK_STREAM, proto, "", sockaddr))
+    return infos
+
+
 @contextmanager
 def pin_resolved_url_dns(url: str, resolved_ips: tuple[str, ...]):
     """Pin DNS lookups for the URL hostname to previously validated IPs.
 
-    This temporarily overrides process-global resolver state. Do not use it
-    directly across awaits unless the caller serializes access; prefer
-    PinnedDNSAsyncTransport for HTTP requests.
+    This temporarily overrides process-global resolver state. Several pins (different hosts)
+    may be active at once: the resolver is replaced when the first pin starts and restored when
+    the last one ends. Two pins for the same host must not overlap; PinnedDNSAsyncTransport
+    serializes those per host.
     """
+    global _pin_refs, _real_getaddrinfo
     try:
         hostname = urlparse(url).hostname
     except Exception:
@@ -190,36 +279,55 @@ def pin_resolved_url_dns(url: str, resolved_ips: tuple[str, ...]):
         return
 
     pinned_host = hostname.rstrip(".").lower()
-    original_getaddrinfo = socket.getaddrinfo
-
-    def _getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):  # noqa: A002
-        if str(host).rstrip(".").lower() != pinned_host:
-            return original_getaddrinfo(host, port, family, type, proto, flags)
-        infos = []
-        for ip in resolved_ips:
-            addr = ipaddress.ip_address(ip)
-            addr_family = socket.AF_INET6 if addr.version == 6 else socket.AF_INET
-            if family not in (0, socket.AF_UNSPEC, addr_family):
-                continue
-            sockaddr = (ip, port or 0, 0, 0) if addr_family == socket.AF_INET6 else (ip, port or 0)
-            infos.append((addr_family, type or socket.SOCK_STREAM, proto, "", sockaddr))
-        return infos
-
-    socket.getaddrinfo = _getaddrinfo
+    with _PIN_LOCK:
+        if _pin_refs == 0:
+            _real_getaddrinfo = socket.getaddrinfo
+            socket.getaddrinfo = _pinned_getaddrinfo
+        _pin_refs += 1
+        _pinned_hosts[pinned_host] = tuple(resolved_ips)
     try:
         yield
     finally:
-        socket.getaddrinfo = original_getaddrinfo
+        with _PIN_LOCK:
+            _pinned_hosts.pop(pinned_host, None)
+            _pin_refs -= 1
+            if _pin_refs == 0:
+                socket.getaddrinfo = _real_getaddrinfo
 
 
 class UnsafeURLRequestError(httpx.RequestError):
     """Raised when an outgoing request is rejected by URL safety validation."""
 
 
+def _is_ip_literal(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host.strip("[]"))
+    except ValueError:
+        return False
+    return True
+
+
+_host_locks: dict[str, asyncio.Lock] = {}
+_host_waiters: dict[str, int] = {}
+
+
+@asynccontextmanager
+async def _host_lock(host: str):
+    """One request at a time per host name (a host has one pinned IP set), others run freely."""
+    lock = _host_locks.setdefault(host, asyncio.Lock())
+    _host_waiters[host] = _host_waiters.get(host, 0) + 1
+    try:
+        async with lock:
+            yield
+    finally:
+        _host_waiters[host] -= 1
+        if not _host_waiters[host]:
+            _host_waiters.pop(host, None)
+            _host_locks.pop(host, None)
+
+
 class PinnedDNSAsyncTransport(httpx.AsyncBaseTransport):
     """HTTPX transport that pins each request to the IPs validated for its URL."""
-
-    _resolver_lock = asyncio.Lock()
 
     def __init__(
         self,
@@ -232,10 +340,17 @@ class PinnedDNSAsyncTransport(httpx.AsyncBaseTransport):
 
     async def handle_async_request(self, request: httpx.Request) -> httpx.Response:
         url = str(request.url)
-        ok, error, resolved_ips = resolve_url_target(url, allow_loopback=self._allow_loopback)
+        # DNS lookups block: keep them off the event loop that serves every channel.
+        ok, error, resolved_ips = await asyncio.to_thread(
+            resolve_url_target, url, allow_loopback=self._allow_loopback
+        )
         if not ok:
             raise UnsafeURLRequestError(error, request=request)
-        async with self._resolver_lock:
+        host = (request.url.host or "").rstrip(".").lower()
+        if _is_ip_literal(host):
+            # Nothing to resolve, so nothing to pin and nothing to serialize.
+            return await self._inner.handle_async_request(request)
+        async with _host_lock(host):
             with pin_resolved_url_dns(url, resolved_ips):
                 return await self._inner.handle_async_request(request)
 

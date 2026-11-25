@@ -1154,7 +1154,8 @@ class CustomImageGenerationClient(ImageGenerationProvider):
         }
         body.update(self.extra_body)
 
-        logger.info("Custom Images API request: POST {}/images/generations body={}", self.api_base, body)
+        logger.info("Custom Images API request: POST {}/images/generations (model={}, prompt {} chars)",
+                self.api_base, body.get("model"), len(str(body.get("prompt", ""))))
 
         response = await self._http_post(
             f"{self.api_base}/images/generations",

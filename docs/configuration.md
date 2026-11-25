@@ -1314,7 +1314,10 @@ full file: a background job generates the summary and has a second model call
 review it for faithfulness before it is used, with no human approval step
 required. A damaged, missing, over-budget or inaccessible snapshot falls back
 to loading the raw `MEMORY.md` with a warning; it never blocks the turn or
-truncates memory. Set `memoryPromptTokens` to `0` to turn this off entirely.
+truncates memory. A summary that is a literal copy of `MEMORY.md` is served as
+the raw text, with no "condensed" notice and no extra tokens, and a summary that
+is not smaller than the raw file is not used (no warning and no refresh request,
+because the snapshot is current). Set `memoryPromptTokens` to `0` to turn this off entirely.
 See [`scripts/improvement_eval/BOUNDED_MEMORY.md`](../scripts/improvement_eval/BOUNDED_MEMORY.md)
 for the manual review path (`scripts/core_memory_ops.py`) and operational detail.
 
@@ -1409,22 +1412,11 @@ exceeds the replay budget, the user request and a legal recent tail are retained
 without restoring its entire tool transcript. A necessary user request can itself
 exceed the budget.
 
-### Optional reasoning assistance
-
-`agents.defaults.stepwise.requestDrivenAssist` defaults to `false`. With
-`stepwise.enabled: true`, the default automatic stepwise route remains available.
-Set both values to `true` to let the normal agent choose the bounded
-`reasoning_assist` tool instead of automatically routing each request through steps.
-The tool is turn-local and does not expand a caller's explicit tool allowlist or
-the context-selection path. It grants no shell or external execution permission.
-Standalone continuation requests restore only unfinished saved reasoning tasks.
-Turning this option off restores automatic routing; saved cases remain in the
-workspace's `memory/reasoning-sessions/` directory.
-
 ### Task evidence and completion checks
 
-`agents.defaults.stepwise.lightweight` enables optional task evidence checks independently
-of `stepwise.enabled`; it defaults to `false`. Keep selected read targets limited to the
+`agents.defaults.stepwise.lightweight` enables optional task evidence checks; it defaults to `false`.
+The staged reasoning engine that used to share the `stepwise` section was removed, and its old keys
+(`enabled`, `layout`, `requestDrivenAssist` ...) are ignored if they are still in a config file. Keep selected read targets limited to the
 requested files or line/page ranges. Runtime diagnostics should select the relevant log
 range rather than require the entire growing log.
 
@@ -1667,7 +1659,7 @@ If you want to disable them, which removes both `web_search` and `web_fetch` fro
 }
 ```
 
-nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
+nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP connections. By default it blocks loopback, RFC1918/private ranges, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints. It also blocks every address that is not globally routable: the unspecified address (`::`, `0.0.0.0`), multicast, reserved ranges, benchmarking (`198.18.0.0/15`), IETF protocol assignments (`192.0.0.0/24`), Teredo (`2001::/32`) and local-use NAT64 (`64:ff9b:1::/48`). An IPv4 address carried inside an IPv6 address (IPv4-mapped, IPv4-compatible, NAT64 `64:ff9b::/96` or 6to4 `2002::/16`) is checked as that IPv4 address, so `64:ff9b::a9fe:a9fe` is blocked like `169.254.169.254`. If you need to allow trusted private ranges, explicitly exempt them from SSRF blocking with `tools.ssrfWhitelist`:
 
 ```json
 {
@@ -1677,7 +1669,7 @@ nanobot uses a shared SSRF guard for built-in web fetches and HTTP/SSE MCP conne
 }
 ```
 
-Keep whitelist entries as narrow as possible, such as a single host CIDR (`192.168.1.50/32`). The whitelist is global for the shared SSRF guard; it is not limited to one tool or one MCP server.
+Keep whitelist entries as narrow as possible, such as a single host CIDR (`192.168.1.50/32`). The whitelist is global for the shared SSRF guard; it is not limited to one tool or one MCP server. An entry also applies to an IPv4 address embedded in an IPv6 address, so whitelisting `100.64.0.0/10` allows `64:ff9b::6440:1` too. Any other private or special range that your service uses (for example `198.18.0.0/15`) has to be listed here the same way.
 
 HTTP/SSE MCP connections use the same process-wide proxy environment behavior as `web_fetch`: proxied targets use the configured proxy, and URLs excluded by `NO_PROXY` remain DNS-pinned direct connections.
 
@@ -2023,6 +2015,8 @@ Two transport modes are supported:
 > [!IMPORTANT]
 > HTTP/SSE MCP URLs are validated before probing or connecting, and every outgoing MCP HTTP request is validated again before redirects are followed. `localhost`, `127.0.0.1`, RFC1918/private IPs, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints are blocked by default. This can break previously working local or private HTTP MCP configs until the endpoint is explicitly allowed with `tools.ssrfWhitelist`, preferably with a single-host CIDR such as `127.0.0.1/32`, `::1/128`, or `192.168.1.50/32`. Stdio MCP servers are not affected.
 
+A server that starts but never answers is given up after `connectTimeout` seconds (default `30`; `0` = no limit) while connecting, so one stuck MCP server cannot stall the gateway at startup or on reload. The connection is retried on a later message.
+
 Use `toolTimeout` to override the default 30s per-call timeout for slow servers:
 
 ```json
@@ -2092,6 +2086,7 @@ For API keys, tokens, and other secrets, see [Environment Variables for Secrets]
 | `tools.exec.sandbox` | `""` | Sandbox backend for shell commands. Set to `"bwrap"` to wrap exec calls in a [bubblewrap](https://github.com/containers/bubblewrap) sandbox — the process can only see the workspace (read-write) and media directory (read-only); config files and API keys are hidden. Automatically enables workspace restriction for file tools. **Linux only** — requires `bwrap` installed (`apt install bubblewrap`; pre-installed in the Docker image). Not available on macOS or Windows (bwrap depends on Linux kernel namespaces). |
 | `tools.exec.enable` | `true` | When `false`, the shell `exec` tool is not registered at all. Use this to completely disable shell command execution. |
 | `tools.exec.timeout` | `60` | Default hard timeout in seconds for shell commands. Config values may exceed the per-call tool cap; set `0` to disable the hard timeout for trusted long-running commands. |
+| `tools.exec.protectCredentials` | `true` | Blocks shell commands that would read nanobot's own credential files (the config file, `.env`, token/OAuth stores, `~/.ssh`, cloud credential files) with `cat`, `grep`, `cp`, `curl --data @…` and similar readers. Set `false` only if you accept that the agent can read secrets through the shell; the settings pages remain the supported way to change credentials. |
 | `tools.exec.pathPrepend` | `""` | Extra directories to prepend to `PATH` when running shell commands. Use this when configured tools should win executable lookup precedence, such as a Python virtual environment's `bin` or `Scripts` directory. |
 | `tools.exec.pathAppend` | `""` | Extra directories to append to `PATH` when running shell commands (e.g. `/usr/sbin` for `ufw`). |
 | `tools.exec.backgroundTimeout` | `1800` | Hard limit (seconds) for `exec` jobs started with `background=true` when the call gives no `timeout`; `0` = no limit. Job logs are written under `<workspace>/.nanobot/exec-jobs/`. |
@@ -2119,6 +2114,10 @@ Pairing lets users get access to the bot through a simple code exchange — no c
 4. The user can now chat with the bot normally.
 
 Pairing only works in **DMs** — unapproved users in group chats are silently ignored.
+
+On Slack and Mattermost, `allowFrom` is enforced for channel messages, DMs and button clicks, and the DM policy defaults to `allowlist` (`dm.allowFrom`, top-level `allowFrom` or a pairing approval); `dm.policy: "open"` lets anyone DM the bot. A channel you list in `groupAllowFrom` with `groupPolicy: "allowlist"` admits everyone in it.
+
+The store `pairing.json` sits in the instance data folder (next to the config file). Instances whose config files share one folder therefore share approvals. If the file cannot be read for a moment (for example too many open files), approved users are kept: a write waits for a successful read instead of starting from an empty list. A file that is not valid JSON is moved aside as `pairing.json.corrupt-<time>` before a new one is started.
 
 ### Pairing-only mode
 
@@ -2560,8 +2559,18 @@ needs a Codewhale binary and a model backend for it.
 How a run behaves:
 
 - `action=run` starts `codewhale exec` detached and returns a `job_id`; `action=status` shows
-  its state and log tail. A second `run` while one is still going is refused. A stopped run is
-  resumed with its `session_id`.
+  its state and log tail. A stopped run is resumed with its `session_id`.
+- One run at a time per conversation, and one run per workspace across conversations. A second
+  `run` from the same conversation is refused in any workspace, and the error names the running
+  job. A `run` from another conversation is refused only when the running job uses the same
+  workspace (its `-C` directory); that error does not reveal the other conversation's job id.
+  A job whose workspace cannot be read from its command line is never treated as the same workspace.
+- Codewhale runs through the same `exec` protections as the plain `exec` tool: the
+  `tools.exec` `denyPatterns`, `sandbox`, `pathPrepend`, `pathAppend` and `allowedEnvKeys`
+  settings apply to it. `tools.exec.allowPatterns` is not applied, because an allow-list never
+  names `codewhale ...` and would block every run. The command line contains your prompt, so a
+  deny pattern can also match words in the prompt. `tools.exec.sandbox` is separate from
+  `tools.codewhale.sandbox`, which is Codewhale's own `--sandbox` policy.
 - A `codewhale exec ...` typed into the plain `exec` tool is detached the same way.
 - When the run ends on its own, the agent that started it gets a completion notice and reports
   the outcome without being asked (see [Background jobs](./architecture.md#background-jobs-and-coding-runs)).

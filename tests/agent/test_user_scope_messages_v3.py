@@ -227,6 +227,7 @@ FILL = ["먼저 자료를 정리해줘.", "분석 내용 전체를 길게 써줘
 FILL_REPLIES = ["네.", BIG_REPLY, "끝났습니다."]
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_merged_tail_keeps_current_request_last_and_is_saved_once(tmp_path):
     fake = Fake(["알겠습니다.", *FILL_REPLIES, "네."])
     loop = make_loop(tmp_path, fake, flag=True)
@@ -259,6 +260,7 @@ def test_reload_cross_session_and_workspace(tmp_path):
                            current_text="x", session_messages=session.messages) is None
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_new_after_several_turns_and_compaction(tmp_path):
     fake = Fake(["알겠습니다.", "네.", *FILL_REPLIES, "네.", "네.", "네."])
     loop = make_loop(tmp_path, fake, flag=True)
@@ -293,6 +295,7 @@ def _append_run():
                                                "scope": "once", "reversible": True})])
 
 
+@pytest.mark.requires_tiktoken_encoding
 def test_completed_write_is_not_redone_and_the_follow_up_is_kept(tmp_path):
     """F2-C2-03: the completed request stays quoted (revocations after an approval still need
     it), marked as handled; a literal reader does not run it again."""

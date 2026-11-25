@@ -210,7 +210,7 @@ class BoundedMemoryPrompt:
         # Content-free state for operators: which memory form the last prompt used and why.
         self.status: dict = {"mode": "off" if budget <= 0 else "unknown"}
         self.counts = {"builds": 0, "off_builds": 0, "snapshot_builds": 0,
-                       "fallback_builds": 0, "fallback_input_tokens_est": 0}
+                       "fallback_builds": 0, "raw_builds": 0, "fallback_input_tokens_est": 0}
 
     def _record_status(self, mode: str, **details) -> None:
         """Count prompt builds, not chat turns or provider requests; never log content."""
@@ -271,6 +271,24 @@ class BoundedMemoryPrompt:
                 self.refresher.request(text)
             return None
         previous = self.status
+        if summary.strip() == text.strip():
+            # A literal copy condenses nothing: serve the raw text at raw size, without the notice.
+            self._record_status("snapshot", input_tokens=legacy_memory_tokens(text),
+                                source_sha256=expected["source_sha256"], lossless_copy=True)
+            if any(previous.get(key) != self.status.get(key)
+                   for key in ("mode", "source_sha256", "input_tokens")):
+                logger.info("Bounded memory active (lossless copy, tokens~{} budget={})",
+                            self.status["input_tokens"], self.budget)
+            self._last_error = None
+            return text
+        if projection_tokens(summary, self.source) >= legacy_memory_tokens(text):
+            # Not smaller than raw memory: keep raw quietly. The snapshot is current, so a refresh
+            # would buy nothing; no warning and no refresh request on every build.
+            self._record_status("raw", reason="snapshot_not_smaller",
+                                input_tokens=legacy_memory_tokens(text),
+                                source_sha256=expected["source_sha256"])
+            self._last_error = None
+            return None
         self._record_status("snapshot", input_tokens=projection_tokens(summary, self.source),
                             source_sha256=expected["source_sha256"])
         if any(previous.get(key) != self.status.get(key)

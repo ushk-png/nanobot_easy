@@ -209,7 +209,7 @@ All fields go under `channels.websocket` in `config.json`.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `enabled` | bool | `true` | Enable the WebSocket server. Set to `false` only when you intentionally do not want the bundled WebUI/WebSocket surface. |
-| `host` | string | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` to accept external connections. |
+| `host` | string | `"127.0.0.1"` | Bind address. Use `"0.0.0.0"` to accept external connections. Any host other than `localhost` or a loopback address (`127.0.0.0/8`, `::1`) is treated as reachable from the network and requires `token` or `tokenIssueSecret`; this includes `"::"`, `"0"`, an empty value, LAN addresses such as `192.168.0.10`, and host names. |
 | `port` | int | `8765` | Listen port. |
 | `path` | string | `"/"` | WebSocket upgrade path. Trailing slashes are normalized (root `/` is preserved). |
 | `maxMessageBytes` | int | `37748736` | Maximum inbound message size in bytes (1 KB – 40 MB). Default (36 MB) is sized to accept up to 4 base64-encoded image attachments at 8 MB each; lower it if the channel only carries text. |

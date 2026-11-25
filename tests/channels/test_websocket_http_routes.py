@@ -2580,3 +2580,28 @@ async def test_delete_session_memory_choice(bus, tmp_path, retain):
     assert payload["memory_retained"] is retain
     assert payload["memory_events_deleted"] == (0 if retain else 1)
     assert bool(store.get_events(scope, [event.event_id])) is retain
+
+
+# ---- item 7: anything that is not loopback-only needs a token -----------------------------------
+
+_NON_LOOPBACK_HOSTS = ["192.168.0.10", "10.0.0.5", "[::]", "0", "", "myhost.local", "::ffff:0.0.0.0"]
+_LOOPBACK_HOSTS = ["127.0.0.1", "localhost", "LOCALHOST", "[::1]", "::1", "127.0.0.2", "::ffff:127.0.0.1"]
+
+
+@pytest.mark.parametrize("host", _NON_LOOPBACK_HOSTS)
+def test_websocket_config_requires_auth_unless_loopback_only(host: str) -> None:
+    from pydantic_core import ValidationError
+
+    from nanobot.channels.websocket import WebSocketConfig
+
+    with pytest.raises(ValidationError, match="token"):
+        WebSocketConfig(host=host)
+    assert WebSocketConfig(host=host, token="t").host == host
+    assert WebSocketConfig(host=host, token_issue_secret="s").host == host
+
+
+@pytest.mark.parametrize("host", _LOOPBACK_HOSTS)
+def test_websocket_config_allows_loopback_without_auth(host: str) -> None:
+    from nanobot.channels.websocket import WebSocketConfig
+
+    assert WebSocketConfig(host=host).host == host

@@ -10,7 +10,7 @@ from nanobot.evidence.types import Answerability, EvidenceItem, EvidencePacket
 
 _TIME_SENSITIVE_RE = re.compile(
     r"\b(today|latest|current|recent|news|price|version|release|schedule|law|regulation)\b|"
-    r"(오늘|최신|최근|현재|뉴스|가격|버전|릴리즈|일정|법|규정)",
+    r"(오늘|최신|최근|현재|뉴스|가격|버전|릴리즈|일정|법률|법령|법안|규정)",
     re.I,
 )
 

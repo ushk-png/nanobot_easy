@@ -1160,6 +1160,7 @@ async def test_resource_wrapper_execute_handles_timeout() -> None:
     wrapper = _make_resource_wrapper(SimpleNamespace(read_resource=read_resource), timeout=0.01)
     result = await wrapper.execute()
     assert result == "(MCP resource read timed out after 0.01s)"
+    assert getattr(result, "is_error", False) is True  # review N11: a failure is not a success
 
 
 @pytest.mark.asyncio
@@ -1246,6 +1247,7 @@ async def test_prompt_wrapper_execute_handles_timeout() -> None:
     wrapper = _make_prompt_wrapper(SimpleNamespace(get_prompt=get_prompt), timeout=0.01)
     result = await wrapper.execute()
     assert result == "(MCP prompt call timed out after 0.01s)"
+    assert getattr(result, "is_error", False) is True
 
 
 @pytest.mark.asyncio

@@ -10,8 +10,8 @@ from typing import Any
 
 import yaml
 
-from nanobot.memory.event_store import ConversationEventStore
 from nanobot.memory.eval.metrics import compute_retrieval_metrics
+from nanobot.memory.event_store import ConversationEventStore
 from nanobot.memory.models import MemoryScope
 from nanobot.memory.search import MemorySearcher, format_search_result
 from nanobot.utils.helpers import estimate_message_tokens

@@ -1140,9 +1140,11 @@ def serve(
     port = port if port is not None else api_cfg.port
     timeout = timeout if timeout is not None else api_cfg.timeout
     api_key = api_cfg.api_key.strip() if api_cfg.api_key else ""
-    if host in {"0.0.0.0", "::"} and not api_key:
+    from nanobot.security.network import host_is_loopback_only
+
+    if not host_is_loopback_only(host) and not api_key:
         console.print(
-            "[red]Error: host is 0.0.0.0 (all interfaces) but api_key is not set. "
+            f"[red]Error: host is {host!r} (not loopback-only) but api_key is not set. "
             "Set api.api_key in config to prevent unauthenticated access.[/red]"
         )
         raise typer.Exit(1)
@@ -1174,7 +1176,7 @@ def serve(
 
     api_app = create_app(
         agent_loop, model_name=model_name, request_timeout=timeout,
-        api_key=api_key,
+        api_key=api_key, bind_host=host, bind_port=port,
     )
 
     async def on_startup(_app):
@@ -1494,9 +1496,8 @@ def _run_gateway(
                 )
                 # Ground truth: the real file delta, not the LLM's self-report.
                 diff_body = store.dream_content_diff()
-                productive = bool(diff_body) or (
-                    not store.git.is_initialized()
-                    and MemoryStore.dream_run_completed(resp)
+                productive = store.dream_cursor_should_advance(
+                    diff_body, MemoryStore.dream_run_completed(resp), last_cursor,
                 )
                 if productive:
                     store.set_last_dream_cursor(last_cursor)
@@ -1777,6 +1778,7 @@ def _run_gateway(
             console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
 
     async def run():
+        crashed = False
         tasks: list[asyncio.Task] = []
         shutdown_task: asyncio.Task | None = None
         runtime_tasks: asyncio.Future | None = None
@@ -1838,6 +1840,7 @@ def _run_gateway(
 
             console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
             console.print(traceback.format_exc())
+            crashed = True
         finally:
             try:
                 if shutdown_task and not shutdown_task.done():
@@ -1863,8 +1866,12 @@ def _run_gateway(
                     logger.info("Shutdown: flushed {} session(s) to disk", flushed)
             finally:
                 restore_shutdown_handlers()
+        return crashed
 
-    asyncio.run(run())
+    # A crashed gateway must not look like a clean stop: a service manager restarts on a failure
+    # exit code only, and a task that died (full disk, port clash) used to end with exit code 0.
+    if asyncio.run(run()):
+        raise typer.Exit(1)
 
 
 app.add_typer(
@@ -1931,11 +1938,19 @@ def down(
 def restart(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    companions: bool = typer.Option(
+        False, "--companions",
+        help="After restarting config.json, also restart the persona gateways beside it (one by one).",
+    ),
 ) -> None:
     """Restart the background gateway (schedules a detached restart if called from inside it)."""
     from nanobot.cli.up import run_restart
 
-    code = run_restart(config_path=_up_default_config(config), workspace_path=_up_default_workspace(workspace))
+    code = run_restart(
+        config_path=_up_default_config(config),
+        workspace_path=_up_default_workspace(workspace),
+        companions=companions,
+    )
     raise typer.Exit(code)
 
 
@@ -2290,68 +2305,43 @@ def channels_login(
 plugins_app = typer.Typer(help="Manage optional nanobot features")
 app.add_typer(plugins_app, name="plugins")
 
-stepwise_app = typer.Typer(help="Apply stepwise reasoning (Genie method) to an agent explicitly")
-app.add_typer(stepwise_app, name="stepwise")
+
+memory_app = typer.Typer(help="Maintain the conversation memory database")
+app.add_typer(memory_app, name="memory")
 
 
-@stepwise_app.command("apply")
-def stepwise_apply(
-    config_path: str = typer.Option(..., "--config", "-c", help="Agent config to apply it to"),
-    layout: str = typer.Option("auto", "--layout", help="auto | two_call | compact | fine"),
+@memory_app.command("backfill")
+def memory_backfill(
+    workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
+    config: str | None = typer.Option(None, "--config", "-c", help="Config file (to find its workspace)"),
+    apply: bool = typer.Option(False, "--apply", help="Write the missing events (default: only report)"),
 ):
-    """Apply the Genie method to one agent (writes a dated block, keeps a backup)."""
-    from nanobot.cli.stepwise import apply_stepwise
+    """Add conversation turns that never reached conversation_memory.db.
 
-    result = apply_stepwise(Path(config_path), layout=layout)
-    console.print(f"[green]지니 방식 적용[/green]: {result['agent']} ({result['config']})")
-    console.print(f"  적용 시각 {result['appliedAt']} · 배치 {result['layout']}")
-    console.print(f"  백업 {result['backup']}")
-    console.print("  실행 중인 에이전트(gateway)를 재시작해야 반영됩니다.")
+    Needed once for an instance that ran before the event-id fix: turns after a /new or an
+    automatic compaction were dropped. Reports first; with --apply it backs the database up
+    and inserts only what is missing.
+    """
+    from nanobot.memory.backfill import backfill_missing_events
 
+    if workspace:
+        target = Path(workspace).expanduser()
+    elif config:
+        from nanobot.config.loader import load_config
 
-@stepwise_app.command("remove")
-def stepwise_remove(
-    config_path: str = typer.Option(..., "--config", "-c", help="Agent config to remove it from"),
-):
-    """Turn the Genie method off for one agent (the record of when stays)."""
-    from nanobot.cli.stepwise import remove_stepwise
-
-    result = remove_stepwise(Path(config_path))
-    console.print(f"[yellow]지니 방식 해제[/yellow]: {result['agent']} ({result['config']})")
-    console.print(f"  해제 시각 {result['removedAt']} · 백업 {result['backup']}")
-    console.print("  실행 중인 에이전트(gateway)를 재시작해야 반영됩니다.")
-
-
-@stepwise_app.command("status")
-def stepwise_status_command(
-    configs: list[str] = typer.Argument(None, help="Agent configs (default: every config*.json in --dir)"),
-    directory: str | None = typer.Option(None, "--dir", help="Directory of agent configs (default ./.local or ~/.nanobot)"),
-):
-    """List which agents have the Genie method applied, since when."""
-    from nanobot.cli.stepwise import find_agent_configs, stepwise_status
-
-    if configs:
-        paths = [Path(item).expanduser().resolve() for item in configs]
+        target = load_config(Path(config).expanduser()).workspace_path
     else:
-        base = Path(directory).expanduser() if directory else (
-            Path(".local") if Path(".local").is_dir() else Path.home() / ".nanobot"
-        )
-        paths = find_agent_configs(base.resolve())
-    if not paths:
-        console.print("에이전트 설정을 찾지 못했습니다.")
+        console.print("[red]Give --workspace or --config.[/red]")
         raise typer.Exit(1)
-    for row in stepwise_status(paths):
-        if row.get("error"):
-            console.print(f"{row['agent']:<28} 읽기 실패({row['error']})  {row['config']}")
-            continue
-        if row["enabled"]:
-            state = f"[green]적용됨[/green] {row['applied_at'] or '-'} · {row['layout']}"
-        elif row.get("removed_at"):
-            state = f"해제됨 {row['removed_at']}"
-        else:
-            state = "미적용"
-        legacy = "  (reasoningEffort=none: 예전 방식 흔적, 적용 아님)" if row["legacy_none"] else ""
-        console.print(f"{row['agent']:<28} {state}  {row['model']}{legacy}")
+    report = backfill_missing_events(target, apply=apply)
+    console.print(f"workspace: {target}")
+    console.print(f"sessions: {report.sessions}, messages checked: {report.messages_seen}, missing: {report.missing}")
+    for key, count in sorted(report.per_session.items(), key=lambda item: -item[1])[:10]:
+        console.print(f"  {count:5d}  {key}")
+    if apply:
+        console.print(f"[green]inserted {report.inserted}[/green]" + (f" (backup: {report.backup})" if report.backup else ""))
+    elif report.missing:
+        console.print("[yellow]Dry run: nothing written. Add --apply to insert the missing events.[/yellow]")
 
 
 @plugins_app.command("list")

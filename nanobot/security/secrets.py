@@ -14,7 +14,7 @@ _SECRET_NAMES = {"auth.json", "oauth.json", "credentials", "credentials.json", "
 _SECRET_FIELDS = re.compile(r"token|secret|password|api.?key|^access$|^refresh$", re.I)
 _VALUES: set[str] = set()
 _PATTERNS = (
-    (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}\b"), "[REDACTED]"),
+    (re.compile(r"(?<![0-9])\d{6,}:[A-Za-z0-9_-]{20,}\b"), "[REDACTED]"),  # also inside /bot<token>/
     (re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]{16,}\b"), "[REDACTED]"),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*"), r"\1[REDACTED]"),
     (re.compile(r"(?i)([?&](?:token|api[_-]?key|secret|access_token|refresh_token)=)[^&\s\"'<>]+"), r"\1[REDACTED]"),
@@ -34,16 +34,52 @@ def constant_time_equals(supplied: str, expected: str) -> bool:
     )
 
 
+def _instance_data_dir() -> Path | None:
+    """The active instance's data directory (the config file's folder), without creating it."""
+    try:
+        from nanobot.config.loader import get_config_path
+
+        return get_config_path().expanduser().resolve(strict=False).parent
+    except Exception:
+        return None
+
+
+def _is_nanobot_credential_path(item: Path, parts: tuple[str, ...], name: str) -> bool:
+    """Config files, OAuth tokens and env files that hold this instance's API keys."""
+    data_dir = _instance_data_dir()
+    if data_dir is not None:
+        try:
+            relative = item.relative_to(data_dir)
+        except ValueError:
+            relative = None
+        if relative is not None and relative.parts:
+            first = relative.parts[0].lower()
+            if first == "auth":
+                return True
+            if len(relative.parts) == 1 and (
+                first == "env" or (first.startswith("config") and first.endswith(".json"))
+            ):
+                return True
+    if ".nanobot" in parts:
+        after = parts[parts.index(".nanobot") + 1:]
+        if after and (after[0] == "auth" or after == ("config.json",)):
+            return True
+    if len(parts) >= 2 and parts[-2:] == (".docker", "config.json"):
+        return True
+    return len(parts) >= 2 and parts[-2:] == ("gh", "hosts.yml")
+
+
 def is_sensitive_path(path: str | Path) -> bool:
     """Check logical and resolved names, so an innocuous symlink cannot expose a key."""
     candidate = Path(path).expanduser()
     for item in (candidate, candidate.resolve(strict=False)):
-        parts = {part.lower() for part in item.parts}
+        parts = tuple(part.lower() for part in item.parts)
         name = item.name.lower()
-        if (parts & _SECRET_DIRS or name in _SECRET_NAMES
+        if (set(parts) & _SECRET_DIRS or name in _SECRET_NAMES
                 or name == ".env" or name.startswith(".env.") or name.endswith(".env")
                 or name.startswith(("id_rsa", "id_ed25519", "id_ecdsa"))
-                or item.suffix.lower() in {".key", ".p12", ".pfx"}):
+                or item.suffix.lower() in {".key", ".p12", ".pfx"}
+                or _is_nanobot_credential_path(item, parts, name)):
             return True
     return False
 
@@ -88,3 +124,55 @@ class RedactingStream:
 
 
 register_secrets(dict(os.environ))
+
+
+# Programs that print, copy, send or execute a file they are given. A command that names a
+# credential file and also runs one of these is blocked; naming the file for a command that does
+# not read it (``nanobot restart --config .local/config.testy.json``) stays possible.
+_READERS = frozenset({
+    "cat", "tac", "less", "more", "head", "tail", "nl", "od", "xxd", "hexdump", "strings", "base64",
+    "grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "gawk", "cut", "sort", "uniq", "tee", "cp",
+    "mv", "rsync", "scp", "sftp", "curl", "wget", "nc", "ncat", "socat", "tar", "zip", "gzip", "bzip2",
+    "xz", "python", "python3", "node", "perl", "ruby", "php", "lua", "source", "vi", "vim", "nano",
+    "emacs", "open", "code", "jq", "yq", "env", "printenv", "diff", "cmp", "find", "xargs", "git",
+})
+_HOME_CREDENTIAL_NAMES = {".ssh", ".aws", ".azure", ".kube", ".gnupg", ".netrc", ".git-credentials"}
+_TOKEN_SPLIT = re.compile(r"[\s|&;<>(){}`'\"=,]+")
+
+
+def _is_agent_credential(path: Path) -> bool:
+    parts = tuple(part.lower() for part in path.parts)
+    name = path.name.lower()
+    if any(part in _HOME_CREDENTIAL_NAMES for part in parts):
+        return True
+    return _is_nanobot_credential_path(path, parts, name)
+
+
+def command_credential_target(command: str, cwd: str | Path | None = None) -> str | None:
+    """The credential file a shell command would read, or None.
+
+    Best effort, not a sandbox: it recognizes the common ways to print, copy or send this
+    instance's own credentials (its ``env``, ``config*.json`` and ``auth/``, ``~/.ssh`` ...), by
+    looking for such a path in the command together with a program that reads files. A command
+    built to hide the path (string concatenation, base64) gets through; the real boundary is
+    ``restrictToWorkspace`` or a sandbox.
+    """
+    words = [word for word in _TOKEN_SPLIT.split(command) if word]
+    if not any(Path(word).name in _READERS or word in _READERS for word in words):
+        return None
+    base = Path(cwd) if cwd else Path.cwd()
+    home = str(Path.home())
+    for word in words:
+        if not any(mark in word for mark in ("/", ".", "~", "$")) or len(word) < 2:
+            continue
+        expanded = word.lstrip("@").replace("${HOME}", home).replace("$HOME", home)  # curl -d @file
+        try:
+            candidate = Path(expanded).expanduser()
+            if not candidate.is_absolute():
+                candidate = base / candidate
+            for item in (candidate, candidate.resolve(strict=False)):
+                if _is_agent_credential(item):
+                    return word
+        except (OSError, ValueError, RuntimeError):
+            continue
+    return None

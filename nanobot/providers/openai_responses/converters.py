@@ -24,10 +24,25 @@ def convert_messages(
     system_prompt = ""
     input_items: list[dict[str, Any]] = []
     used_item_ids: set[str] = set()
+    # Images a tool returned travel as a user message right after the run of tool outputs: a
+    # function_call_output is text, and a JSON-dumped data URL would be read as ~100k tokens of
+    # text instead of as a picture.
+    tool_images: list[dict[str, Any]] = []
+
+    def flush_tool_images() -> None:
+        if tool_images:
+            input_items.append({
+                "role": "user",
+                "content": [{"type": "input_text", "text": "Image(s) returned by the tool call(s) above:"},
+                            *tool_images],
+            })
+            tool_images.clear()
 
     for idx, msg in enumerate(messages):
         role = msg.get("role")
         content = msg.get("content")
+        if role != "tool":
+            flush_tool_images()
 
         if role == "system":
             system_prompt = content if isinstance(content, str) else ""
@@ -76,9 +91,28 @@ def convert_messages(
 
         if role == "tool":
             call_id, _ = split_tool_call_id(msg.get("tool_call_id"))
-            output_text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False)
+            if isinstance(content, str):
+                output_text = content
+            elif isinstance(content, list) and any(
+                isinstance(part, dict) and part.get("type") == "image_url" for part in content
+            ):
+                texts = [str(part.get("text", "")) for part in content
+                         if isinstance(part, dict) and part.get("type") == "text"]
+                images = [
+                    {"type": "input_image", "image_url": url, "detail": "auto"}
+                    for part in content
+                    if isinstance(part, dict) and part.get("type") == "image_url"
+                    and (url := (part.get("image_url") or {}).get("url"))
+                ]
+                tool_images.extend(images)
+                output_text = "\n".join(t for t in texts if t) or "(image returned; shown below)"
+                if images:
+                    output_text += "\n(The image is attached in the next message.)"
+            else:
+                output_text = json.dumps(content, ensure_ascii=False)
             input_items.append({"type": "function_call_output", "call_id": call_id, "output": output_text})
 
+    flush_tool_images()
     return system_prompt, input_items
 
 

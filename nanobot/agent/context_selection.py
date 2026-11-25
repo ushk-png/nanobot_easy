@@ -8,19 +8,23 @@ import asyncio
 import hashlib
 import json
 import re
-from decimal import Decimal
-from urllib.parse import urlsplit
 import unicodedata
-from pathlib import Path
 from dataclasses import dataclass, field
+from decimal import Decimal
+from pathlib import Path
 from typing import Any, Literal
 
 from loguru import logger
 from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, ValidationError, model_validator
 
 from nanobot.agent.answer_delivery import needs_answer_body
-from nanobot.agent.context_control import (TaskControl, goal_conflict_in_scope, instruction_policy,
-                                           instruction_scope, scope_entry)
+from nanobot.agent.context_control import (
+    TaskControl,
+    goal_conflict_in_scope,
+    instruction_policy,
+    instruction_scope,
+    scope_entry,
+)
 from nanobot.agent.context_evidence import current, match_need, observation, validate_completion
 from nanobot.agent.context_relations import (
     Effective,
@@ -30,13 +34,24 @@ from nanobot.agent.context_relations import (
     parse_relations,
     polarity_conflict,
     quoted_only,
-    target_conflict,
     recent_artifacts,
+    target_conflict,
 )
 from nanobot.agent.context_trace import ContextTrace, active_context_trace, estimate_component
 from nanobot.agent.time_allocation import (
-    AllocationController, AllocationExplanation, AllocationResult, SubmitTimeAllocationTool,
-    applies as allocation_applies, enabled as allocation_enabled, reduce_requirements, normalize_answer_edits, followup_hint,
+    AllocationController,
+    AllocationExplanation,
+    AllocationResult,
+    SubmitTimeAllocationTool,
+    followup_hint,
+    normalize_answer_edits,
+    reduce_requirements,
+)
+from nanobot.agent.time_allocation import (
+    applies as allocation_applies,
+)
+from nanobot.agent.time_allocation import (
+    enabled as allocation_enabled,
 )
 from nanobot.agent.tools.base import Tool, ToolResult
 from nanobot.agent.tools.registry import ToolRegistry
@@ -1349,6 +1364,7 @@ def reference_conflict(rel: Rel, model: list[Rel], request: str, artifacts: list
     the request. Otherwise the reference stays unresolved (context, then a clarification); the span
     alone never confirms what it refers to."""
     import os
+
     from nanobot.agent.context_relations import _DEICTIC, _FILE, _blank_quotes
     span = _blank_quotes(rel.source_span or "")
     ref = (rel.target_ref or "").strip()
@@ -2246,8 +2262,8 @@ class SelectedContext:
 
         answer -> the answer; file change -> a change on that target; commit -> a commit in the repo.
         Quoted words are content ("'커밋해 줘'라는 문장을 고쳐 줘" is an answer edit)."""
-        from nanobot.agent.context_relations import EXTERNAL_ACTIONS, _blank_quotes
         from nanobot.agent.context_evidence import canonical
+        from nanobot.agent.context_relations import EXTERNAL_ACTIONS, _blank_quotes
         if not self.design:
             return []
         out = []
@@ -4695,8 +4711,13 @@ class ResolveContextNeedTool(Tool):
                        if r.get("name") in {"read_file", "list_dir"} and self.observed.get(r.get("tool_call_id"))]
         if len(valid) > 1 and need.source_kind != "file":
             records = [self.selected.observations.get(c, {}) for c in valid]
-        from nanobot.agent.context_items import (ITEMS, classify_gap, item_coverage, lookup_date_item, need_items,
-                                                 requested_items)
+        from nanobot.agent.context_items import (
+            ITEMS,
+            classify_gap,
+            item_coverage,
+            lookup_date_item,
+            need_items,
+        )
         ok_ids = {cid for cid, ok in self.observed.items() if ok}
         # Items already linked stay linked (t37): a requested item is a fact of the request, linked to
         # a successful source once; a later call need not resend it, and only missing items remain
@@ -5280,6 +5301,7 @@ def affects_target_mismatch(selected: "SelectedContext", text: str, span: str, a
     target of each targeted requirement it is linked to; naming another required target is a mismatch, and
     naming none while several targeted requirements exist leaves the scope unknown (the work stays held)."""
     from pathlib import PurePath
+
     from nanobot.agent.context_plan import requirement_ids
     targeted = {rid: r for rid, r in requirement_ids(selected).items() if r.get("target")}
     linked = [a for a in affects if a in targeted]

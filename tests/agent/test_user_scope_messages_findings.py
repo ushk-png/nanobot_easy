@@ -48,6 +48,7 @@ async def _turn(tmp_path, flag, history, replies, current, current_replies, **kw
     # an old "explain" quote must not make a short answer look like a missing explanation
     ("앞으로 답변은 항상 자세히 설명해 줘.", "결론만 줘", ["결론을 정리해 드리겠습니다.", "결론: A입니다."]),
 ])
+@pytest.mark.requires_tiktoken_encoding
 async def test_request_guards_classify_only_the_current_request(tmp_path, old, current, replies):
     results = {}
     for flag in (False, True):
@@ -95,6 +96,7 @@ APPROVAL = "production.json 수정해도 돼"
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_known_revocation_phrase_is_quoted_with_the_approval(tmp_path):
     revocation = "아까 production.json 건은 없던 걸로 하자"
     _, _, prompts, _ = await _turn(tmp_path, True, [APPROVAL, revocation, *FILLER],
@@ -104,6 +106,7 @@ async def test_known_revocation_phrase_is_quoted_with_the_approval(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_unknown_revocation_phrase_is_kept_as_a_follow_up(tmp_path):
     revocation = "그건 좀 아닌 것 같아"                   # no pattern matches it
     assert not usm.should_record(revocation)
@@ -114,6 +117,7 @@ async def test_unknown_revocation_phrase_is_kept_as_a_follow_up(tmp_path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.requires_tiktoken_encoding
 async def test_approval_is_withheld_when_a_later_message_is_unseen(tmp_path):
     later = ["다음 파일 봐줘", "그 다음도", "하나 더", "그건 좀 아닌 것 같아"]   # 4th is past the follow-up window
     _, _, prompts, _ = await _turn(tmp_path, True, ["config.yaml은 건드리지 마.", APPROVAL, *later, *FILLER],
