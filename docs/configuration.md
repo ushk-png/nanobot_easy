@@ -2528,6 +2528,51 @@ usage/setup skill or a user-requested status check. Delete, update, start, and
 stop operations remain chat requests that route through the relevant setup or
 usage skill.
 
+## Codewhale Tool
+
+The `codewhale` tool lets an agent hand code changes to a local
+Codewhale coding agent and keeps the run alive past the 600-second
+foreground `exec` cap. It is **off by default** and is enabled per instance, because it
+needs a Codewhale binary and a model backend for it.
+
+```json
+{
+  "tools": {
+    "codewhale": {
+      "enable": true,
+      "binary": "/path/to/codewhale",
+      "timeout": 0,
+      "autoApprove": true,
+      "sandbox": ""
+    }
+  }
+}
+```
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `tools.codewhale.enable` | `false` | Register the `codewhale` tool. When it is registered, the shared tool contract tells the agent to use it for implementing or modifying code instead of `apply_patch`/`edit_file`/`write_file`. When it is not registered, nothing about the agent's prompt changes. |
+| `tools.codewhale.binary` | `""` | Path to the executable. Empty uses `codewhale` from `PATH`. A path that is not an executable file makes `run` return an error. |
+| `tools.codewhale.timeout` | `0` | Hard limit in seconds for one run; `0` never kills a run for taking long. |
+| `tools.codewhale.autoApprove` | `true` | Pass `--auto`. Codewhale's non-interactive `exec` has nobody to approve a prompt, so without it every shell command is denied and the run ends with exit code 0 having changed nothing. |
+| `tools.codewhale.sandbox` | `""` | Passed as `--sandbox <policy>` (for example `workspace-write`). Empty keeps Codewhale's own default, which with `--auto` is full access. When `tools.restrictToWorkspace` is `true` and this is empty, `workspace-write` is used. |
+
+How a run behaves:
+
+- `action=run` starts `codewhale exec` detached and returns a `job_id`; `action=status` shows
+  its state and log tail. A second `run` while one is still going is refused. A stopped run is
+  resumed with its `session_id`.
+- A `codewhale exec ...` typed into the plain `exec` tool is detached the same way.
+- When the run ends on its own, the agent that started it gets a completion notice and reports
+  the outcome without being asked (see [Background jobs](./architecture.md#background-jobs-and-coding-runs)).
+  If the log shows Codewhale was denied permission, the notice says the work was not done even
+  though the exit code is 0.
+- The tool is blocked in safe mode and in the hardened profile, and `run` requires the usual
+  intent metadata.
+- Codewhale reaches its model through an LLM relay client (chapter 12 of the
+  [implementation design](./design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md)). If the provider returns a usage limit error (HTTP 429), Codewhale only reports that the
+  model ended with an error; check the gateway log for the real status.
+
 ## Tool Hint Max Length
 
 Tool hints are the short progress messages shown when the agent calls tools (e.g. `$ cd …/project && npm test`). By default, these are truncated at 40 characters, which can make long commands hard to read.

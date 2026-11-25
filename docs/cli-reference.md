@@ -132,6 +132,32 @@ login/startup integration: Linux uses a systemd user service; macOS uses a
 LaunchAgent plist. System services run the foreground gateway under the OS
 supervisor rather than nesting another background process.
 
+### Launcher commands (`up`, `down`, `restart`)
+
+The single-file installers and the start scripts call these. They track the gateway
+by state file and also open the WebUI. Each takes `--config/-c` and `--workspace/-w`.
+
+| Command | Description |
+|---|---|
+| `nanobot up` | Make sure config and the WebUI build exist, start the gateway if it is not running (or restart it when the code changed since it started), and open the browser |
+| `nanobot down` | Stop the tracked gateway. Refuses to stop a gateway from inside its own process tree |
+| `nanobot restart` | Stop the tracked gateway and start it again |
+
+`nanobot restart` differs from `nanobot gateway restart` in these ways:
+
+- It starts the gateway again **on the port the running one was using**, not on `gateway.port`
+  from the config. Instances that share one config value for `gateway.port` and get their real
+  port from `--port` therefore come back where they were.
+- Before stopping anything it checks that the new gateway can start. If another process holds
+  the port, or the config needs an environment variable (`${VAR}`) that is not set in the
+  shell you ran it from, it prints `restart aborted before stopping the gateway: …` and leaves
+  the gateway running. Source the env file your instance uses (for example `.local/env`) first.
+- Called from inside the gateway (for example by the agent's `exec` tool), it schedules a
+  detached restart a few seconds later. The turn that asked for it is cancelled and does not
+  resume by itself; ask the agent to continue afterwards.
+- With the primary `config.json` it also restarts the sibling persona gateways that exist next
+  to it; with any other config it restarts only that instance.
+
 Default health endpoint:
 
 ```text

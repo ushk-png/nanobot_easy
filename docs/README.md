@@ -15,12 +15,29 @@ If you find a docs mistake, outdated command, or confusing step in the upstream 
 | Goal | Read |
 |---|---|
 | Korean overview and setup | [`../README.md`](../README.md), [`nanobot-easy-usage-ko.md`](./nanobot-easy-usage-ko.md) |
-| Implementation status and design/implementation gaps | [`design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md`](./design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md) |
+| Implementation status and design/implementation gaps (v3.4.16; known failures in 13.7) | [`design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md`](./design/skill-framework-implementation-v3.3---14b5c557-d23d-4fec-80ed-09b60e10a786.md) |
 | Source-level map, including opt-in paths | [`architecture.md`](./architecture.md#opt-in-execution-paths) |
+| Background jobs, completion notices and the `codewhale` tool | [`architecture.md`](./architecture.md#background-jobs-and-coding-runs), [`configuration.md`](./configuration.md#codewhale-tool) |
+| Restarting a gateway safely | [`cli-reference.md`](./cli-reference.md#launcher-commands-up-down-restart), [`architecture.md`](./architecture.md#gateway-runtime-and-restart) |
 | Coding guidance and evaluation protocol | [`development.md`](./development.md#coding-guidance-and-evaluation) |
 | Research skills and evaluation results | [`complex-research.md`](./complex-research.md) |
 | Stepwise reasoning (opt-in) | [`design/stepwise-llm-reasoning.md`](./design/stepwise-llm-reasoning.md) |
 | Pinned runtime deployment | [`../deploy/README.md`](../deploy/README.md) |
+
+### Design records
+
+Short records of individual behavior changes, with the reason, the contract and the tests.
+
+| Topic | Read |
+|---|---|
+| Deferred tool schemas and tutorials (on by default) | [`design/compact-context.md`](./design/compact-context.md) |
+| Reference-only memory selection (off by default) | [`design/selective-memory.md`](./design/selective-memory.md) |
+| Moving historical records out of the always-loaded memory | [`design/memory-archive.md`](./design/memory-archive.md) |
+| Gateway process identity and restart safety | [`design/gateway-runtime-identity.md`](./design/gateway-runtime-identity.md) |
+| Skill selected vs applied accounting | [`design/skill-usage-accounting.md`](./design/skill-usage-accounting.md) |
+| Task-note cancellation and result references | [`design/task-cancellation.md`](./design/task-cancellation.md), [`design/task-result-references.md`](./design/task-result-references.md) |
+| Search outcome reporting | [`design/search-evidence.md`](./design/search-evidence.md) |
+| What was combined in the runtime integration | [`design/runtime-integration-review.md`](./design/runtime-integration-review.md) |
 
 ## Pick a Track
 

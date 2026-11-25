@@ -1,4 +1,4 @@
-# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.15
+# Skill-Orchestrated Agent Framework — 구현 설계서 v3.4.16
 (Implementation-Ready / HKUDS nanobot v0.2.2 포크 기반)
 
 대상 독자: 코드 생성 도구(Claude Code, Codex) 및 구현자.
@@ -16,6 +16,7 @@ v3.4.12 변경: PR #23 병합 결과(`a725c559 Merge pull request #23`)를 기�
 v3.4.13 변경: PR #24(`16dfbb9f`)에서 빠진 이전 설치·온보딩·에이전트 관리 개정안(구 v3.4.11 패치)은 적용되지 않았고 이번 v3.4.13에 통합한다. 구 v3.4.11 패치는 현재의 워크플로우 v3.4.11 명칭과 충돌하고 PR #24 이후 문서에 직접 적용되지 않으므로 참고 자료로만 보며, 현재 코드 확인 결과에 따라 3.8 설치/LLM 연결, 3.10 설치 경로, 3.11 브라우저 온보딩, 3.12 에이전트 관리, 12장 relay 현황, 13장 설계서와 구현의 차이를 갱신한다.
 v3.4.14 변경: v3.4.13 이후 병합된 PR #26·#27, #29~#36, #38·#39(최신 `6e475bcd`)를 반영한다. ① 학생 모드 미지원 결정(#27)을 0장 요약·2장 매핑·3.11·9장·10장까지 일관되게 반영하고, 관련 테스트·마일스톤은 "재도입 시"로 보류 표시한다. ② xAI Grok OAuth 프로바이더(#38)와 클라이언트 버전 상향(#39)을 3.13으로 신설하고 3.8 LLM 연결·11장 미결 사항에 반영한다. ③ WebUI 디자인 정렬 작업(#29~#36: 테마 토큰, 공용 부품, 화면별 정렬, 셸·홈 예시 문장)을 3.14로 신설한다.
 v3.4.15 변경(확인일 2026-11-04, 대상 소스 `3933fed9` — 개발 기준 `17b445e1` 위의 런타임 통합 브랜치): ① 2장 구현 지도의 "신규 #1~#5"를 실제 구현 상태로 바꾸고 opt-in 경로(contextSelection·time-allocation·stepwise·evidence)와 대화 사건 기억·고정 런타임을 추가 ② 3.2 검색 인덱스를 실제 구현(FTS5 BM25 기본, 임베딩 선택)으로 정정 ③ 13.6에 이번 대조 결과·운영 적용 범위·남은 차이를 기록. 코드·설정 변경은 없다.
+v3.4.16 변경(확인일 2026-11-25, 대상 소스 `4f4f7e632` — PR #56 `fix/context-efficiency-20261121`): v3.4.15 이후 이 브랜치에 들어온 변경을 반영한다. ① 3.15 신설 — 기본 컨텍스트 경량화(`compactContext`·`memoryPromptTokens` 기본 켜짐), 도구 그룹별 지침, 메모리 통합·압축의 안전 경계, 백그라운드 작업 종료 알림, `codewhale` 코딩 도구, 게이트웨이 프로세스 식별과 재시작 안전, 모델 사용량 장부, 신뢰성 보강 ② 2장 구현 지도에 해당 행 추가, "고정 런타임 배포" 행 현행화 ③ 13.7에 이번 대조 결과·운영 적용 범위·알려진 실패·남은 결정을 기록. 3.15의 항목별 상세는 `docs/design/` 아래 개별 설계 기록으로 연결한다.
 
 ---
 
@@ -32,6 +33,7 @@ v3.4.15 변경(확인일 2026-11-04, 대상 소스 `3933fed9` — 개발 기준 
 - v3.4.14 기준 모델 연결은 OpenAI Codex·GitHub Copilot에 더해 xAI Grok 구독 계정 OAuth를 지원한다(3.13). xAI의 비공개 클라이언트 계약에 의존하므로 예고 없이 멈출 수 있다.
 - WebUI는 목업 기준으로 테마 토큰·공용 부품(`Chip`, `OptionCard`, `PageHeader`)·셸을 통일했다(3.14). 새 화면은 이 토큰과 부품을 먼저 쓴다.
 - v3.4.15 확인 기준(2026-11-04): 구현 설명은 소스 `3933fed9` 기준이다. 이 커밋은 개발 브랜치 `17b445e1`에 운영 런타임 기능(`5cbb18b7`)을 통합한 별도 브랜치이며 개발 브랜치에는 아직 병합되지 않았다. 운영 적용 범위와 남은 차이는 13.6을 본다. 스키마 기본값과 로컬 인스턴스 설정은 구분한다.
+- v3.4.16 확인 기준(2026-11-25): `3933fed9`는 이제 PR #56 브랜치(`fix/context-efficiency-20261121`, 소스 `4f4f7e632`)의 조상이다. 이 브랜치는 `main`(2026-10-13 `dfd435e2c`)보다 100여 커밋 앞서 있고 아직 병합되지 않았다. 따라서 이 문서가 "구현됨"이라고 쓴 항목은 PR #56 브랜치 기준이며 `main`에는 없다. 새 기본값과 새 도구는 3.15, 확인 결과와 알려진 실패는 13.7을 본다.
 
 ---
 
@@ -75,7 +77,15 @@ v3.4.15 변경(확인일 2026-11-04, 대상 소스 `3933fed9` — 개발 기준 
 | 시간 배분 계약 | `agent/time_allocation.py` | 구현됨, opt-in — 문맥 선택 경로에서만 적용 |
 | 단계별 추론 | `nanobot/reasoning/` + `nanobot stepwise` CLI | 구현됨, opt-in — 에이전트별 apply, 기본 120초·8회 상한 |
 | 검색 근거 패킷 | `nanobot/evidence/` + `agent/tools/web.py` | 구현됨, opt-in — `tools.web.evidence.enabled=false` 기본, 조건 충족 검증 안 함 |
-| 고정 런타임 배포 | `scripts/runtime.sh`, `scripts/runtime_launcher.py`, `deploy/` | 구현됨 — 통합 브랜치에만 존재(13.6) |
+| 고정 런타임 배포 | `scripts/runtime.sh`, `scripts/runtime_launcher.py`, `deploy/` | 구현됨 — PR #56 브랜치에 포함, `main`에는 없음(13.7) |
+| 컨텍스트 경량화 | `agent/compact_context.py`, `agent/tool_guidance.py`, `agent/memory_prompt.py`, `agent/memory_prompt_refresh.py` | 구현됨, **기본 켜짐** — `compactContext=true`, `memoryPromptTokens=5000`, `memoryPromptAutoRefresh=true`(3.15.1) |
+| 메모리 통합 경계 | `agent/memory.py`, `session/manager.py` | 구현됨 — 요약되지 않은 메시지를 통합 완료로 표시하지 않음, 턴 시작 경계 보호(3.15.2) |
+| 백그라운드 작업 종료 알림 | `agent/tools/exec_job.py :: exec_job_notice`, `agent/loop.py :: _announce_exec_job`, `templates/agent/exec_job_notice.md` | 구현됨 — 턴이 끝난 뒤 끝난 작업이 에이전트를 깨워 보고하게 함(3.15.3) |
+| Codewhale 코딩 도구 | `agent/tools/codewhale.py`, 설정 `tools.codewhale` | 구현됨, opt-in — `enable=false` 기본, 현재 testy 한 인스턴스만 켬(3.15.4) |
+| 게이트웨이 재시작 안전 | `gateway/runtime.py`, `cli/up.py :: run_restart` | 구현됨 — 프로세스 시작 식별값, 실행 중이던 포트 유지, 못 뜰 조건이면 멈추기 전에 중단(3.15.5) |
+| 모델 사용량 장부 | `providers/usage_ledger.py` | 구현됨 — 시도별 토큰·시간만 기록, 내용 없음(3.15.6) |
+| 작업 행동 감사 | `agent/audit_hook.py :: ActionAuditHook` | 구현됨 — 러너 이벤트를 관찰만 하고 호출·권한·프롬프트는 바꾸지 않음 |
+| 실제 모델 평가 하네스 | `scripts/real_eval/`, `tests/eval/` | 구현됨, **테스트 2건 실패 중** — 케이스 D29~D32 미등록(13.7) |
 | 설치 모드 | Quick Start의 General/Student mode + `config.studentMode` | **신규 #6** — 현재 미지원(PR #27), WebUI 선택 UI 숨김 |
 | 학생 학습 스킬 | `highschool-study`, `spaced-review` | **신규 #7 (내장 스킬)** — 학생 모드와 함께 보류 |
 | 학생 학습 데이터 | `student_learning` 툴 + `study_log.jsonl` + `review_queue.jsonl` | **신규 #8** — 학생 모드와 함께 보류 |
@@ -396,6 +406,90 @@ X Premium / Grok 구독 계정으로 로그인해 API key 없이 Grok 모델을 
 
 회귀 테스트: `webui/src/tests/ui-primitives.test.tsx`, `stage4-shell.test.tsx`, `composer-draft-request.test.tsx`, `settings-view.test.tsx`, `thread-composer.test.tsx`, `thread-shell.test.tsx`.
 
+### 3.15 컨텍스트·실행·운영 보강 (v3.4.16, PR #56)
+
+v3.4.15(2026-11-04) 이후 이 브랜치에 들어온 변경 중 동작 계약을 바꾼 것만 모았다. 항목별 설계 근거와 측정은 각 링크의 개별 기록에 있고, 여기서는 구현자가 알아야 할 규칙과 기본값만 적는다. 새 컴포넌트를 더 만들지 말고 아래 모듈을 확장한다(2장 지시와 같다).
+
+#### 3.15.1 기본 컨텍스트 경량화
+
+- **기본값이 바뀌었다.** `agents.defaults.compactContext=true`, `memoryPromptTokens=5000`, `memoryPromptAutoRefresh=true`다(`13b048de2`). 예전에는 모두 꺼져 있어 기본 설치에서는 토큰이 줄지 않았다. 되돌리려면 `compactContext=false`, `memoryPromptTokens=0`을 설정한다. `selectiveMemory`는 여전히 `false`다.
+- **compact 경로**: 실행 튜토리얼과 도구 스키마를 `activate_tools` 호출까지 미룬다(`agent/compact_context.py`). 사용자 정책·메모리·대화는 유지한다. 턴이 활성화한 도구 이름은 세션 메타데이터에 저장하고 다음 턴의 시작 상태로 쓴다. 턴마다 시스템 메시지를 바꾸면 공급자 프롬프트 캐시가 깨지기 때문이다(`2f6cbe0c3`). 도구를 쓰지 않은 턴은 이전 저장값을 지우지 않는다. 이미 "전체" 활성화된 세션에서도 `tool_names`를 지정하면 다시 좁혀진다(`52fe161de`).
+- **도구 그룹별 지침**: 선택된 내장 도구 그룹의 지침만 합성한다(`agent/tool_guidance.py`). 그룹에 없는 이름(MCP·플러그인·미분류)이 하나라도 있거나 레이아웃을 알아볼 수 없으면 전체 지침으로 돌아간다. 새 내장 도구는 `TOOL_GROUPS`와 `SECTION_GROUPS`에 넣어야 하며, 빠뜨려도 동작은 안전하지만 경량화 효과가 없다.
+- **MEMORY.md 요약**: 예산 안의 요약본을 프롬프트에 넣고, 백그라운드에서 생성한 뒤 두 번째 모델 호출이 원문 충실성을 검토한다(`agent/memory_prompt_refresh.py`, 시간 상한 300초). 요약본이 없거나 손상되었거나 예산을 넘으면 원문 `MEMORY.md`를 경고와 함께 쓰며 턴을 막지 않는다. 사람 승인 단계는 없다. 운영 수동 절차는 `scripts/improvement_eval/BOUNDED_MEMORY.md`.
+- 모델에 보이는 읽기 후보 목록에서 내부 해시를 뺐다(같은 20개 후보에서 약 3,900 → 1,800 토큰, `80293bf6e`).
+- 참고: [compact-context](./compact-context.md), [selective-memory](./selective-memory.md), [memory-archive](./memory-archive.md), [configuration.md](../configuration.md#compact-context-and-selective-memory).
+
+#### 3.15.2 메모리 통합과 기록 압축의 안전 경계
+
+공통 원칙: **요약되지 않은 것을 처리 끝난 것으로 표시하지 않는다.**
+
+- 토큰 기준 통합과 재생 윈도 통합은 입력 예산에 들어가는 가장 큰 사용자 턴 경계까지만 요약하고 커서도 그 경계까지만 옮긴다. 첫 턴이 예산에 들어가지 않으면 모델 호출도, 원문 덤프도 하지 않는다. 커서와 체크포인트는 함께 저장하고 세션 저장이 실패하면 메모리 값을 되돌린다(`08b10c00b`).
+- 재생 윈도를 넘친 부분은 메시지 수가 아니라 실제 토큰으로 판단해 보관한다(`63b302fad`). 메시지 수 기준일 때는 큰 도구 출력이 많은 작업공간에서 이 경로가 사실상 동작하지 않았다.
+- `history.jsonl` 압축은 최근 `max_history_entries`와, Dream 커서가 이미 지난 오래된 항목만 정리한다. Dream이 아직 처리하지 않은 항목은 한도를 넘어도 남기며, 커서 파일이 없으면 전부 미처리로 본다(`dbc32731f`).
+- 기록을 "가장 가까운 사용자 메시지"에서 자를 때는 작업 제어 메시지를 턴 시작으로 보지 않는다(`session/history_visibility.py :: is_turn_start_message`). 작업 제어 메시지는 실제 요청 바로 뒤에 숨은 사용자 메시지로 저장되므로, 이를 경계로 삼으면 끝나지 않은 긴 턴이 요청문을 잃는다(`19ba8ce9e`).
+- 요약 실패 시 세션별 60초 동안 재시도하지 않아 같은 `[RAW]` 항목이 반복 기록되지 않는다(`4fa5580ae`).
+
+#### 3.15.3 백그라운드 작업 종료 알림
+
+`exec`의 `background=true` 작업과 `codewhale` 실행은 턴이 끝난 뒤에도 돈다. 예전 `exec_job status`는 조회 전용이어서 모델이 턴을 끝내면 아무도 다시 읽지 않았고, 끝난 작업은 사용자가 물어볼 때까지 보고되지 않았다(`15eee337c`).
+
+- 작업은 시작한 요청의 `RequestContext`(채널·채팅·메시지·세션 키)를 `ExecJob.origin`에 기억한다. 요청 문맥이 없으면 알림을 보내지 않는다.
+- 작업이 **스스로** 끝나면(종료, 실패, 시간 초과) 서브에이전트 결과 채널과 같은 경로로 `InboundMessage(channel="system", sender_id="subagent", injected_event="subagent_result")`를 낸다. 진행 중인 턴이 있으면 그 턴이 받고, 없으면 새 턴이 시작된다. 같은 `subagent_task_id`(`exec-job-<id>`)는 한 번만 기록한다. 모델이 직접 kill한 작업은 알리지 않는다.
+- 알림 본문은 `templates/agent/exec_job_notice.md`로 렌더링한다. 결과, 종료 코드, 경과 시간, 로그 꼬리를 담는다. 이 템플릿은 실행 중 즉시 반영된다.
+- 로그에 권한 거부 흔적이 있으면(`permission_stall`) "종료 코드 0이라도 작업을 못 한 것"으로 알리고 사용자에게 승인을 묻지 말고 다시 실행하라고 안내한다. 이 감지는 로그 문자열 기준의 휴리스틱이다.
+- 알림 전송 실패는 작업 기록을 깨지 않는다(`ExecJobManager._announce`).
+
+#### 3.15.4 Codewhale 코딩 도구 (opt-in)
+
+- `nanobot/agent/tools/codewhale.py :: CodewhaleTool`. `action=run`은 `codewhale exec`를 분리 실행하고 `job_id`를 돌려주며, `action=status`는 같은 작업을 조회한다. `exec`의 600초 한도에 걸리지 않는다. 같은 도구가 이미 실행 중이면 두 번째 실행을 거부하고, 멈춘 실행은 `session_id`로 재개한다.
+- `exec` 명령으로 직접 친 `codewhale exec ...`도 자동으로 분리 실행으로 바뀐다(`codewhale.py :: is_codewhale_agent_command`를 `shell.py`의 `ExecTool`이 호출).
+- **비대화형 실행에는 승인할 사람이 없다.** `--auto`가 없으면 모든 셸 명령이 거부되고 종료 코드 0으로 끝나므로, 기본으로 `--auto`를 붙인다. 설정 `tools.codewhale`: `enable`(기본 `false`), `binary`, `timeout`(0 = 제한 없음), `autoApprove`(기본 `true`), `sandbox`(예: `workspace-write`, 비어 있으면 Codewhale 기본). `restrictToWorkspace`가 켜진 에이전트는 `sandbox`가 비어 있어도 `workspace-write`를 쓴다.
+- 안전 목록: 도구 호출 의도 메타데이터는 `run`에서 요구하고 `status`에서는 요구하지 않는다(`registry.py`). 작업 제어는 `exec`와 같은 "실행" 계열로 취급한다(`context_control.py`). safe 모드와 hardened 프로필에서는 차단한다(`loader.py`).
+- 프롬프트: `tool_contract.md`는 `codewhale`가 **등록된 경우에만** 코드 수정에 이 도구를 쓰라고 안내하고, 없으면 기존 `apply_patch` 흐름을 유지한다. 따라서 이 도구를 켜지 않은 인스턴스의 동작은 바뀌지 않는다.
+- 릴레이: 도구 호출 델타에 `index`가 없으면 `call_id`별로 채우고, 인자 조각을 이미 보냈으면 완성본을 다시 보내지 않는다(`api/relay.py`).
+- 한계: Codewhale의 모델 호출은 LLM 릴레이(12장)를 통하며, 공급자 한도(429)에 걸리면 Codewhale에는 "오류로 종료"로만 보인다. 실제 코딩 실행의 끝에서 끝까지 성공 검증은 한도 문제로 아직 못 했다(13.7).
+
+#### 3.15.5 게이트웨이 식별과 재시작 안전
+
+- **프로세스 식별**(`docs/design/gateway-runtime-identity.md`): PID 숫자가 아니라 프로세스 시작 식별값(Linux boot ID + 시작 tick, macOS `ps lstart`)을 상태 파일에 기록한다. 식별값이 없거나 조회에 실패하면 `identity_unverified`로 두고 자동 시작·종료·재시작을 거부한다. 전경 실행도 시작할 때 상태 파일을 쓴다.
+- **재시작 권한 격리**: 재시작 제어기에만 주는 환경 변수(`NANOBOT_ALLOW_SELF_STOP`, `NANOBOT_DETACHED_RESTART`)는 새로 뜨는 게이트웨이에 넘기지 않는다. 안에서 도구가 스스로를 멈추는 길을 막기 위해서다. 종료할 때는 식별된 게이트웨이와 그 작업자만 정리하고 다른 페르소나 게이트웨이와 분리된 제어기는 건드리지 않는다.
+- **재시작은 실행 중이던 포트로 돌아온다**(`cli/up.py :: run_restart`, `4f4f7e632`). 여러 페르소나 설정이 `gateway.port`를 같은 값(18793)으로 공유하고 실제 포트는 `--port`로 따로 주기 때문에, 설정 포트로 다시 띄우면 다른 인스턴스와 충돌해 멈춘 채 남았다. 이제 상태 파일에 기록된 포트를 `run_up(gateway_port=...)`로 넘긴다.
+- **멈추기 전에 확인한다**: 새 게이트웨이가 못 뜰 것이 이미 보이면 아무것도 멈추지 않고 중단한다. 대상은 (a) 새 포트나 WebUI 포트를 재시작될 게이트웨이가 아닌 다른 프로세스가 잡고 있는 경우, (b) 설정의 `${VAR}`가 이 환경에서 설정되지 않은 경우다. 후자는 `.local/env`를 읽지 않은 셸에서 `nanobot restart`를 칠 때 생긴다.
+- **게이트웨이 안에서 부른 재시작**은 그대로 분리된(detached) 제어기가 5초 뒤 수행한다. 이 경우 진행 중이던 턴은 취소되고 자동으로 이어지지 않는다. 사용자는 에이전트에게 이어서 하라고 다시 말해야 한다.
+
+#### 3.15.6 모델 사용량 장부와 캐시 진단
+
+- `providers/usage_ledger.py`는 공급자 호출 **시도마다** 한 줄을 남긴다(크기 제한이 있는 큐와 데몬 스레드, 파일은 크기 기준 회전). 내용은 없고 ID, 코드가 정한 라벨, 시간, 토큰 수만 있다. 기록이 실패해도 호출자에게 예외를 던지지 않는다. 사용량이 없거나 전부 0이면 `unknown`이고 0이 아니다.
+- 캐시된 토큰과 추론 토큰은 입력·출력의 내역이므로 합계에 더하지 않는다.
+- `NANOBOT_DEBUG_CACHE_FINGERPRINT=1`이면 시스템·도구·접두부·꼬리 메시지의 해시와 개수를 장부에 추가한다(내용 없음). 공급자 캐시가 언제 깨졌는지 시도별로 비교하는 용도다.
+- xAI 요청의 대화 ID(`x-grok-conv-id`)는 매 호출 랜덤이 아니라 턴(또는 백그라운드 작업) 범위에서 고정한다(`bfe5029a2`).
+- Codex 요청 본문에 `max_output_tokens`를 전달한다(`f44d6900b`). Bedrock은 botocore 자체 재시도를 끄고 공통 재시도에 맡긴다(`4fa5580ae`).
+- 참고: [skill-usage-accounting](./skill-usage-accounting.md).
+
+#### 3.15.7 신뢰성·보안 보강 요약
+
+각 항목은 수정 전에 실패하는 회귀 테스트가 있다. 자세한 사유는 PR #56 본문과 커밋 기록에 있다.
+
+| 영역 | 규칙 |
+|---|---|
+| cron | 타이머를 다시 걸 때 실행 중인 콜백의 틱을 취소하지 않는다. 꺼져 있는 동안 지난 일회성 작업은 24시간 이내이고 아직 실행 전이면 시작할 때 한 번 실행한다(더 오래된 것은 건드리지 않음) |
+| `/stop` | 대기 중인 후속 메시지를 먼저 비우고 취소해, "중지됨" 뒤에 새 턴으로 실행되지 않는다 |
+| 메시지 루프 | 메시지 하나를 라우팅하다 난 예외가 `run()` 전체를 끝내지 않는다 |
+| exec | 출력 메모리는 바이트 상한까지만 비우며 받고 초과하면 프로세스를 죽인다. 종료 대기도 같은 시간 제한과 취소 범위 안에 있다 |
+| 파일 도구 | `read_file`은 한 호출에 한 번만 읽고, 디렉터리 순회는 이벤트 루프를 막지 않게 스레드로 보낸다. 없는 파일에는 비슷한 이름을 최대 3개 알려준다 |
+| `web_fetch` | 사전 점검 연결을 재사용하되 끊기면 새 요청으로 폴백한다 |
+| 채널 | 중복 억제 캐시는 1,000개 상한, websocket 팬아웃은 연결별 실패를 격리, Slack `Retry-After`는 30초 상한, QQ 미디어 다운로드는 리다이렉트 거부 |
+| API | 세션 락 딕셔너리 상한, 첫 시도에서 도구가 이미 실행됐으면 빈 응답을 재시도하지 않음, 비ASCII 토큰은 500이 아니라 거부, 잘못된 JSON 모양은 413이 아니라 400 |
+| 보안 | 호스트 이름을 확인할 수 없는 리다이렉트는 안전하다고 보지 않고 거부(fail closed) |
+| 이미지 생성 | 재시도 횟수에 상한이 있고 하나도 못 만들면 명확한 오류를 돌려준다 |
+| 스킬 색인 | 시스템 스킬과 이름이 같은 작업공간 스킬은 시스템 스킬이 우선한다 |
+| MCP | 전송마다 전용 태스크가 소유해 수신 실패와 재로드 정리가 게이트웨이를 취소하지 못한다 |
+
+#### 3.15.8 프롬프트 규칙 추가
+
+- 요청 이해 지침: 행동 전에 목표·대상·산출물·명시 제약을 정하고, 검토·설명·비교·확인 요청은 결과만 내고 아무것도 바꾸지 않으며, 대상이나 결과가 달라질 때만 짧게 한 번 묻고 아니면 가정을 한 줄로 밝힌다. 조회로 찾을 수 있는 것은 묻지 않는다. 무인 실행(cron·heartbeat)은 묻지 않고 가정을 밝힌다. compact·full 두 시스템 프롬프트가 같은 조각을 포함하며, 크기는 테스트가 상한을 건다(`0c240c626`).
+- 파일 변경 확인: 만들거나 바꾼 파일은 도구 성공이 아니라 요청 기준(경로·필수 내용·형식·유지할 부분)으로 대조한다. 성공한 `write_file`에 넘긴 내용, 성공한 `edit_file`/`apply_patch`의 결과 요약은 근거로 다시 쓰고, 덮이지 않은 범위만 다시 읽는다. 이전 읽기·이전 턴의 변경·다른 경로의 같은 이름 파일은 근거가 아니다(`b764cdd80`). 파일 쓰기 도구가 있을 때만 로드된다.
+
 ---
 
 ## 4. 데이터 명세
@@ -612,7 +706,7 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 
 ---
 
-## 13. 설계서와 구현의 차이 (v3.4.13, v3.4.14, v3.4.15 갱신)
+## 13. 설계서와 구현의 차이 (v3.4.13, v3.4.14, v3.4.15, v3.4.16 갱신)
 
 이 장은 구현 지시가 아니라 현재 문서와 코드가 어긋났던 지점과 아직 결정이 필요한 지점을 기록한다. 확인하지 않은 항목은 구현됨으로 쓰지 않는다.
 
@@ -682,6 +776,44 @@ WebUI에는 relay 발급 화면을 만들지 않는 방침을 유지한다. 발�
 남은 차이(코드 작업, 이번 범위 밖):
 - 전체 pytest 기존 실패 중 문맥 선택 코드의 잠재 결함 1건은 확인 필요다. 문맥 선택은 기본 꺼짐이다.
 - 새 런타임 checkout에는 Git 제외 대상인 WebUI 빌드 산출물이 포함되지 않는다. 배포 후보 준비 절차에 빌드 산출물 포함을 넣어야 한다.
+
+---
+
+### 13.7 v3.4.16 대조 결과 (2026-11-25)
+
+대상 소스는 `4f4f7e632`(PR #56 브랜치 끝)이다. 판정 근거는 코드, 스키마 기본값, CLI `--help`, 커밋 기록, 이번 확인 중 실제로 돌린 테스트와 재시작이다.
+
+| 항목 | 이전 문서 | 확인한 현황 | 처리 |
+|---|---|---|---|
+| `compactContext` 기본값 | `compact-context.md`: 기본 `false`, 옵트인 / `configuration.md`는 이미 `true` | 스키마 `compact_context: bool = True`(`13b048de2`) | `compact-context.md` 정정, 3.15.1 |
+| 활성화 도구의 수명 | `compact-context.md`: 활성화 상태는 한 턴 안에서만 유효 | 턴이 끝날 때 활성화한 이름을 세션 메타데이터에 저장해 다음 턴의 시작 상태로 씀(`2f6cbe0c3`) | `compact-context.md` 정정, 3.15.1 |
+| 고정 런타임 배포 | 13.6: "통합 브랜치에만 존재" | `3933fed9`가 PR #56 브랜치의 조상. `scripts/runtime.sh`는 이 브랜치에 있고 `main`에는 없음 | 2장 행 정정 |
+| 백그라운드 작업 보고 | 코드 근거 없음 | `exec_job status`는 조회 전용이었고 턴 종료 뒤 끝난 작업은 보고되지 않았음. 이제 종료 알림이 새 턴을 시작 | 3.15.3 신설 |
+| 재시작 | `docs/cli-reference.md`에 `nanobot restart` 설명 없음 | `nanobot up`·`down`·`restart`가 런처 명령. 재시작은 기록된 포트를 유지하고 못 뜰 조건이면 멈추기 전에 중단 | 3.15.5, `cli-reference.md` 추가 |
+| 코드 수정 도구 | `tool_contract.md`는 항상 `apply_patch`를 기본으로 안내 | `codewhale`가 등록된 인스턴스에서만 이 도구를 우선 안내. 미등록 인스턴스는 기존 안내 그대로 | 3.15.4 |
+
+**운영 적용 범위(2026-11-25 확인)**: 로컬 인스턴스 6개(main, rees, elle, genie, heart, testy)가 모두 이 브랜치 코드로 재시작되어 실행 중이고 각 health 응답은 200이다(testy는 04:12, 나머지는 04:25 재시작). `codewhale` 도구는 testy 설정(`tools.codewhale.enable=true`, 바이너리 `.local/bin/codewhale`)에만 켜져 있고 나머지 5개는 등록되지 않는다(등록된 도구 수 testy 31개, 나머지 29개). 인스턴스별 모델은 설정 파일 기준이며 이 문서는 정하지 않는다.
+
+**검증 범위**:
+
+| 범위 | 결과 |
+|---|---|
+| `tests/tools`, `tests/security`, `tests/eval`, `tests/agent` | 4311 통과, 36 건너뜀, 2 xfail, **2 실패** |
+| `tests/cli`, `tests/gateway` | 270 통과 (재시작 수정 포함) |
+| 전체 스위트 | 이번 확인에서는 다시 돌리지 않았다. PR #56 본문의 7654 통과 기록은 평가 하네스(`tests/eval`) 추가 이전 시점이다 |
+| 린트(`ruff check nanobot/`) | 이번 변경 파일은 통과. `nanobot/workflow/`, `agent/context_selection.py` 등 이전부터 있던 파일에 import 정렬 경고 22건이 남아 있다 |
+
+**알려진 실패**:
+
+- `tests/eval/test_real_eval_harness.py::test_every_case_has_a_good_and_a_failing_judge_example`, `::test_case_inventory_matches_the_preregistration` — 평가 하네스의 케이스 D29~D32에 판정 예시와 사전 등록 항목이 아직 없다. 하네스는 `scripts/real_eval/`, `scripts/real_eval/PREREGISTRATION.md`, `FINAL_SEAL.sha256`로 구성되며, 봉인 해시가 있으므로 사전 등록 문서를 고칠 때 봉인 절차를 따로 확인해야 한다. 이 하네스는 PR #56에서 빼거나 케이스를 채워야 한다.
+
+**남은 차이와 결정**:
+
+- Codewhale 실제 코딩 실행의 끝에서 끝까지 성공은 확인하지 못했다. 확인 시도 두 번이 모두 모델 공급자의 사용 한도 오류(HTTP 429)로 끝났다. `--auto` 누락과 권한 정지 감지는 단위 테스트와 로그 근거로 확인했다.
+- 페르소나 설정 파일 중 rees·genie·heart·testy의 `gateway.port`가 모두 18793이다(실제 포트는 18793·18795·18796·18797을 `--port`로 지정). 재시작은 이제 영향이 없지만 `nanobot up`으로 직접 시작하면 충돌한다. 설정을 실제 포트로 맞출지 결정이 필요하다.
+- 게이트웨이 안에서 부른 재시작은 진행 중인 턴을 취소하고 이어가지 않는다. 에이전트가 스스로 재시작하면 하던 일이 끊기므로, 작업 중에는 재시작하지 않는 운영 규칙이 필요하다. 재시작 뒤 끊긴 턴을 자동으로 이어주는 기능은 없다.
+- `.codex-attachments/`의 `SKILL.md` 한 개가 저장소에 커밋되어 있다. 배포 대상이 아니므로 제거하거나 `.gitignore`에 넣을지 정해야 한다.
+- 13.6의 남은 차이(문맥 선택의 잠재 결함 1건, 새 런타임 checkout에 WebUI 빌드 산출물이 없음)는 이번에 다시 확인하지 않았다.
 
 ---
 
