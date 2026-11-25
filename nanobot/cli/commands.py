@@ -1176,7 +1176,7 @@ def serve(
 
     api_app = create_app(
         agent_loop, model_name=model_name, request_timeout=timeout,
-        api_key=api_key,
+        api_key=api_key, bind_host=host, bind_port=port,
     )
 
     async def on_startup(_app):
@@ -1778,6 +1778,7 @@ def _run_gateway(
             console.print(f"[yellow]Could not open browser ({e}); visit {open_browser_url}[/yellow]")
 
     async def run():
+        crashed = False
         tasks: list[asyncio.Task] = []
         shutdown_task: asyncio.Task | None = None
         runtime_tasks: asyncio.Future | None = None
@@ -1839,6 +1840,7 @@ def _run_gateway(
 
             console.print("\n[red]Error: Gateway crashed unexpectedly[/red]")
             console.print(traceback.format_exc())
+            crashed = True
         finally:
             try:
                 if shutdown_task and not shutdown_task.done():
@@ -1864,8 +1866,12 @@ def _run_gateway(
                     logger.info("Shutdown: flushed {} session(s) to disk", flushed)
             finally:
                 restore_shutdown_handlers()
+        return crashed
 
-    asyncio.run(run())
+    # A crashed gateway must not look like a clean stop: a service manager restarts on a failure
+    # exit code only, and a task that died (full disk, port clash) used to end with exit code 0.
+    if asyncio.run(run()):
+        raise typer.Exit(1)
 
 
 app.add_typer(
@@ -1932,11 +1938,19 @@ def down(
 def restart(
     workspace: str | None = typer.Option(None, "--workspace", "-w", help="Workspace directory"),
     config: str | None = typer.Option(None, "--config", "-c", help="Path to config file"),
+    companions: bool = typer.Option(
+        False, "--companions",
+        help="After restarting config.json, also restart the persona gateways beside it (one by one).",
+    ),
 ) -> None:
     """Restart the background gateway (schedules a detached restart if called from inside it)."""
     from nanobot.cli.up import run_restart
 
-    code = run_restart(config_path=_up_default_config(config), workspace_path=_up_default_workspace(workspace))
+    code = run_restart(
+        config_path=_up_default_config(config),
+        workspace_path=_up_default_workspace(workspace),
+        companions=companions,
+    )
     raise typer.Exit(code)
 
 

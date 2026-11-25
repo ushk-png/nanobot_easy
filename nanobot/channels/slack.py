@@ -22,7 +22,6 @@ from nanobot.bus.queue import MessageBus
 from nanobot.channels.base import BaseChannel
 from nanobot.config.paths import get_media_dir
 from nanobot.config.schema import Base
-from nanobot.pairing import is_approved
 from nanobot.utils.helpers import safe_filename, split_message
 
 _MAX_RETRY_AFTER_SECONDS = 30.0
@@ -32,7 +31,8 @@ class SlackDMConfig(Base):
     """Slack DM policy configuration."""
 
     enabled: bool = True
-    policy: str = "open"
+    # "allowlist" (default): dm.allowFrom, top-level allowFrom or a pairing approval. "open": anyone.
+    policy: str = "allowlist"
     allow_from: list[str] = Field(default_factory=list)
 
 
@@ -682,18 +682,27 @@ class SlackChannel(BaseChannel):
             except Exception as e:
                 self.logger.debug("done reaction failed: {}", e)
 
+    def _sender_allowed(self, sender_id: str) -> bool:
+        """Top-level ``allowFrom`` (``*``, an exact user id) or a pairing approval."""
+        return BaseChannel.is_allowed(self, sender_id)
+
     def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
         if channel_type == "im":
             if not self.config.dm.enabled:
                 return False
-            if self.config.dm.policy == "allowlist":
-                return sender_id in self.config.dm.allow_from or is_approved(self.name, sender_id)
-            return True
+            if self.config.dm.policy == "open":
+                return True  # explicit opt-in: anyone in the workspace may DM the bot
+            return (
+                sender_id in self.config.dm.allow_from
+                or self._sender_allowed(sender_id)
+            )
 
-        # Group / channel messages
-        if self.config.group_policy == "allowlist":
-            return chat_id in self.config.group_allow_from
-        return True
+        # Group / channel messages. An explicitly approved channel (allowlist policy) admits
+        # everyone in it; otherwise the sender must be in allowFrom or paired. Before, allowFrom
+        # was never read, so anyone able to @mention the bot ran tools with the owner's rights.
+        if self.config.group_policy == "allowlist" and chat_id in self.config.group_allow_from:
+            return True
+        return self._sender_allowed(sender_id)
 
     def _is_mention(self, event_type: str, text: str) -> bool:
         if event_type == "app_mention":

@@ -34,16 +34,52 @@ def constant_time_equals(supplied: str, expected: str) -> bool:
     )
 
 
+def _instance_data_dir() -> Path | None:
+    """The active instance's data directory (the config file's folder), without creating it."""
+    try:
+        from nanobot.config.loader import get_config_path
+
+        return get_config_path().expanduser().resolve(strict=False).parent
+    except Exception:
+        return None
+
+
+def _is_nanobot_credential_path(item: Path, parts: tuple[str, ...], name: str) -> bool:
+    """Config files, OAuth tokens and env files that hold this instance's API keys."""
+    data_dir = _instance_data_dir()
+    if data_dir is not None:
+        try:
+            relative = item.relative_to(data_dir)
+        except ValueError:
+            relative = None
+        if relative is not None and relative.parts:
+            first = relative.parts[0].lower()
+            if first == "auth":
+                return True
+            if len(relative.parts) == 1 and (
+                first == "env" or (first.startswith("config") and first.endswith(".json"))
+            ):
+                return True
+    if ".nanobot" in parts:
+        after = parts[parts.index(".nanobot") + 1:]
+        if after and (after[0] == "auth" or after == ("config.json",)):
+            return True
+    if len(parts) >= 2 and parts[-2:] == (".docker", "config.json"):
+        return True
+    return len(parts) >= 2 and parts[-2:] == ("gh", "hosts.yml")
+
+
 def is_sensitive_path(path: str | Path) -> bool:
     """Check logical and resolved names, so an innocuous symlink cannot expose a key."""
     candidate = Path(path).expanduser()
     for item in (candidate, candidate.resolve(strict=False)):
-        parts = {part.lower() for part in item.parts}
+        parts = tuple(part.lower() for part in item.parts)
         name = item.name.lower()
-        if (parts & _SECRET_DIRS or name in _SECRET_NAMES
+        if (set(parts) & _SECRET_DIRS or name in _SECRET_NAMES
                 or name == ".env" or name.startswith(".env.") or name.endswith(".env")
                 or name.startswith(("id_rsa", "id_ed25519", "id_ecdsa"))
-                or item.suffix.lower() in {".key", ".p12", ".pfx"}):
+                or item.suffix.lower() in {".key", ".p12", ".pfx"}
+                or _is_nanobot_credential_path(item, parts, name)):
             return True
     return False
 

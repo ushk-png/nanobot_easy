@@ -221,7 +221,15 @@ class CronService:
         version = 1
         if self.store_path.exists():
             try:
-                data = json.loads(self.store_path.read_text(encoding="utf-8"))
+                raw = self.store_path.read_text(encoding="utf-8")
+            except OSError as exc:
+                # A failed read (EMFILE, EIO, ...) says nothing about the file. Do not move a
+                # healthy store aside: the next load would then see no file and replace the
+                # in-memory jobs with an empty list. Keep the snapshot and retry on the next call.
+                logger.warning("Cron store unreadable ({}); keeping the in-memory jobs", exc)
+                return None
+            try:
+                data = json.loads(raw)
                 jobs = []
                 version = data.get("version", 1)
                 for j in data.get("jobs", []):
@@ -593,10 +601,15 @@ class CronService:
             for job in due_jobs:
                 await self._execute_job(job)
 
-            self._save_store()
+            try:
+                self._save_store()
+            except OSError:
+                # Disk full or a permission error must not end the timer for good: the
+                # tick task is never awaited, so nothing would re-arm it until a restart.
+                logger.exception("Cron: failed to save the job store after a tick")
         finally:
             self._timer_active = False
-        self._arm_timer()
+            self._arm_timer()
 
     async def _execute_job(self, job: CronJob) -> None:
         """Execute a single job."""

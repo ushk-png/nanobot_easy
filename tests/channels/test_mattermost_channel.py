@@ -90,6 +90,7 @@ def _make_channel(
         "enabled": True,
         "serverUrl": "https://chat.example.com",
         "token": "test_token",
+        "allowFrom": ["*"],  # tests of message flow; the access policy has its own tests below
         **(overrides or {}),
     }
     config = MattermostConfig.model_validate(config_dict)
@@ -120,7 +121,7 @@ def test_config_defaults():
     assert config.streaming is True
     assert config.streaming_max_chars == 16000
     assert config.dm.enabled is True
-    assert config.dm.policy == "open"
+    assert config.dm.policy == "allowlist"
     assert config.reply_in_thread is True
 
 
@@ -334,7 +335,7 @@ async def test_dm_policy_open():
 
 @pytest.mark.asyncio
 async def test_dm_policy_allowlist_match():
-    channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["user_1", "user_2"]}})
+    channel, fake = _make_channel({"allowFrom": [], "dm": {"policy": "allowlist", "allowFrom": ["user_1", "user_2"]}})
     assert await channel._is_allowed("user_1", "dm_chan", "dm") is True
     assert await channel._is_allowed("user_3", "dm_chan", "dm") is False
 
@@ -817,7 +818,7 @@ async def test_action_event():
 
 @pytest.mark.asyncio
 async def test_action_event_denied_dm():
-    channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["u_other"]}})
+    channel, fake = _make_channel({"allowFrom": [], "dm": {"policy": "allowlist", "allowFrom": ["u_other"]}})
     channel._self_id = "bot_id"
     fake.set_get_response("/api/v4/channels/c1", {"id": "c1", "type": "D"})
     with patch.object(channel, "_handle_message", AsyncMock()) as mock_handle:
@@ -903,6 +904,7 @@ async def test_auth_failure_prevents_start():
 @pytest.mark.asyncio
 async def test_dm_allowlist_with_username_match():
     channel, fake = _make_channel({
+        "allowFrom": [],
         "allowFromMatchMode": "username",
         "dm": {"policy": "allowlist", "allowFrom": ["alice"]},
     })
@@ -913,7 +915,7 @@ async def test_dm_allowlist_with_username_match():
 
 @pytest.mark.asyncio
 async def test_dm_allowlist_accepts_pairing_approval():
-    channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
+    channel, fake = _make_channel({"allowFrom": [], "dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
     with patch("nanobot.channels.mattermost.is_approved", return_value=True):
         assert await channel._is_allowed("u_paired", "dm_chan", "dm") is True
 
@@ -925,7 +927,7 @@ async def test_dm_allowlist_accepts_pairing_approval():
 
 @pytest.mark.asyncio
 async def test_denied_dm_sends_pairing_not_empty_inbound():
-    channel, fake = _make_channel({"dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
+    channel, fake = _make_channel({"allowFrom": [], "dm": {"policy": "allowlist", "allowFrom": ["u_allowed"]}})
     channel._self_id = "botuserid123"
     channel._self_username = "nanobot"
 
@@ -990,3 +992,33 @@ def test_message_splitting():
     chunks = split_message(long_text, MATTERMOST_MAX_MESSAGE_LEN)
     assert all(len(c) <= MATTERMOST_MAX_MESSAGE_LEN for c in chunks)
     assert "".join(chunks) == long_text
+
+
+
+@pytest.mark.asyncio
+async def test_allow_from_gates_channels_and_dms() -> None:
+    """Review A41: top-level allowFrom was never read; anyone could DM or mention the bot."""
+    channel, _ = _make_channel({"allowFrom": ["u_owner"]})
+    for chat, kind in (("chan1", "channel"), ("dm1", "dm")):
+        assert await channel._is_allowed("u_owner", chat, kind) is True
+        assert await channel._is_allowed("u_stranger", chat, kind) is False
+
+    nobody, _ = _make_channel({"allowFrom": []})
+    assert await nobody._is_allowed("u_stranger", "chan1", "channel") is False
+    assert await nobody._is_allowed("u_stranger", "dm1", "dm") is False
+
+    star, _ = _make_channel({"allowFrom": ["*"]})
+    assert await star._is_allowed("u_stranger", "dm1", "dm") is True
+
+
+@pytest.mark.asyncio
+async def test_dm_open_policy_and_approved_channels_are_explicit_opt_ins() -> None:
+    open_dm, _ = _make_channel({"allowFrom": [], "dm": {"policy": "open"}})
+    assert await open_dm._is_allowed("u_stranger", "dm1", "dm") is True
+    assert await open_dm._is_allowed("u_stranger", "chan1", "channel") is False
+
+    approved, _ = _make_channel(
+        {"allowFrom": [], "groupPolicy": "allowlist", "groupAllowFrom": ["chan_ok"]}
+    )
+    assert await approved._is_allowed("u_stranger", "chan_ok", "channel") is True
+    assert await approved._is_allowed("u_stranger", "chan_other", "channel") is False

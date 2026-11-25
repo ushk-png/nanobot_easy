@@ -216,3 +216,71 @@ class TestStoreDurability:
         # Should recover gracefully and act as empty store
         assert store.list_pending() == []
         assert store.is_approved("telegram", "123") is False
+
+
+class TestReadFailuresNeverWipeApprovals:
+    """Review N17: one transient read error used to replace the store with an empty one."""
+
+    def _seed(self) -> None:
+        import json
+
+        store._store_path().write_text(
+            json.dumps({"approved": {"telegram": ["111", "222"]}, "pending": {}}), encoding="utf-8"
+        )
+
+    def test_transient_read_error_does_not_reset_approved_senders(self, monkeypatch) -> None:
+        import builtins
+        import errno
+        import json
+
+        self._seed()
+        real_open = builtins.open
+        failures = {"left": 1}
+
+        def flaky(path, *args, **kwargs):
+            if str(path).endswith("pairing.json") and failures["left"]:
+                failures["left"] -= 1
+                raise OSError(errno.EMFILE, "Too many open files")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", flaky)
+        with pytest.raises(OSError):
+            store.generate_code("telegram", "999")  # a stranger's DM during the failure
+        monkeypatch.setattr(builtins, "open", real_open)
+
+        assert store.is_approved("telegram", "111")
+        assert json.loads(store._store_path().read_text())["approved"] == {
+            "telegram": ["111", "222"]
+        }
+
+    def test_reader_sees_empty_store_for_one_call_without_writing(self, monkeypatch) -> None:
+        import builtins
+        import errno
+
+        self._seed()
+        before = store._store_path().read_text()
+        real_open = builtins.open
+
+        def always_fail(path, *args, **kwargs):
+            if str(path).endswith("pairing.json"):
+                raise OSError(errno.EIO, "I/O error")
+            return real_open(path, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "open", always_fail)
+        assert store.is_approved("telegram", "111") is False
+        monkeypatch.setattr(builtins, "open", real_open)
+        assert store._store_path().read_text() == before
+
+    def test_invalid_json_is_moved_aside_not_overwritten(self) -> None:
+        path = store._store_path()
+        path.write_text("{not json", encoding="utf-8")
+        assert store.is_approved("telegram", "111") is False
+        store.generate_code("telegram", "5")
+        saved = list(path.parent.glob("pairing.json.corrupt-*"))
+        assert len(saved) == 1 and saved[0].read_text() == "{not json"
+
+    def test_non_object_json_is_treated_as_corrupt(self) -> None:
+        path = store._store_path()
+        path.write_text("[1, 2]", encoding="utf-8")
+        assert store.get_approved("telegram") == []
+        assert list(path.parent.glob("pairing.json.corrupt-*"))

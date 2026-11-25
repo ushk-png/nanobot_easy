@@ -2026,6 +2026,8 @@ Two transport modes are supported:
 > [!IMPORTANT]
 > HTTP/SSE MCP URLs are validated before probing or connecting, and every outgoing MCP HTTP request is validated again before redirects are followed. `localhost`, `127.0.0.1`, RFC1918/private IPs, CGNAT/Tailscale ranges, link-local addresses, and cloud metadata endpoints are blocked by default. This can break previously working local or private HTTP MCP configs until the endpoint is explicitly allowed with `tools.ssrfWhitelist`, preferably with a single-host CIDR such as `127.0.0.1/32`, `::1/128`, or `192.168.1.50/32`. Stdio MCP servers are not affected.
 
+A server that starts but never answers is given up after `connectTimeout` seconds (default `30`; `0` = no limit) while connecting, so one stuck MCP server cannot stall the gateway at startup or on reload. The connection is retried on a later message.
+
 Use `toolTimeout` to override the default 30s per-call timeout for slow servers:
 
 ```json
@@ -2122,6 +2124,10 @@ Pairing lets users get access to the bot through a simple code exchange — no c
 4. The user can now chat with the bot normally.
 
 Pairing only works in **DMs** — unapproved users in group chats are silently ignored.
+
+On Slack and Mattermost, `allowFrom` is enforced for channel messages, DMs and button clicks, and the DM policy defaults to `allowlist` (`dm.allowFrom`, top-level `allowFrom` or a pairing approval); `dm.policy: "open"` lets anyone DM the bot. A channel you list in `groupAllowFrom` with `groupPolicy: "allowlist"` admits everyone in it.
+
+The store `pairing.json` sits in the instance data folder (next to the config file). Instances whose config files share one folder therefore share approvals. If the file cannot be read for a moment (for example too many open files), approved users are kept: a write waits for a successful read instead of starting from an empty list. A file that is not valid JSON is moved aside as `pairing.json.corrupt-<time>` before a new one is started.
 
 ### Pairing-only mode
 

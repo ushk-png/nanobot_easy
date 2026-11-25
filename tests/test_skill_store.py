@@ -1234,3 +1234,39 @@ def test_skill_hot_path_and_lifecycle_reports(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "bad-router" in result.stdout
     assert store.get_skill("bad-router")["status"] == "deprecated"
+
+
+@pytest.mark.parametrize(
+    "query",
+    ["deploy?", "how do I deploy?", "deploy, release", "it's deploy", "self-improving deploy", "deploy AND"],
+)
+def test_search_keeps_the_bm25_signal_for_queries_with_punctuation(tmp_path: Path, query: str) -> None:
+    """Review N19: punctuation made FTS5 raise, which was swallowed and dropped the score."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "deployer", description="Deploy the app to production and release it; it's self-improving AND careful")
+    _write_skill(skills, "reviewer", description="Review pull requests carefully")
+    store = SkillStore(tmp_path)
+    store.reindex(builtin_dir=tmp_path / "empty_builtin")
+    _approve(store, "deployer", "reviewer")
+
+    fts_hits = {}
+    with store._connect() as conn:
+        from nanobot.skill_store import _fts_match_query
+
+        rows = conn.execute(
+            "SELECT skill_id FROM skill_search_fts WHERE skill_search_fts MATCH ?",
+            (_fts_match_query(query.replace("how do I ", "")),),
+        ).fetchall()
+        fts_hits = {row[0] for row in rows}
+    assert fts_hits, f"FTS found nothing for {query!r}"
+    matches = store.search(query, top_k=2)
+    assert matches and matches[0].name == "deployer"
+
+
+def test_fts_match_query_quotes_terms_and_drops_punctuation_only_terms() -> None:
+    from nanobot.skill_store import _fts_match_query
+
+    assert _fts_match_query("deploy release") == '"deploy" "release"'
+    assert _fts_match_query("deploy? , ?") == '"deploy?"'
+    assert _fts_match_query('say "hi"') == '"say" """hi"""'
+    assert _fts_match_query("  ?  ") == '""'

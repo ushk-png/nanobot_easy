@@ -900,6 +900,7 @@ class AgentLoop:
         events: list[RawEvent] = []
         selection_enabled = self._selective_context_enabled
         next_sequence = self.conversation_memory.next_sequence(session.key) if selection_enabled else 0
+        collision_sequence: int | None = None
         for offset, message in enumerate(messages[start_index:], start=start_index + 1):
             content = self._memory_content_for_message(message)
             is_memory_tool_result = self._is_memory_tool_result_message(message)
@@ -920,6 +921,25 @@ class AgentLoop:
                 parent_event_id = str(message.get("tool_call_id"))
             event_id = str(message.get("memory_event_id") or f"{session.key}:{offset}")
             sequence = offset
+            if not message.get("memory_event_id"):
+                # The id is the message's list index. /new and auto-compaction restart the
+                # index, and the store ignores a repeated id, so new turns silently vanished
+                # until the session outgrew its old length. Same message -> same id (the early
+                # user-message save and the end-of-turn save must not duplicate); a different
+                # message at a used index gets its own id and a fresh sequence.
+                content_hash = None if is_memory_tool_result else ConversationEventStore._hash_content(content)
+                known = self.conversation_memory.get_events(scope, [event_id])
+                if known and not (
+                    known[0].actor == actor
+                    and known[0].content_hash == content_hash
+                    and (not message.get("timestamp") or known[0].ts == ts)
+                ):
+                    digest = hashlib.sha1(f"{ts}|{content_hash}".encode()).hexdigest()[:10]
+                    event_id = f"{event_id}:{digest}"
+                    if collision_sequence is None:
+                        collision_sequence = self.conversation_memory.next_sequence(session.key)
+                    sequence = collision_sequence
+                    collision_sequence += 1
             if selection_enabled and message.get("memory_event_id"):
                 existing = self.conversation_memory.get_events(scope, [event_id])
                 if existing:

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
+from contextlib import contextmanager, suppress
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -171,6 +173,56 @@ def normalize_token_usage_state(raw: Any) -> dict[str, Any]:
     return state
 
 
+@contextmanager
+def _state_file_lock():
+    """Serialize read-modify-write across processes (all gateways share one state file).
+
+    ``_WRITE_LOCK`` only covers threads of one process. Where ``fcntl`` is missing the
+    cross-process lock is skipped; the unique temp file below still keeps the file intact.
+    """
+    try:
+        import fcntl
+    except ImportError:
+        yield
+        return
+    path = token_usage_state_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path.with_name(path.name + ".lock"), "a+") as lock_fp:
+        fcntl.flock(lock_fp.fileno(), fcntl.LOCK_EX)
+        try:
+            yield
+        finally:
+            fcntl.flock(lock_fp.fileno(), fcntl.LOCK_UN)
+
+
+def _read_state_for_update() -> dict[str, Any] | None:
+    """State to add to, or None when the file exists but cannot be read right now.
+
+    An unreadable file must not look like an empty history: the next write would replace up
+    to 400 days of totals with one line. A file that is not valid JSON is kept as
+    ``.corrupt-<ts>`` and counting starts again; a read error skips this one record.
+    """
+    path = token_usage_state_path()
+    if not path.is_file():
+        return default_token_usage_state()
+    try:
+        if path.stat().st_size > _MAX_STATE_FILE_BYTES:
+            logger.warning("token usage state too large, not updating: {}", path)
+            return None
+        with open(path, encoding="utf-8") as f:
+            raw = json.load(f)
+    except json.JSONDecodeError as e:
+        backup = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+        with suppress(OSError):
+            os.replace(path, backup)
+        logger.warning("token usage state is not valid JSON ({}); kept as {}", e, backup.name)
+        return default_token_usage_state()
+    except OSError as e:
+        logger.warning("token usage state unreadable, skipping this record: {}", e)
+        return None
+    return normalize_token_usage_state(raw)
+
+
 def read_token_usage_state() -> dict[str, Any]:
     path = token_usage_state_path()
     if not path.is_file():
@@ -201,13 +253,21 @@ def write_token_usage_state(raw: dict[str, Any]) -> dict[str, Any]:
 
     path = token_usage_state_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(".json.tmp")
-    with open(tmp, "wb") as f:
-        f.write(encoded)
-        f.write(b"\n")
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, path)
+    # A fixed temp name is shared by every gateway writing this file: one process would replace
+    # it while another is still writing, leaving an empty or half-written state file.
+    fd, tmp_name = tempfile.mkstemp(dir=path.parent, prefix=path.name + ".", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(encoded)
+            f.write(b"\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp_name, 0o644)
+        os.replace(tmp_name, path)
+    except BaseException:
+        with suppress(OSError):
+            os.unlink(tmp_name)
+        raise
     try:
         dir_fd = os.open(path.parent, os.O_RDONLY)
     except OSError:
@@ -230,8 +290,10 @@ def record_token_usage(
     if not normalized:
         return read_token_usage_state()
 
-    with _WRITE_LOCK:
-        state = read_token_usage_state()
+    with _WRITE_LOCK, _state_file_lock():
+        state = _read_state_for_update()
+        if state is None:
+            return read_token_usage_state()
         day = _local_day(now, timezone_name=timezone_name)
         row = dict(state["days"].get(day) or {"date": day, "requests": 0})
         for key in _USAGE_KEYS:

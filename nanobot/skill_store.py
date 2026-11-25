@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import yaml
+from loguru import logger
 
 from nanobot.agent.skills import _STRIP_SKILL_FRONTMATTER, BUILTIN_SKILLS_DIR
 
@@ -337,6 +338,19 @@ class SkillDraftContent:
     review: dict[str, Any] = field(default_factory=dict)
     routing_cases: list[dict[str, Any]] = field(default_factory=list)
     attachments: list[dict[str, str]] = field(default_factory=list)
+
+
+def _fts_match_query(query: str) -> str:
+    """Quote every search term so punctuation and FTS5 keywords cannot break the query.
+
+    ``deploy?``, ``self-improving``, ``it's`` or a bare ``AND`` are syntax errors for a raw FTS5
+    MATCH; the error used to be swallowed and the BM25 signal silently dropped. Terms are still
+    ANDed (space separated), exactly as an unquoted multi-word query was. Terms without a letter
+    or digit (``?``, ``,``) are dropped. An empty result matches nothing.
+    """
+    terms = [term for term in query.split() if re.search(r"\w", term)]
+    return " ".join('"' + term.replace('"', '""') + '"' for term in terms[:16]) or '""'
+
 
 
 @dataclass(frozen=True)
@@ -3024,9 +3038,10 @@ class SkillStore:
                           AND s.status IN ({",".join("?" for _ in statuses)})
                         ORDER BY score
                         """,
-                        (query, *statuses),
+                        (_fts_match_query(query), *statuses),
                     ).fetchall()
-                except sqlite3.OperationalError:
+                except sqlite3.OperationalError as exc:
+                    logger.debug("skill FTS query failed: {}", exc)
                     rows = []
                 else:
                     fts_scores = {str(row["id"]): -float(row["score"]) for row in rows}

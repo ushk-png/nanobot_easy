@@ -6,6 +6,7 @@ import json
 import os
 import re
 import shutil
+import time
 from contextlib import contextmanager, suppress
 from copy import deepcopy
 from dataclasses import dataclass, field
@@ -545,6 +546,25 @@ class SessionManager:
         self._cache[key] = session
         return session
 
+    @staticmethod
+    def _open_session_file(path: Path):
+        """Open a session file for reading, retrying a transient OSError (EMFILE, EIO...).
+
+        A read error says nothing about the file's contents, so it must surface as an error
+        rather than become an empty session that the next save writes over the history.
+        """
+        last: OSError | None = None
+        for attempt in range(3):
+            try:
+                return open(path, encoding="utf-8")
+            except FileNotFoundError:
+                raise
+            except OSError as exc:
+                last = exc
+                time.sleep(0.05 * (attempt + 1))
+        assert last is not None
+        raise last
+
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
         path = self._get_session_path(key)
@@ -582,7 +602,7 @@ class SessionManager:
             updated_at = None
             last_consolidated = 0
 
-            with open(path, encoding="utf-8") as f:
+            with self._open_session_file(path) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -607,6 +627,10 @@ class SessionManager:
                 last_consolidated=last_consolidated,
                 _generation=self._generations.get(key, 0),
             )
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise
         except Exception as e:
             logger.warning("Failed to load session {}: {}", key, e)
             repaired = self._repair(key)
@@ -629,7 +653,7 @@ class SessionManager:
             last_consolidated = 0
             skipped = 0
 
-            with open(path, encoding="utf-8") as f:
+            with self._open_session_file(path) as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -637,6 +661,9 @@ class SessionManager:
                     try:
                         data = json.loads(line)
                     except json.JSONDecodeError:
+                        skipped += 1
+                        continue
+                    if not isinstance(data, dict):
                         skipped += 1
                         continue
 
@@ -656,6 +683,8 @@ class SessionManager:
                 logger.warning("Skipped {} corrupt lines in session {}", skipped, key)
 
             if not messages and not metadata:
+                if skipped:
+                    self._preserve_unreadable(path)
                 return None
 
             return Session(
@@ -667,9 +696,23 @@ class SessionManager:
                 last_consolidated=last_consolidated,
                 _generation=self._generations.get(key, 0),
             )
+        except FileNotFoundError:
+            return None
+        except OSError:
+            raise
         except Exception as e:
             logger.warning("Repair failed for session {}: {}", key, e)
             return None
+
+    @staticmethod
+    def _preserve_unreadable(path: Path) -> None:
+        """Copy a session file that yielded nothing, so the next save cannot destroy it."""
+        target = path.with_name(f"{path.name}.corrupt-{int(time.time())}")
+        try:
+            shutil.copy2(path, target)
+            logger.warning("Unreadable session file preserved as {}", target.name)
+        except OSError as exc:
+            logger.warning("Could not preserve unreadable session file ({})", exc)
 
     @staticmethod
     def _session_payload(session: Session) -> dict[str, Any]:

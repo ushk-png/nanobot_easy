@@ -508,6 +508,7 @@ class MCPServerConfig(Base):
     headers: dict[str, str] = Field(default_factory=dict)  # HTTP/SSE: custom headers
     oauth: MCPOAuthConfig = Field(default_factory=MCPOAuthConfig)
     tool_timeout: int = 30  # seconds before a tool call is cancelled
+    connect_timeout: int = Field(default=30, ge=0)  # seconds allowed for initialize + list_tools at connect; 0 = no limit
     retry_safe_tools: list[str] = Field(default_factory=list)  # Exact raw/wrapped names verified by the operator as read-only or idempotent; no wildcard matching
     enabled_tools: list[str] = Field(default_factory=lambda: ["*"])  # Only register these tools; accepts raw MCP names or wrapped mcp_<server>_<tool> names; ["*"] = all capabilities (tools, resources, prompts); any restriction = only listed tools, no resources/prompts
 

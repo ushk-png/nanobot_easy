@@ -387,13 +387,22 @@ def test_restart_restarts_companions_only_after_primary_success(tmp_path: Path, 
     monkeypatch.setattr(up_mod, "_runtime_for", lambda *_a, **_kw: type("R", (), {"status": lambda self: type("S", (), {"running": False, "pid": None})()})())
     monkeypatch.setattr(up_mod, "restart_companion_gateways", lambda path, print_fn: calls.append(path.name))
 
+    # Review B36: restarting one bot must not restart the others unless asked to.
     code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
+    assert code == 0
+    assert calls == []
+
+    code = up_mod.run_restart(
+        config_path=str(config_path), workspace_path=str(workspace_path), companions=True, print_fn=lambda *_: None
+    )
     assert code == 0
     assert calls == ["config.json"]
 
     calls.clear()
     monkeypatch.setattr(up_mod, "run_up", lambda **_kwargs: 1)
-    code = up_mod.run_restart(config_path=str(config_path), workspace_path=str(workspace_path), print_fn=lambda *_: None)
+    code = up_mod.run_restart(
+        config_path=str(config_path), workspace_path=str(workspace_path), companions=True, print_fn=lambda *_: None
+    )
     assert code == 1
     assert calls == []
 
@@ -505,3 +514,61 @@ def test_restart_does_not_stop_the_gateway_when_the_config_needs_an_unset_env_va
 
     assert code == 1 and steps == []
     assert any("aborted" in line and "NANOBOT_TEST_UNSET_TOKEN" in line for line in messages)
+
+
+# Review B35: a port alone must not make `nanobot down` kill another instance.
+
+def test_gateway_command_must_name_this_config() -> None:
+    cfg = Path("/work/.local/config.genie.json")
+    assert up_mod._is_gateway_of_config("python /x/nanobot gateway --config /work/.local/config.genie.json --port 18795", cfg)
+    assert up_mod._is_gateway_of_config("python -m nanobot gateway --config=/work/.local/config.genie.json", cfg)
+    assert up_mod._is_gateway_of_config("nanobot gateway --config .local/config.genie.json", cfg)
+    assert not up_mod._is_gateway_of_config("nanobot gateway --config /work/.local/config.rees.json --port 18793", cfg)
+    assert not up_mod._is_gateway_of_config("python server.py --config /work/.local/config.genie.json", cfg)
+    assert not up_mod._is_gateway_of_config("nanobot gateway", cfg)
+    assert not up_mod._is_gateway_of_config(None, cfg)
+
+
+def test_port_fallback_never_kills_another_instance(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "config.genie.json"
+    config.write_text(json.dumps({"gateway": {"port": 18793}, "channels": {"websocket": {"enabled": False}}}))
+    killed: list[int] = []
+    monkeypatch.setattr(up_mod, "port_in_use", lambda host, port, **_kw: port == 18793)
+    monkeypatch.setattr(up_mod, "pid_on_port", lambda port: 4242)
+    monkeypatch.setattr(up_mod, "process_name", lambda pid: "python")
+    monkeypatch.setattr(
+        up_mod, "process_command",
+        lambda pid: f"python -m nanobot gateway --config {tmp_path}/config.rees.json --port 18793",
+    )
+    monkeypatch.setattr(up_mod, "kill_pid", lambda pid: killed.append(pid))
+    messages: list[str] = []
+
+    assert up_mod._stop_by_port_fallback(config, print_fn=messages.append) is False
+    assert killed == []
+    assert any("not stopping pid=4242" in message for message in messages)
+
+
+def test_port_fallback_still_stops_its_own_untracked_gateway(tmp_path: Path, monkeypatch) -> None:
+    config = tmp_path / "config.genie.json"
+    config.write_text(json.dumps({"gateway": {"port": 18795}, "channels": {"websocket": {"enabled": False}}}))
+    killed: list[int] = []
+    monkeypatch.setattr(up_mod, "port_in_use", lambda host, port, **_kw: port == 18795)
+    monkeypatch.setattr(up_mod, "pid_on_port", lambda port: 777)
+    monkeypatch.setattr(up_mod, "process_name", lambda pid: "python")
+    monkeypatch.setattr(
+        up_mod, "process_command",
+        lambda pid: f"python -m nanobot gateway --config {config} --port 18795",
+    )
+    monkeypatch.setattr(up_mod, "kill_pid", lambda pid: killed.append(pid))
+    assert up_mod._stop_by_port_fallback(config, print_fn=lambda *_: None) is True
+    assert killed == [777]
+
+
+def test_disabled_websocket_channel_owns_no_port(tmp_path: Path) -> None:
+    config = tmp_path / "config.json"
+    config.write_text(json.dumps({"gateway": {"port": 18792}, "channels": {"websocket": {"enabled": False, "port": 8766}}}))
+    assert up_mod.read_gateway_ports(config)[3] == 0
+    config.write_text(json.dumps({"gateway": {"port": 18792}, "channels": {"websocket": {"port": 8766}}}))
+    assert up_mod.read_gateway_ports(config)[3] == 8766
+    assert up_mod.port_in_use("127.0.0.1", 0) is False
+    assert up_mod.pid_on_port(0) is None

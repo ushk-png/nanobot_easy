@@ -966,9 +966,13 @@ async def connect_mcp_servers(
 
             read = _filter_malformed_mcp_progress_notifications(read, name)
             session = await server_stack.enter_async_context(ClientSession(read, write))
-            await session.initialize()
+            # A server that starts but never answers must not stall the agent loop (it connects
+            # before the message loop and again on every reload). A timeout is a failed connect:
+            # the stack is closed below and the next message retries.
+            connect_timeout = getattr(cfg, "connect_timeout", 30) or None
+            await asyncio.wait_for(session.initialize(), timeout=connect_timeout)
 
-            tools = await session.list_tools()
+            tools = await asyncio.wait_for(session.list_tools(), timeout=connect_timeout)
             enabled_tools = set(cfg.enabled_tools)
             allow_all_tools = "*" in enabled_tools
             registered_count = 0
@@ -1096,6 +1100,11 @@ async def connect_mcp_servers(
                 logger.warning("MCP server '{}': {}", name, str(e))
             elif isinstance(e, asyncio.CancelledError):
                 logger.warning("MCP server '{}': connection cancelled; skipping for now", name)
+            elif isinstance(e, TimeoutError):
+                logger.warning(
+                    "MCP server '{}': no response within {}s while connecting; skipping for now",
+                    name, getattr(cfg, "connect_timeout", 30),
+                )
             else:
                 logger.warning(
                     "MCP server '{}': failed to connect: {}{}",

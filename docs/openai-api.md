@@ -21,6 +21,8 @@ network. That includes `"0.0.0.0"`, `"::"`, `"0"`, an empty value, LAN addresses
 such as `192.168.0.10`, and host names. `nanobot serve --host ...` is checked the
 same way, so overriding the host on the command line cannot skip the check.
 
+Without an API key the server also refuses requests that come from a web page: a request whose `Origin` is another site, or whose `Host` is not the address the server listens on (DNS rebinding), gets `403`. Clients that send neither header, such as `curl` or the OpenAI SDKs, are unaffected. Set `api.apiKey` if a browser-based client on another origin must call the API.
+
 ```json
 {
   "api": {

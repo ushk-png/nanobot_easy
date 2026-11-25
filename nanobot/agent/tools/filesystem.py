@@ -148,7 +148,7 @@ class _FsTool(Tool):
 
             with suppress(ValueError):
                 relative = resolved.relative_to(self._workspace.resolve())
-                if relative.parts and relative.parts[0] in {"sessions", ".skillstore", "cron"}:
+                if relative.parts and relative.parts[0].casefold() in {"sessions", ".skillstore", "cron"}:
                     raise PermissionError("Internal runtime state is unavailable through file tools.")
         return resolved
 
@@ -833,8 +833,23 @@ def _find_matches(content: str, old_text: str) -> list[_MatchSpan]:
     ):
         matches = matcher()
         if matches:
-            return matches
+            return _without_overlaps(matches)
     return []
+
+
+def _without_overlaps(matches: list[_MatchSpan]) -> list[_MatchSpan]:
+    """Keep matches left to right and drop any that starts inside the previous one.
+
+    The loose matchers slide a window over the lines, so ``a\na`` finds two overlapping
+    windows in ``a\na\na``. Replacing both would splice with stale offsets and silently delete
+    lines while still reporting success (same rule as ``str.replace``).
+    """
+    kept: list[_MatchSpan] = []
+    for match in sorted(matches, key=lambda item: item.start):
+        if kept and match.start < kept[-1].end:
+            continue
+        kept.append(match)
+    return kept
 
 
 def _collapse_internal_whitespace(text: str) -> str:

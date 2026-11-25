@@ -432,11 +432,31 @@ async def handle_health(request: web.Request) -> web.Response:
 # ---------------------------------------------------------------------------
 
 
+def _browser_request_allowed(request: web.Request, bind_host: str, bind_port: int) -> bool:
+    """Same Host/Origin rule the WebUI uses (see nanobot.webui.http_utils.request_origin_allowed)."""
+    from nanobot.webui.http_utils import request_origin_allowed
+
+    if bind_host and bind_port:
+        return request_origin_allowed(request.headers, host=bind_host, port=bind_port)
+    origin = request.headers.get("Origin", "")
+    if not origin:
+        return True
+    from urllib.parse import urlparse
+
+    try:
+        netloc = urlparse(origin).netloc.lower()
+    except ValueError:
+        return False
+    return bool(netloc) and netloc == request.headers.get("Host", "").lower()
+
+
 def create_app(
     agent_loop,
     model_name: str = "nanobot",
     request_timeout: float = 120.0,
     api_key: str = "",
+    bind_host: str = "",
+    bind_port: int = 0,
 ) -> web.Application:
     """Create the aiohttp application.
 
@@ -445,6 +465,9 @@ def create_app(
         model_name: Model name reported in responses.
         request_timeout: Per-request timeout in seconds.
         api_key: Optional API key for Bearer-token authentication on API routes.
+        bind_host: Address the server listens on. With no api_key, requests whose Host header
+            is not this address (DNS rebinding) are refused when it is known.
+        bind_port: Port the server listens on (used with bind_host).
     """
     app = web.Application(client_max_size=20 * 1024 * 1024)  # 20MB for base64 images
     app["agent_loop"] = agent_loop
@@ -458,6 +481,15 @@ def create_app(
         if request.path == "/health":
             return await handler(request)
         if not api_key:
+            # No credential to protect the agent: a web page in the user's browser could post
+            # to this local port (text/plain and multipart are "simple" cross-site requests) and
+            # run a turn with tools. Browsers always send Origin on such a request, so refuse
+            # cross-site Origins and rebound Host names. Non-browser clients send neither.
+            if not _browser_request_allowed(request, bind_host, bind_port):
+                return _error_json(
+                    403, "Cross-origin requests are not allowed without an API key",
+                    err_type="invalid_request_error",
+                )
             return await handler(request)
         auth = request.headers.get("Authorization", "")
         if not auth.startswith("Bearer "):
