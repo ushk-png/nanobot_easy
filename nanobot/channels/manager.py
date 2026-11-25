@@ -456,6 +456,10 @@ class ChannelManager:
                 continue
             except asyncio.CancelledError:
                 break
+            except Exception:
+                # One bad message (a locked database, a malformed event) must not end the
+                # dispatcher: nothing restarts this task, and every channel would go silent.
+                logger.exception("Outbound dispatch failed; dropping this message and continuing")
 
     @staticmethod
     def _accepts_keyword(callable_obj: Callable[..., Any], name: str) -> bool:

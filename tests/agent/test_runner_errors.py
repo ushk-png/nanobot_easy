@@ -15,7 +15,7 @@ _MAX_TOOL_RESULT_CHARS = AgentDefaults().max_tool_result_chars
 
 @pytest.mark.asyncio
 async def test_runner_returns_structured_tool_error():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -49,9 +49,9 @@ async def test_llm_error_not_appended_to_session_messages():
     """When LLM returns finish_reason='error', the error content must NOT be
     appended to the messages list (prevents polluting session history)."""
     from nanobot.agent.runner import (
-        AgentRunSpec,
-        AgentRunner,
         _PERSISTED_MODEL_ERROR_PLACEHOLDER,
+        AgentRunner,
+        AgentRunSpec,
     )
 
     provider = MagicMock(spec=LLMProvider)
@@ -81,7 +81,7 @@ async def test_llm_error_not_appended_to_session_messages():
 @pytest.mark.asyncio
 async def test_llm_arrearage_error_surfaces_clear_message():
     """Arrearage errors yield a clear user-facing message, not a raw dump (#3006)."""
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner, _ARREARAGE_ERROR_MESSAGE
+    from nanobot.agent.runner import _ARREARAGE_ERROR_MESSAGE, AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -117,7 +117,7 @@ async def test_runner_ignores_tool_calls_when_finish_reason_blocks_execution(
     expected_stop_reason: str,
 ):
     """Provider/gateway-injected tool calls under terminal block reasons must not run."""
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
     provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
@@ -147,7 +147,7 @@ async def test_runner_ignores_tool_calls_when_finish_reason_blocks_execution(
 
 @pytest.mark.asyncio
 async def test_runner_tool_error_sets_final_content():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
 
@@ -179,7 +179,7 @@ async def test_runner_tool_error_sets_final_content():
 
 @pytest.mark.asyncio
 async def test_runner_preserves_successful_exec_output_that_starts_with_error():
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
 
@@ -221,7 +221,7 @@ async def test_runner_preserves_successful_exec_output_that_starts_with_error():
 async def test_runner_tool_error_preserves_tool_results_in_messages():
     """When a tool raises a fatal error, its results must still be appended
     to messages so the session never contains orphan tool_calls (#2943)."""
-    from nanobot.agent.runner import AgentRunSpec, AgentRunner
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
 
     provider = MagicMock(spec=LLMProvider)
 
@@ -276,3 +276,25 @@ async def test_runner_tool_error_preserves_tool_results_in_messages():
         i for i, m in enumerate(result.messages) if m.get("role") == "tool"
     ]
     assert all(ti > asst_tc_idx for ti in tool_indices)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("signal_exc", [SystemExit(3), KeyboardInterrupt()])
+async def test_shutdown_signals_raised_inside_a_tool_are_not_swallowed(signal_exc):
+    """Review N15: SystemExit/KeyboardInterrupt used to become an ordinary tool error."""
+    from nanobot.agent.runner import AgentRunner, AgentRunSpec
+
+    provider = MagicMock(spec=LLMProvider)
+    provider.chat_with_retry = AsyncMock(return_value=LLMResponse(
+        content="working",
+        tool_calls=[ToolCallRequest(id="call_1", name="list_dir", arguments={})],
+    ))
+    tools = MagicMock()
+    tools.get_definitions.return_value = []
+    tools.execute = AsyncMock(side_effect=signal_exc)
+
+    with pytest.raises(type(signal_exc)):
+        await AgentRunner(provider).run(AgentRunSpec(
+            initial_messages=[], tools=tools, model="test-model", max_iterations=2,
+            max_tool_result_chars=_MAX_TOOL_RESULT_CHARS,
+        ))

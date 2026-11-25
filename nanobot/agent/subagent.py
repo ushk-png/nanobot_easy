@@ -144,6 +144,11 @@ class SubagentManager:
             web=self.tools_config.web,
             file=self.tools_config.file,
             restrict_to_workspace=self.restrict_to_workspace,
+            # Policy switches must carry over: a sub-agent started from a safe-mode or
+            # hardened agent used to get write/exec tools back through spawn/delegate.
+            safe_mode=self.tools_config.safe_mode,
+            hardened_mode=self.tools_config.hardened_mode,
+            cli_apps=self.tools_config.cli_apps,
         )
 
     def _build_tools(

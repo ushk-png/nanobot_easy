@@ -114,7 +114,7 @@ class SkillRequestApprovalTool(Tool, ContextAware):
                 "note": (
                     "Pending confirmation recorded. Ask the user to confirm now, in your own "
                     "words, in this same reply. Their next message resolves it only if it is a "
-                    "plain yes or no — anything else leaves it pending."
+                    "plain yes or no — any other reply closes the question (call this tool again to re-ask)."
                 ),
             },
             ensure_ascii=False,

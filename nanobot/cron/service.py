@@ -342,8 +342,10 @@ class CronService:
                         continue
             self._store.jobs = list(jobs_map.values())
             if self._running and changed:
-                self._action_path.write_text("", encoding="utf-8")
+                # Save first, then clear the log: if the save fails the actions are still on
+                # disk and are merged again, instead of being lost with the cleared log.
                 self._save_store()
+                self._action_path.write_text("", encoding="utf-8")
         return
 
     def _load_store(self) -> CronStore | None:
@@ -533,6 +535,14 @@ class CronService:
             if self._enforce_agent_binding(job):
                 continue
             if job.enabled:
+                stored = job.state.next_run_at_ms
+                if job.schedule.kind == "every" and stored:
+                    # Restarting must not push an interval job back to now + interval: a job
+                    # whose interval is longer than the time between restarts would never run.
+                    # A still-future time is kept; one missed while the gateway was down is
+                    # due now and runs once.
+                    job.state.next_run_at_ms = stored if stored > now else now
+                    continue
                 next_run = _compute_next_run(job.schedule, now)
                 if (
                     next_run is None
@@ -750,8 +760,24 @@ class CronService:
         """Register an internal system job (idempotent on restart)."""
         store = self._require_store()
         now = _now_ms()
-        job.state = CronJobState(next_run_at_ms=_compute_next_run(job.schedule, now))
-        job.created_at_ms = now
+        existing = next((j for j in store.jobs if j.id == job.id), None)
+        if (
+            existing is not None
+            and existing.schedule.kind == job.schedule.kind
+            and existing.schedule.every_ms == job.schedule.every_ms
+            and existing.schedule.expr == job.schedule.expr
+        ):
+            # Same schedule as the stored job: keep its run history and its next run time, so
+            # a restart does not reset the clock (and a missed run is not forgotten).
+            job.state = existing.state
+            job.created_at_ms = existing.created_at_ms or now
+            if not job.state.next_run_at_ms:
+                job.state.next_run_at_ms = _compute_next_run(job.schedule, now)
+            elif job.schedule.kind == "every" and job.state.next_run_at_ms < now:
+                job.state.next_run_at_ms = now
+        else:
+            job.state = CronJobState(next_run_at_ms=_compute_next_run(job.schedule, now))
+            job.created_at_ms = now
         job.updated_at_ms = now
         store.jobs = [j for j in store.jobs if j.id != job.id]
         store.jobs.append(job)

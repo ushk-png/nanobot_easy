@@ -74,7 +74,7 @@ async def test_no_pending_state_falls_through(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_pending_state_ignores_unrelated_reply(tmp_path: Path) -> None:
+async def test_pending_state_is_closed_by_an_unrelated_reply(tmp_path: Path) -> None:
     loop = _make_loop(tmp_path)
     session = Session(key="cli:direct")
     set_pending_skill_approval(session.metadata, name="gcalcli-calendar", source="file")
@@ -83,8 +83,8 @@ async def test_pending_state_ignores_unrelated_reply(tmp_path: Path) -> None:
         _msg("what's the weather"), session, "what's the weather"
     )
     assert result is None
-    # Ambiguous replies must not clear a still-pending confirmation.
-    assert get_pending_skill_approval(session.metadata) is not None
+    # Review C12: the user moved on, so a later "yes" to another question must not approve.
+    assert get_pending_skill_approval(session.metadata) is None
 
 
 @pytest.mark.asyncio

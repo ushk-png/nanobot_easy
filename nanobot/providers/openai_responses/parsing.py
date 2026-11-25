@@ -340,6 +340,10 @@ async def _consume_events(events, on_content_delta=None, on_tool_call_delta=None
             elif event_type in {"error", "response.failed"}:
                 observe("terminal_event", event_type=event_type, status="failed")
                 detail = event.get("error") or event.get("message") or "provider_error"
+                if isinstance(detail, dict):
+                    # {"code": "server_error", "message": "..."}: keep the code so retry logic can
+                    # tell a transient failure from a rejected request (the message is not echoed).
+                    detail = detail.get("code") or detail.get("type") or "provider_error"
                 if not isinstance(detail, str) or not detail.replace("_", "").isalnum() or len(detail) > 80:
                     detail = "provider_error"
                 raise RuntimeError("Response failed: " + detail)

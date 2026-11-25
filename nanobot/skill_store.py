@@ -1603,7 +1603,14 @@ class SkillStore:
         embedding_fn: Callable[[list[str]], list[list[float]]] | None = None,
         embedding_model: str | None = None,
         embedding_dimensions: int | None = None,
+        skip_invalid: bool = False,
     ) -> ReindexResult:
+        """Rebuild the index from the skill files.
+
+        By default one invalid skill file raises (an explicit ``skill reindex`` reports it). With
+        ``skip_invalid`` that file, or a later skill reusing an id or name, is skipped with a
+        warning, so one bad SKILL.md cannot block every later index refresh.
+        """
         discovered = discover_skill_files(
             self.workspace,
             builtin_dir=builtin_dir,
@@ -1611,12 +1618,25 @@ class SkillStore:
         )
         records: list[SkillRecord] = []
         relations: list[SkillRelation] = []
+        seen_ids: set[str] = set()
+        seen_names: set[str] = set()
         for path, source, default_status in discovered:
-            record, record_relations = _skill_from_file(
-                path,
-                source=source,
-                default_status=default_status,
-            )
+            try:
+                record, record_relations = _skill_from_file(
+                    path,
+                    source=source,
+                    default_status=default_status,
+                )
+            except Exception as exc:
+                if not skip_invalid:
+                    raise
+                logger.warning("Skipping invalid skill file {}: {}", path, exc)
+                continue
+            if skip_invalid and (record.id in seen_ids or record.name in seen_names):
+                logger.warning("Skipping skill file {}: id or name '{}' is already indexed", path, record.name)
+                continue
+            seen_ids.add(record.id)
+            seen_names.add(record.name)
             records.append(record)
             relations.extend(record_relations)
         _validate_supersedes_cycles(records, relations)
@@ -1660,7 +1680,7 @@ class SkillStore:
     ) -> ReindexResult | None:
         if not self.needs_reindex(builtin_dir=builtin_dir, system_dir=system_dir):
             return None
-        return self.reindex(builtin_dir=builtin_dir, system_dir=system_dir)
+        return self.reindex(builtin_dir=builtin_dir, system_dir=system_dir, skip_invalid=True)
 
     def replace_index(self, records: list[SkillRecord], relations: list[SkillRelation]) -> None:
         now = _utc_now()

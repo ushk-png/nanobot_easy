@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import json
 import re
@@ -1158,6 +1159,17 @@ class TaskTools:
         return self.base.prepare_call(name, params)
 
 
+def _adopt_context_changes(child: contextvars.Context) -> None:
+    """Apply ContextVar values a finished child task changed to the current context."""
+    for var, value in child.items():
+        try:
+            unchanged = var.get() is value
+        except LookupError:
+            unchanged = False
+        if not unchanged:
+            var.set(value)
+
+
 async def bounded_operation(note: TaskNote, name: str, operation, *,
                             timeout=_DEFAULT_OPERATION_TIMEOUT, grace=1.0):
     """Cancel and settle the actual child; late results stay in this run's audit only."""
@@ -1166,7 +1178,11 @@ async def bounded_operation(note: TaskNote, name: str, operation, *,
                    "web_search": 25.0, "web_fetch": 25.0}.get(name, 65.0)
     record = {"name": name, "request_id": note.request_id, "state": "running"}
     note.attempts.append(record)
-    task = asyncio.create_task(operation())
+    # The child runs on a copy of this context, so a ContextVar the tool sets (for example the
+    # message tool's "already delivered in this turn") would vanish. Keep the copy so a finished
+    # operation can hand its changes back to the turn.
+    child_context = contextvars.copy_context()
+    task = asyncio.create_task(operation(), context=child_context)
 
     def late_result(done):
         record["late_result"] = "cancelled" if done.cancelled() else (
@@ -1195,6 +1211,7 @@ async def bounded_operation(note: TaskNote, name: str, operation, *,
                                     + record["cleanup"])
         result = task.result()
         record["state"] = "returned"
+        _adopt_context_changes(child_context)
         return result
     except asyncio.CancelledError:
         record["state"] = "cancelled"

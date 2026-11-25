@@ -1270,3 +1270,26 @@ def test_fts_match_query_quotes_terms_and_drops_punctuation_only_terms() -> None
     assert _fts_match_query("deploy? , ?") == '"deploy?"'
     assert _fts_match_query('say "hi"') == '"say" """hi"""'
     assert _fts_match_query("  ?  ") == '""'
+
+
+def test_automatic_index_refresh_skips_one_bad_skill_file(tmp_path: Path) -> None:
+    """Review C2-01: one broken SKILL.md blocked every later refresh (and the WebUI/skill tools)."""
+    skills = tmp_path / "skills"
+    _write_skill(skills, "good", description="A fine skill")
+    bad = skills / "bad"
+    bad.mkdir(parents=True)
+    (bad / "SKILL.md").write_text("---\nname: bad\ndescription: Bad trigger: unquoted colon\n---\n\nbody\n")
+    _write_skill(skills, "copy", description="Same name elsewhere")
+    duplicate = skills / "copy2"
+    duplicate.mkdir(parents=True)
+    (duplicate / "SKILL.md").write_text((skills / "copy" / "SKILL.md").read_text())
+
+    store = SkillStore(tmp_path)
+    with pytest.raises(ValueError):
+        store.reindex(builtin_dir=tmp_path / "empty_builtin")  # an explicit reindex still reports it
+
+    result = store.ensure_index(builtin_dir=tmp_path / "empty_builtin")
+    assert result is not None
+    names = {row["name"] for row in store.list_skills()}
+    assert {"good", "copy"} <= names
+    assert "bad" not in names

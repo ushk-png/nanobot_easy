@@ -365,7 +365,13 @@ class Session:
                 None,
             )
             if latest_user is not None:
-                retained = self.messages[latest_user: latest_user + max_messages]
+                # A single long turn: keep its opening request plus the NEWEST messages. Taking
+                # the first `max_messages` of the turn kept the early tool calls and dropped the
+                # final answer and the latest tool results.
+                tail = self.messages[latest_user + 1:][-(max_messages - 1):] if max_messages > 1 else []
+                while tail and tail[0].get("role") == "tool":
+                    tail = tail[1:]  # their tool_calls are not retained: would be orphans
+                retained = [self.messages[latest_user], *tail]
 
         # Mirror get_history(): avoid persisting orphan tool results at the front.
         start = find_legal_message_start(retained)

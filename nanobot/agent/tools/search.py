@@ -548,6 +548,7 @@ class GrepTool(_SearchTool):
             size_truncated = False
             skipped_binary = 0
             skipped_large = 0
+            skipped_unreadable = 0
             matching_files: list[str] = []
             counts: dict[str, int] = {}
             file_mtimes: dict[str, float] = {}
@@ -560,8 +561,14 @@ class GrepTool(_SearchTool):
                 if not _matches_type(file_path.name, type):
                     continue
 
-                with file_path.open("rb") as handle:
-                    raw = handle.read(self._MAX_FILE_BYTES + 1)
+                try:
+                    with file_path.open("rb") as handle:
+                        raw = handle.read(self._MAX_FILE_BYTES + 1)
+                except OSError:
+                    # One unreadable file (permissions, a file removed mid-search) must not fail
+                    # the whole search over a tree.
+                    skipped_unreadable += 1
+                    continue
                 if len(raw) > self._MAX_FILE_BYTES:
                     skipped_large += 1
                     continue
@@ -671,6 +678,8 @@ class GrepTool(_SearchTool):
                 notes.append(f"(skipped {skipped_binary} binary/unreadable files)")
             if skipped_large:
                 notes.append(f"(skipped {skipped_large} large files)")
+            if skipped_unreadable:
+                notes.append(f"(skipped {skipped_unreadable} unreadable files)")
             if output_mode == "count" and counts:
                 notes.append(
                     f"(total matches: {sum(counts.values())} in {len(counts)} files)"

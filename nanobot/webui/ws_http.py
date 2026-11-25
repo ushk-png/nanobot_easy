@@ -1378,6 +1378,9 @@ def _parse_automation_schedule(values: dict[str, Any]) -> CronSchedule | str:
         every_ms = _positive_int(values.get("every_ms"))
         if every_ms is None:
             return "every schedule requires positive every_ms"
+        if every_ms < _MIN_EVERY_MS:
+            # Every run is a model turn: a typo such as 1 ms would burn requests and money.
+            return f"every schedule must be at least {_MIN_EVERY_MS // 1000} seconds"
         return CronSchedule(kind="every", every_ms=every_ms)
     if kind == "cron":
         raw_expr = values.get("expr")
@@ -1435,6 +1438,8 @@ def _validate_automation_schedule(schedule: CronSchedule) -> str | None:
         return "cron schedule is invalid"
     return None
 
+
+_MIN_EVERY_MS = 60_000  # smallest automation interval accepted from the WebUI
 
 def _positive_int(value: Any) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):

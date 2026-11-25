@@ -12,6 +12,7 @@ from nanobot.agent.tools.path_utils import resolve_workspace_path
 from nanobot.agent.tools.schema import ArraySchema, StringSchema, tool_parameters_schema
 from nanobot.bus.events import OutboundMessage
 from nanobot.config.paths import get_workspace_path
+from nanobot.security.secrets import require_public_path
 from nanobot.security.workspace_access import current_tool_workspace
 
 
@@ -183,7 +184,11 @@ class MessageTool(Tool, ContextAware):
                 resolved.append(p)
             elif not access.restrict_to_workspace:
                 path = Path(p).expanduser()
-                resolved.append(p if path.is_absolute() else str(workspace / path))
+                target = path if path.is_absolute() else workspace / path
+                # The same credential rule read_file applies; without it a prompt-injected
+                # message could attach ~/.ssh/id_rsa to any chat even with no workspace limit.
+                require_public_path(target)
+                resolved.append(p if path.is_absolute() else str(target))
             else:
                 resolved.append(str(resolve_workspace_path(p, workspace, access.allowed_root)))
         return resolved

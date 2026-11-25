@@ -1975,12 +1975,18 @@ def save_agent_profile(query: QueryParams) -> dict[str, Any]:
     if not original_name and name in defaults.subagent_profiles:
         raise WebUISettingsError("an agent with this name already exists")
 
-    profile = SubagentProfile(
-        description=requirements,
-        when_to_use=[requirements],
-        tools=list(_DEFAULT_AGENT_PROFILE_TOOLS),  # safe read-only default; adjust in Advanced
-        can_spawn=False,
-    )
+    existing = defaults.subagent_profiles.get(original_name) if original_name else None
+    if existing is not None:
+        # Editing from the simple form changes only what the form shows. Tools, skills, model,
+        # iteration limits and can_spawn set under Advanced used to be reset to the defaults.
+        profile = existing.model_copy(update={"description": requirements, "when_to_use": [requirements]})
+    else:
+        profile = SubagentProfile(
+            description=requirements,
+            when_to_use=[requirements],
+            tools=list(_DEFAULT_AGENT_PROFILE_TOOLS),  # safe read-only default; adjust in Advanced
+            can_spawn=False,
+        )
 
     if original_name and original_name in defaults.subagent_profiles:
         del defaults.subagent_profiles[original_name]

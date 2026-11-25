@@ -14,7 +14,7 @@ _SECRET_NAMES = {"auth.json", "oauth.json", "credentials", "credentials.json", "
 _SECRET_FIELDS = re.compile(r"token|secret|password|api.?key|^access$|^refresh$", re.I)
 _VALUES: set[str] = set()
 _PATTERNS = (
-    (re.compile(r"\b\d{6,}:[A-Za-z0-9_-]{20,}\b"), "[REDACTED]"),
+    (re.compile(r"(?<![0-9])\d{6,}:[A-Za-z0-9_-]{20,}\b"), "[REDACTED]"),  # also inside /bot<token>/
     (re.compile(r"\b(?:sk-|gh[pousr]_|github_pat_)[A-Za-z0-9_-]{16,}\b"), "[REDACTED]"),
     (re.compile(r"(?i)(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*"), r"\1[REDACTED]"),
     (re.compile(r"(?i)([?&](?:token|api[_-]?key|secret|access_token|refresh_token)=)[^&\s\"'<>]+"), r"\1[REDACTED]"),

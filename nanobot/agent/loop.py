@@ -2043,6 +2043,11 @@ class AgentLoop:
             return None
         reply = parse_confirmation_reply(raw)
         if reply is None:
+            if raw and msg.sender_id != "subagent" and msg.channel not in {"system", "subagent"}:
+                # The user answered something else: the question is no longer open. Left pending,
+                # a later "yes" to an unrelated question would register the skill.
+                clear_pending_skill_approval(session.metadata)
+                self.sessions.save(session)
             return None
         name = str(pending.get("name") or "")
         clear_pending_skill_approval(session.metadata)

@@ -1131,10 +1131,17 @@ class TelegramChannel(BaseChannel):
                 buf.last_edit = now
             except Exception as e:
                 self.logger.warning("Stream initial send failed: {}", e)
+                self._undo_stream_delta(buf, delta)
                 raise  # Let ChannelManager handle retry
         elif (now - buf.last_edit) >= self.config.stream_edit_interval:
             if len(buf.text) > TELEGRAM_MAX_MESSAGE_LEN:
-                await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+                message_before = buf.message_id
+                try:
+                    await self._flush_stream_overflow(int_chat_id, buf, thread_kwargs)
+                except Exception:
+                    if buf.message_id == message_before:  # no new message was started
+                        self._undo_stream_delta(buf, delta)
+                    raise
                 buf.last_edit = now
                 return
             preview = _strip_md_block(buf.text)
@@ -1150,7 +1157,18 @@ class TelegramChannel(BaseChannel):
                     buf.last_edit = now
                     return
                 self.logger.warning("Stream edit failed: {}", e)
+                self._undo_stream_delta(buf, delta)
                 raise  # Let ChannelManager handle retry
+
+    @staticmethod
+    def _undo_stream_delta(buf: "_StreamBuf", delta: str) -> None:
+        """Take a failed delta back out of the buffer.
+
+        The delta is appended before the network call. When the call fails, the channel manager
+        sends the same delta again, so leaving it in the buffer would show it twice.
+        """
+        if delta and buf.text.endswith(delta):
+            buf.text = buf.text[: len(buf.text) - len(delta)]
 
     async def _flush_stream_overflow(
         self,

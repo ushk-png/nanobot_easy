@@ -707,6 +707,12 @@ class AgentRunner:
                         messages_for_model
                     )
                 except Exception:
+                    # Falling back to the unrepaired history can send the model an illegal
+                    # message order; say so instead of failing quietly.
+                    logger.warning(
+                        "Context repair failed for session={} iteration={}; sending history unrepaired",
+                        spec.session_key or "-", iteration, exc_info=True,
+                    )
                     messages_for_model = messages
             # Optional hints describe the model copy *after* every governance/repair path.
             from nanobot.session.user_scope_messages import finalize_quotes
@@ -799,7 +805,9 @@ class AgentRunner:
                 await hook.before_execute_tools(context)
                 pending_before_tools = []
                 if spec.task_state is not None or spec.selected_context:
-                    pending_before_tools = await self._drain_injections(spec, wait=not bool(spec.selected_context))
+                    # Only a check for a newer user message: never park the turn here until a
+                    # running sub-agent reports (the loop would wait up to 300 s per tool batch).
+                    pending_before_tools = await self._drain_injections(spec, wait=False)
                 if pending_before_tools:
                     # Complete the old tool protocol without executing a now-stale action.
                     results = ["Superseded by a new user instruction; reinterpret before execution."
@@ -1815,7 +1823,7 @@ class AgentRunner:
         tool_results: list[tuple[Any, dict[str, str], BaseException | None]] = []
         for batch in batches:
             if spec.task_state is not None:
-                followups = await self._drain_injections(spec)
+                followups = await self._drain_injections(spec, wait=False)
                 spec.task_state.pending_messages.extend(followups)
                 if spec.task_state.pending_messages:
                     tool_results.extend((
@@ -2070,7 +2078,8 @@ class AgentRunner:
             execution = getattr(result, "execution_evidence", None)
             if spec.selected_context and isinstance(execution, dict):
                 execution["checked_versions"] = checked_versions
-        except asyncio.CancelledError:
+        except (asyncio.CancelledError, KeyboardInterrupt, SystemExit):
+            # A tool must not turn "the process is shutting down" into an ordinary tool error.
             raise
         except BaseException as exc:
             if file_edit_trackers and progress_callback is not None:

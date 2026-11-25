@@ -319,7 +319,7 @@ class ExecTool(Tool):
             is_codewhale_agent_command,
         )
 
-        detach_codewhale = is_codewhale_agent_command(command)
+        detach_codewhale = is_codewhale_agent_command(command, standalone=True)
         if detach_codewhale:
             # The model-supplied timeout is capped at 600s and then kills the
             # process. A coding run must outlive that cap.
