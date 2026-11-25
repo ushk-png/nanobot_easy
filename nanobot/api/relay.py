@@ -299,6 +299,11 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
             if text:
                 await queue.put(_sse(_content_chunk(text, chunk_id=chunk_id, model=snapshot.model)))
 
+        async def on_thinking_delta(_text: str) -> None:
+            # A reasoning model streams thinking summaries for minutes before its first
+            # answer token. That is progress, not silence; the text itself is not forwarded.
+            mark_progress()
+
         seen_tool_argument_fragments: set[str] = set()
         tool_call_indexes: dict[str, int] = {}
 
@@ -334,6 +339,7 @@ async def handle_chat_completions(request: web.Request) -> web.StreamResponse:
                     tool_choice=tool_choice,
                     retry_mode=retry_mode,
                     on_content_delta=on_content_delta,
+                    on_thinking_delta=on_thinking_delta,
                     on_tool_call_delta=on_tool_call_delta,
                 )
                 await queue.put(_sse(_final_chunk(

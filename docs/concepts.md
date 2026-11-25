@@ -179,6 +179,12 @@ registers system jobs:
 - `dream`, when `agents.defaults.dream.enabled` is true;
 - `heartbeat`, when `gateway.heartbeat.enabled` is true.
 
+A long command started with `exec background=true` (and a `codewhale` coding run) keeps
+running after the turn that started it ends. When it finishes, fails or hits its time limit
+on its own, the agent that started it is woken with a short notice and reports the outcome
+to the same chat, so you do not have to ask. A job the agent itself kills sends no notice.
+See [Background Jobs and Coding Runs](./architecture.md#background-jobs-and-coding-runs).
+
 Heartbeat reads `<workspace>/HEARTBEAT.md`. If the file has tasks under `## Active Tasks`, nanobot executes them and sends only useful/actionable results to the most recently active chat target. Routine "nothing changed" results are suppressed.
 
 User-created reminders use the same cron service but are not the same as the

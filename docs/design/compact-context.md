@@ -2,7 +2,8 @@
 
 The legacy path sends execution tutorials, always-loaded built-in skill bodies,
 and tool schemas even when the model only needs to answer `2+2`.
-`agents.defaults.compactContext` offers an opt-in alternative:
+`agents.defaults.compactContext` selects the alternative described here. It is on by default
+since 2026-11-22 (`13b048de2`); the legacy path remains available with `false`:
 
 ```json
 {
@@ -14,8 +15,8 @@ and tool schemas even when the model only needs to answer `2+2`.
 }
 ```
 
-Restart the selected gateway after changing this setting. Default is `false`;
-existing installations retain their current behavior until explicitly enabled.
+Restart the selected gateway after changing this setting. The default is `true`.
+An installation that wants the previous behavior sets `"compactContext": false`.
 
 Ordinary turns start with a compact system prompt and one `activate_tools` tool.
 The model answers self-contained requests directly. For tool work it calls
@@ -27,8 +28,13 @@ activation tool stays available to add more tools during this turn. Selections
 are additive and cannot remove a tool already loaded. Omitting `tool_names`
 loads the full original registry for compatibility or uncertain discovery.
 Activation alone never counts as execution.
-Tool-result truncation cannot remove the restored instructions. Activation state
-is local to one turn, and full instructions are not copied into tool history.
+Tool-result truncation cannot remove the restored instructions. The names a turn
+activated are saved in the session metadata and seed the next turn's tool set, so the
+system message is composed before the first provider call and does not change mid-turn
+(a mid-turn change would break the provider's prompt cache). A turn that activated
+nothing leaves the earlier seed untouched, and an explicit `tool_names` call narrows
+even a session seeded with the full registry. Full instructions are not copied into
+tool history.
 Unloaded tools cannot execute through this view; calls must first activate them.
 Selected schemas and execution paths still come from the original registry,
 including intent validation, workspace restrictions and permission checks.

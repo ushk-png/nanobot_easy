@@ -127,6 +127,8 @@ Important files:
 | Tool base and schema | `nanobot/agent/tools/base.py`, `nanobot/agent/tools/schema.py` |
 | Discovery | `nanobot/agent/tools/registry.py` |
 | Shell execution | `nanobot/agent/tools/shell.py` |
+| Detached background jobs | `nanobot/agent/tools/exec_job.py` |
+| Coding runs (opt-in) | `nanobot/agent/tools/codewhale.py` |
 | Filesystem tools | `nanobot/agent/tools/filesystem.py` |
 | Web search/fetch | `nanobot/agent/tools/web.py` |
 | MCP tools | `nanobot/agent/tools/mcp.py` |
@@ -137,6 +139,37 @@ Important files:
 | Runtime self-inspection | `nanobot/agent/tools/self.py` |
 
 Tool behavior is part of the model contract. Keep user-visible tool names, schemas, and error messages stable unless a change is intentional.
+
+A new built-in tool also needs entries in `nanobot/agent/tool_guidance.py` (`TOOL_GROUPS` and `SECTION_GROUPS`), or the compact prompt falls back to loading all guidance for any turn that uses it. Tools that change state belong in `INTENT_METADATA_REQUIRED_TOOLS` (or the conditional set) in `registry.py`, in `tool_action()` in `agent/context_control.py`, and, when they execute code, in the blocklists in `agent/tools/loader.py`.
+
+## Background Jobs and Coding Runs
+
+`exec` with `background=true` and the `codewhale` tool start a detached process that
+outlives the turn. `ExecJobManager` in `exec_job.py` records the job, its log under
+`<workspace>/.nanobot/exec-jobs/`, and the chat that started it (`ExecJob.origin`, taken
+from the request context).
+
+```mermaid
+flowchart LR
+    Turn["Turn: exec background=true<br/>or codewhale run"] --> Job["ExecJobManager<br/>detached process + log"]
+    Turn -. ends .-> Idle["Turn over"]
+    Job -->|exits, fails, or times out<br/>not killed by the model| Notice["exec_job_notice()<br/>InboundMessage channel=system<br/>injected_event=subagent_result"]
+    Notice --> Bus["MessageBus"]
+    Bus -->|a turn is running| Running["Delivered into that turn"]
+    Bus -->|no turn| NewTurn["New turn reports the outcome<br/>to the origin chat"]
+```
+
+The notice reuses the sub-agent result path, so a repeated `exec-job-<id>` is recorded
+once. A job with no request context (for example one started by a CLI script) sends no
+notice. `exec_job status` still works for polling. When a job log shows the run was denied
+permission, the notice and `codewhale status` say the work was not done even if the exit
+code is 0.
+
+`codewhale` is off by default (`tools.codewhale.enable=false`) and is registered per
+instance. It runs `codewhale exec --auto` detached; see
+[`configuration.md#codewhale-tool`](./configuration.md#codewhale-tool). The model-facing
+guidance in `templates/agent/tool_contract.md` prefers it for code edits only when the tool
+is registered.
 
 ## Skills
 
@@ -207,6 +240,32 @@ Session history is the near-term conversation replay. Memory is the longer-term 
 
 Dream is implemented in `nanobot/agent/memory.py` and scheduled by the runtime when enabled.
 
+Consolidation and compaction never mark text as processed unless it was summarized:
+
+- token-triggered and replay-window consolidation summarize up to the largest user-turn
+  boundary that fits the input budget and advance the cursor only that far;
+- replay overflow is judged in real tokens, the same way `Session.get_history()` trims;
+- `history.jsonl` compaction keeps the recent window and anything the Dream cursor has not
+  passed, so an unprocessed backlog may exceed `max_history_entries`;
+- history is cut only at a real turn start (`session/history_visibility.py ::
+  is_turn_start_message`), never at the hidden task-control message stored after a request.
+
+## Prompt Weight
+
+The default prompt is kept small (`agents.defaults.compactContext=true`,
+`memoryPromptTokens=5000`, `memoryPromptAutoRefresh=true`):
+
+| Piece | Files | Behavior |
+|---|---|---|
+| Deferred tools | `agent/compact_context.py` | Execution tutorials and tool schemas load on `activate_tools`; the names a turn activated seed the next turn so the system message does not change mid-turn |
+| Tool-group guidance | `agent/tool_guidance.py` | Only the guidance of the selected built-in tool groups is composed; an unclassified tool loads everything |
+| Bounded memory summary | `agent/memory_prompt.py`, `agent/memory_prompt_refresh.py` | A reviewed summary of `MEMORY.md` replaces the raw file; a missing, damaged or over-budget snapshot falls back to the raw file with a warning |
+| Usage measurement | `providers/usage_ledger.py` | One content-free line per provider attempt; `NANOBOT_DEBUG_CACHE_FINGERPRINT=1` adds structural hashes for cache-miss diagnosis |
+
+Details and tradeoffs: [`design/compact-context.md`](./design/compact-context.md),
+[`design/selective-memory.md`](./design/selective-memory.md),
+[`design/memory-archive.md`](./design/memory-archive.md).
+
 The conversation event store and memory search live in `nanobot/memory/`
 (`event_store.py`, `search.py`, `task_context.py`). `privacy.py` provides
 explicit forget/purge operations; no automatic redaction of sensitive content at
@@ -225,6 +284,34 @@ schema defaults, and a local instance's settings are not product defaults.
 | Stepwise reasoning | `nanobot/reasoning/` | `stepwise.enabled=false`; applied per agent with `nanobot stepwise apply`; per-run defaults 120 s and 8 model calls |
 | Retrieval evidence packets | `nanobot/evidence/`, `agent/tools/web.py` | `tools.web.evidence.enabled=false`; packets rank candidates and never verify claims |
 | Durable workflow | `nanobot/workflow/`, `agent/tools/workflow.py` | `tools.workflow.enabled=false` |
+| Codewhale coding runs | `agent/tools/codewhale.py` | `tools.codewhale.enable=false`; needs a Codewhale binary and, usually, an LLM relay client |
+
+The prompt-weight settings above are different: they are on by default, and a local
+instance can turn them off.
+
+## Gateway Runtime and Restart
+
+A background gateway is tracked by a state file under `<config dir>/run/` (one per
+config and workspace) with its PID, a process start identity, port and command
+(`nanobot/gateway/runtime.py`). The identity is compared instead of the PID alone; a state
+whose identity cannot be verified shows as `identity_unverified` and is never started,
+stopped or restarted automatically. Details:
+[`design/gateway-runtime-identity.md`](./design/gateway-runtime-identity.md).
+
+`nanobot up`, `down` and `restart` (`nanobot/cli/up.py`) are the launcher commands. A
+restart:
+
+1. refuses to run inline from inside the gateway's own process tree and instead schedules a
+   detached restart a few seconds later (the running turn is cancelled and does not resume);
+2. checks, before stopping anything, that the new gateway can start: the port it will use is
+   free or held by the gateway being restarted, and the config loads in the current
+   environment (an unset `${VAR}` aborts the restart);
+3. stops the gateway and starts it again **on the port the old one was using**, not on the
+   config's `gateway.port`, because several instance configs share that value and take their
+   real port from `--port`.
+
+The restart-only environment variables (`NANOBOT_ALLOW_SELF_STOP`,
+`NANOBOT_DETACHED_RESTART`) are never passed to the new gateway.
 
 ## Pinned Runtime
 
